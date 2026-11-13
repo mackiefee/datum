@@ -3,7 +3,7 @@ import { ls } from '../utils/storage.js';
 const SESSION_KEY = 'kb2-auth-session';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://knxyslvecmjhvlgapoyl.supabase.co';
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_XQFm2PK27ZDiEMOz3BQe7A_7KuqHNnt';
-const ALLOWED_DOMAINS = (process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS || 'planit.studio,gmail.com')
+const ALLOWED_DOMAINS = (process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS || 'planit.studio,planit-inc.com,gmail.com')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);

@@ -689,6 +689,7 @@ CREATE TABLE IF NOT EXISTS public.allowed_domains (
 INSERT INTO public.allowed_domains (domain, default_role, enforce_verified)
 VALUES
   ('planit.studio', 'member', true),
+  ('planit-inc.com', 'member', true),
   ('gmail.com', 'member', true)
 ON CONFLICT (domain) DO NOTHING;
 
@@ -813,7 +814,7 @@ BEGIN
     v_sub,
     v_verified,
     v_hd,
-    CASE WHEN v_email IN ('maxim@planit.studio', 'mr.m.fedorenko@gmail.com') THEN 'super_admin'::user_role ELSE COALESCE(v_dom.default_role, 'member'::user_role) END,
+    CASE WHEN v_email IN ('maxim@planit.studio', 'mr.m.fedorenko@gmail.com', 'maf@planit-inc.com') THEN 'super_admin'::user_role ELSE COALESCE(v_dom.default_role, 'member'::user_role) END,
     'active',
     now(),
     now()
