@@ -48,12 +48,27 @@ export function clearStoredSession() {
   ls.set(SESSION_KEY, null);
 }
 
-export function startSupabaseGoogleOAuth() {
-  if (!hasSupabaseAuth || typeof window === 'undefined') return false;
+export async function startSupabaseGoogleOAuth() {
+  if (!hasSupabaseAuth || typeof window === 'undefined') {
+    return { redirected: false, reason: 'not_configured' };
+  }
+  try {
+    const check = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
+      headers: { apikey: SUPABASE_ANON },
+    });
+    if (check.ok) {
+      const cfg = await check.json();
+      if (!cfg?.external?.google) {
+        return { redirected: false, reason: 'google_provider_disabled' };
+      }
+    }
+  } catch (e) {
+    return { redirected: false, reason: 'network_error' };
+  }
   const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
   const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}&access_type=offline&prompt=select_account`;
   window.location.href = url;
-  return true;
+  return { redirected: true };
 }
 
 export async function consumeSupabaseOAuthHash() {

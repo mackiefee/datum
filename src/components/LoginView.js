@@ -24,6 +24,7 @@ export function LoginView({ users = [], onSignedIn }) {
   const [enforceDomain, setEnforceDomain] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [oauthNotice, setOauthNotice] = useState("");
   const [custom, setCustom] = useState({
     name: "",
     email: "",
@@ -98,14 +99,20 @@ export function LoginView({ users = [], onSignedIn }) {
           type="button"
           className="gg-btn"
           disabled=${busy}
-          onClick=${() => {
+          onClick=${async () => {
             setErr("");
+            setOauthNotice("");
             if (hasSupabaseAuth) {
-              startSupabaseGoogleOAuth();
-            } else {
-              setChooser(true);
-              setCustomMode(false);
+              setBusy(true);
+              const out = await startSupabaseGoogleOAuth();
+              setBusy(false);
+              if (out && out.redirected) return;
+              if (out && out.reason === "google_provider_disabled") {
+                setOauthNotice("Supabase is connected. Enable Google Provider in Supabase Auth to use live OAuth redirect; using workspace chooser meanwhile.");
+              }
             }
+            setChooser(true);
+            setCustomMode(false);
           }}
         >
           <${GoogleMark} />
@@ -167,6 +174,14 @@ export function LoginView({ users = [], onSignedIn }) {
         html`<div className="lgn-err" style=${{ margin: "0 0 12px" }} role="alert">
           <${Ic} n="shield" s=${16} />
           <span>${err}</span>
+        </div>`}
+
+        ${oauthNotice &&
+        html`<div className="lgn-sec" style=${{ margin: "0 0 12px", padding: "10px 12px", fontSize: 12 }}>
+          <div className="lgn-sec-row">
+            <${Ic} n="globe" s=${14} />
+            <span>${oauthNotice}</span>
+          </div>
         </div>`}
 
         <button

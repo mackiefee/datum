@@ -26,15 +26,19 @@ export const db = {
     }
   },
 
-  async rpc(fnName, params) {
+  async rpc(fnName, params, userJwt) {
     if (!isSupabaseConfigured) return null;
+    const headers = {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_ANON,
+    };
+    const bearer = userJwt || (SUPABASE_ANON.startsWith('eyJ') ? SUPABASE_ANON : '');
+    if (bearer) {
+      headers.Authorization = `Bearer ${bearer}`;
+    }
     const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fnName}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_ANON,
-        Authorization: `Bearer ${SUPABASE_ANON}`,
-      },
+      headers,
       body: JSON.stringify(params),
     });
     if (!res.ok) throw new Error(`Supabase RPC error: ${res.status}`);
