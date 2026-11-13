@@ -63,8 +63,13 @@ export function Pal(p) {
   ];
 
   useEffect(() => {
-    ref.current.focus();
-  }, []);
+    if (p.open) {
+      if (p.catalogQ && !q) setQ(p.catalogQ);
+      ref.current && ref.current.focus();
+    } else {
+      ref.current && ref.current.blur();
+    }
+  }, [p.open]);
   useEffect(() => {
     setI(0);
   }, [q]);
@@ -75,6 +80,13 @@ export function Pal(p) {
   };
 
   const key = (e) => {
+    if (!p.open) {
+      if (e.key === "Enter" || e.key === "ArrowDown") {
+        e.preventDefault();
+        p.onOpen && p.onOpen();
+      }
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setI((x) => Math.min(x + 1, it.length - 1));
@@ -84,34 +96,103 @@ export function Pal(p) {
     } else if (e.key === "Enter") {
       if (s && p.onLogSearch) p.onLogSearch(q.trim(), arts.length);
       it[i] && it[i].run();
-    } else if (e.key === "Escape") p.close();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      p.close && p.close();
+    }
   };
 
-  return html`<div>
-    <div className="ov" style=${{ background: "rgba(0,0,0,.22)", zIndex: 75 }} onClick=${p.close}></div>
-    <div className="pal" role="dialog" aria-modal="true">
-      <div className="pq">
-        <${Ic} n="search" s=${20} />
-        <input ref=${ref} value=${q} onChange=${(e) => setQ(e.target.value)} onKeyDown=${key} placeholder="Search documents, resources, collections & actions" />
-        <kbd>Esc</kbd>
+  return html`<div className=${"sw" + (p.open ? " open" : "")}>
+    <div
+      className=${"sw-ov" + (p.open ? " on" : "")}
+      onClick=${p.close}
+      aria-hidden="true"
+    ></div>
+    <div
+      className="sw-morph"
+      role=${p.open ? "dialog" : "search"}
+      aria-expanded=${p.open}
+      aria-modal=${p.open ? "true" : undefined}
+    >
+      <div
+        className="sw-head"
+        onClick=${() => {
+          if (!p.open && p.onOpen) p.onOpen();
+        }}
+      >
+        <span className="sw-ico"><${Ic} n="search" s=${16} /></span>
+        <input
+          ref=${ref}
+          value=${p.open ? q : p.catalogQ || q}
+          onFocus=${() => {
+            if (!p.open && p.onOpen) p.onOpen();
+          }}
+          onChange=${(e) => {
+            if (!p.open && p.onOpen) p.onOpen();
+            setQ(e.target.value);
+          }}
+          onKeyDown=${key}
+          placeholder=${p.open ? "Search documents, resources, collections & actions…" : "Search docs, resources, tags…"}
+          aria-label="Search"
+        />
+        ${!p.open && (p.catalogQ || q)
+          ? html`<button
+              type="button"
+              className="sw-clr"
+              onClick=${(e) => {
+                e.stopPropagation();
+                setQ("");
+                p.onClearCatalogQ && p.onClearCatalogQ();
+              }}
+              title="Clear search"
+              aria-label="Clear search"
+            >×</button>`
+          : p.open && q
+          ? html`<button
+              type="button"
+              className="sw-clr"
+              onClick=${(e) => {
+                e.stopPropagation();
+                setQ("");
+                ref.current && ref.current.focus();
+              }}
+              title="Clear query"
+              aria-label="Clear query"
+            >×</button>`
+          : null}
+        <kbd
+          onClick=${(e) => {
+            if (p.open) {
+              e.stopPropagation();
+              p.close && p.close();
+            }
+          }}
+          style=${{ cursor: p.open ? "pointer" : "default" }}
+        >${p.open ? "Esc" : p.kb || "Ctrl K"}</kbd>
       </div>
-      <div className="pl2">
-        ${it.map(
-          (x, k) => html`<button
-            key=${k}
-            className=${"pi" + (k === i ? " on" : "")}
-            onMouseMove=${() => setI(k)}
-            onClick=${() => {
-              if (s && p.onLogSearch) p.onLogSearch(q.trim(), arts.length);
-              x.run();
-            }}
-          >
-            <span className="tile" style=${{ "--c": x.c || "#8e8e93" }}><${Ic} n=${x.n} s=${14} /></span>
-            <span className="pt"><b>${HL(x.t)}</b><small>${x.d}</small></span>
-          </button>`
-        )}
+      <div className="sw-body" aria-hidden=${!p.open}>
+        <div className="sw-body-in">
+          <div className="pl2">
+            ${it.map(
+              (x, k) => html`<button
+                key=${k}
+                type="button"
+                tabIndex=${p.open ? 0 : -1}
+                className=${"pi" + (k === i ? " on" : "")}
+                onMouseMove=${() => setI(k)}
+                onClick=${() => {
+                  if (s && p.onLogSearch) p.onLogSearch(q.trim(), arts.length);
+                  x.run();
+                }}
+              >
+                <span className="tile" style=${{ "--c": x.c || "#8e8e93" }}><${Ic} n=${x.n} s=${14} /></span>
+                <span className="pt"><b>${HL(x.t)}</b><small>${x.d}</small></span>
+              </button>`
+            )}
+          </div>
+          <div className="pf"><span>↑↓ select</span><span>↵ open</span><span>esc close</span></div>
+        </div>
       </div>
-      <div className="pf"><span>↑↓ select</span><span>↵ open</span></div>
     </div>
   </div>`;
 }

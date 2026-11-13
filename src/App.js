@@ -82,7 +82,6 @@ export function App() {
   const [catFilter, setCatFilter] = useState("all");
   const [open, setOpen] = useState(["vdc", "str"]);
   const [q, setQ] = useState("");
-  const [foc, setFoc] = useState(false);
   const [f, setF] = useState({});
   const [sel, setSel] = useState(null);
   const [ai, setAi] = useState(false);
@@ -221,7 +220,6 @@ export function App() {
     });
   }, [sessionClaims, matchedUser, sessionEmail, activeUserId]);
 
-  const inp = useRef(null);
   const dxr = useRef(null);
   const [sc, setSc] = useState(false);
 
@@ -975,81 +973,118 @@ export function App() {
     </aside>
 
     <div className="main">
-      <div className=${"bar" + (sc ? " sc" : "")}>
-        <button className="ib menu" aria-label="Menu" onClick=${() => setNav(true)}>${html`<${Ic} n="menu" s=${18} />`}</button>
-        <div className="sw">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-            <circle cx="11" cy="11" r="7" />
-            <path d="M20 20l-4-4" />
-          </svg>
-          <input
-            ref=${inp}
-            value=${q}
-            onChange=${(e) => {
-              setQ(e.target.value);
-              setRead(null);
-              if (!["lib", "kb", "reslib"].includes(view)) setView("lib");
-            }}
-            onFocus=${(e) => {
-              e.target.blur();
-              setPal(true);
-            }}
-            onBlur=${() => setTimeout(() => setFoc(false), 150)}
-            placeholder="Search documents, resources, tags, owners"
-            aria-label="Search"
-          />
-          ${!foc && !q && html`<kbd>${KB}</kbd>`}
+      <div className=${"bar" + (sc ? " sc" : "") + (pal ? " pal-open" : "")}>
+        <div className="bar-l">
+          <button className="ib menu" aria-label="Menu" onClick=${() => setNav(true)}>${html`<${Ic} n="menu" s=${18} />`}</button>
+          <nav className="bar-crumb" aria-label="Breadcrumb">
+            <button
+              type="button"
+              className="bar-crumb-btn"
+              onClick=${() => {
+                if (edt) setEdt(null);
+                else if (rr) setRead(null);
+                else goHome();
+              }}
+            >
+              Datum
+            </button>
+            ${edt
+              ? html`<span className="bar-crumb-sep">/</span>
+                  <button type="button" className="bar-crumb-btn" onClick=${() => setEdt(null)}>
+                    ${edt.id ? "Edit Document" : "New Draft"}
+                  </button>
+                  <span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-cur">${edt.title || "Untitled"}</span>`
+              : rr
+              ? html`<span className="bar-crumb-sep">/</span>
+                  <button
+                    type="button"
+                    className="bar-crumb-btn"
+                    onClick=${() => {
+                      setRead(null);
+                      if (rr.node) go(rr.node);
+                    }}
+                  >
+                    ${(byId(rr.node, tree) && byId(rr.node, tree).name) || pageTitle}
+                  </button>
+                  <span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-cur">${rr.title}</span>`
+              : curCat && curCat.path && curCat.path.length > 1
+              ? html`<span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-btn" style=${{ pointerEvents: "none" }}>${curCat.path[0]}</span>
+                  <span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-cur">${pageTitle}</span>`
+              : html`<span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-cur">${pageTitle}</span>`}
+          </nav>
         </div>
 
-        ${can.createDraft(role) &&
-        html`<button
-          className="btn p cr"
-          title="Create Document or Resource"
-          onClick=${() => setEdt({})}
-        >
-          <${Ic} n="plus" s=${16} /><span>Create</span>
-        </button>
-
-        <input
-          ref=${dxr}
-          type="file"
-          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          hidden
-          onChange=${async (e) => {
-            const file = e.target.files[0];
-            e.target.value = "";
-            if (!file) return;
-            if (!/\.docx$/i.test(file.name)) {
-              flash("A .docx file is required");
-              return;
-            }
-            flash("Importing “" + file.name + "”…");
-            try {
-              const r = await docxImport(file);
-              setImgs((o) => ({ ...o, ...r.imgs }));
-              setEdt({ title: r.title, desc: r.desc, body: r.body, k: Date.now() });
-              flash("Document imported — review and save");
-              db.uploadImagesMap(r.imgs).then((uploaded) => {
-                if (uploaded && Object.keys(uploaded).length) {
-                  setImgs((o) => ({ ...o, ...uploaded }));
-                }
-              });
-            } catch (x) {
-              flash("Could not read the .docx");
-            }
-          }}
+        <${Pal}
+          open=${pal}
+          onOpen=${() => setPal(true)}
+          close=${() => setPal(false)}
+          catalogQ=${q}
+          onClearCatalogQ=${() => setQ("")}
+          kb=${KB}
+          res=${visibleRes}
+          tree=${tree}
+          role=${role}
+          recentSearches=${recentSearches}
+          onLogSearch=${logSearch}
+          act=${pa}
         />
-        <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current.click()}>
-          ${html`<${Ic} n="doc" s=${18} />`}
-        </button>`}
-        ${!isGuest &&
-        html`<button className="ib" title="Edge AI assistant" aria-label="AI assistant" onClick=${() => setAi(true)}>
-          ${html`<${Ic} n="spark" s=${18} />`}
-        </button>`}
-        ${!isGuest &&
-        html`<button className="ib" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
-          ${html`<${Ic} n="bell" s=${18} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
-        </button>`}
+
+        <div className="bar-r">
+          ${can.createDraft(role) &&
+          html`<button
+            className="btn p cr"
+            title="Create Document or Resource"
+            onClick=${() => setEdt({})}
+          >
+            <${Ic} n="plus" s=${16} /><span>Create</span>
+          </button>
+
+          <input
+            ref=${dxr}
+            type="file"
+            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            hidden
+            onChange=${async (e) => {
+              const file = e.target.files[0];
+              e.target.value = "";
+              if (!file) return;
+              if (!/\.docx$/i.test(file.name)) {
+                flash("A .docx file is required");
+                return;
+              }
+              flash("Importing “" + file.name + "”…");
+              try {
+                const r = await docxImport(file);
+                setImgs((o) => ({ ...o, ...r.imgs }));
+                setEdt({ title: r.title, desc: r.desc, body: r.body, k: Date.now() });
+                flash("Document imported — review and save");
+                db.uploadImagesMap(r.imgs).then((uploaded) => {
+                  if (uploaded && Object.keys(uploaded).length) {
+                    setImgs((o) => ({ ...o, ...uploaded }));
+                  }
+                });
+              } catch (x) {
+                flash("Could not read the .docx");
+              }
+            }}
+          />
+          <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current.click()}>
+            ${html`<${Ic} n="doc" s=${18} />`}
+          </button>`}
+          ${!isGuest &&
+          html`<button className="ib" title="Edge AI assistant" aria-label="AI assistant" onClick=${() => setAi(true)}>
+            ${html`<${Ic} n="spark" s=${18} />`}
+          </button>`}
+          ${!isGuest &&
+          html`<button className="ib" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
+            ${html`<${Ic} n="bell" s=${18} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
+          </button>`}
+        </div>
       </div>
 
       ${edt &&
@@ -1415,17 +1450,6 @@ export function App() {
       close=${() => setBid(null)}
       openRes=${fromBoard}
       flash=${flash}
-    />`}
-
-    ${pal &&
-    html`<${Pal}
-      res=${visibleRes}
-      tree=${tree}
-      role=${role}
-      recentSearches=${recentSearches}
-      onLogSearch=${logSearch}
-      close=${() => setPal(false)}
-      act=${pa}
     />`}
 
     ${pubTarget &&
