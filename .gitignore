@@ -1,0 +1,15 @@
+node_modules/
+.next/
+out/
+.vercel/
+.DS_Store
+*.tsbuildinfo
+
+# Local environment secrets (keep .env.example tracked)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Supabase CLI temp files
+supabase/.temp/

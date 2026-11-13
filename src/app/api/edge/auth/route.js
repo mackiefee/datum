@@ -1,0 +1,172 @@
+export const runtime = 'edge';
+
+const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
+
+function getSecret() {
+  return (typeof process !== 'undefined' && process.env && process.env.AUTH_SECRET) || FALLBACK_SECRET;
+}
+
+const enc = new TextEncoder();
+
+function toBase64Url(bytes) {
+  let bin = '';
+  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function fromBase64Url(str) {
+  const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
+  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+async function importHmacKey() {
+  return crypto.subtle.importKey(
+    'raw',
+    enc.encode(getSecret()),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+}
+
+async function signJwt(payload) {
+  const header = toBase64Url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
+  const body = toBase64Url(enc.encode(JSON.stringify(payload)));
+  const data = `${header}.${body}`;
+  const key = await importHmacKey();
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data));
+  return `${data}.${toBase64Url(sig)}`;
+}
+
+async function verifyJwt(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) return { valid: false, reason: 'Malformed token' };
+  const [header, body, sig] = parts;
+  const key = await importHmacKey();
+  const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
+  if (!ok) return { valid: false, reason: 'Invalid HMAC signature' };
+  const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
+  if (claims.exp && Date.now() > claims.exp) return { valid: false, reason: 'Session expired' };
+  return { valid: true, claims };
+}
+
+export async function POST(req) {
+  try {
+    const body = await req.json();
+    const { action = 'issue', profile, token, enforceDomain = false, allowedDomains = ['planit.studio'] } = body || {};
+
+    if (action === 'verify') {
+      const checked = await verifyJwt(token);
+      return new Response(JSON.stringify(checked), {
+        status: checked.valid ? 200 : 401,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'verify_supabase_token') {
+      const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supaAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      if (!supaUrl || !supaAnon || !token) {
+        return new Response(JSON.stringify({ error: 'Supabase environment not configured' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const userRes = await fetch(`${supaUrl}/auth/v1/user`, {
+        headers: { apikey: supaAnon, Authorization: `Bearer ${token}` },
+      });
+      if (!userRes.ok) {
+        return new Response(JSON.stringify({ error: 'Invalid Supabase OAuth token' }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const supaUser = await userRes.json();
+      const meta = supaUser.user_metadata || {};
+      const email = String(supaUser.email || meta.email || '').trim().toLowerCase();
+      const verified = Boolean(supaUser.email_confirmed_at || meta.email_verified);
+      if (!verified) {
+        return new Response(JSON.stringify({ error: 'Google email address is not verified' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const claims = {
+        sub: meta.provider_id || meta.sub || supaUser.id,
+        email,
+        name: meta.full_name || meta.name || email.split('@')[0],
+        avatar: meta.avatar_url || meta.picture || '',
+        hd: meta.hd || email.split('@')[1] || '',
+        provider: 'google',
+        emailVerified: true,
+        iat: Date.now(),
+        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+      };
+      const signedToken = await signJwt(claims);
+      return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // Issue verified session token from Google Identity profile
+    if (!profile || !profile.email) {
+      return new Response(JSON.stringify({ error: 'Email is required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const email = String(profile.email).trim().toLowerCase();
+    const domain = email.split('@')[1] || '';
+    const isGuest = profile.provider === 'guest';
+
+    if (!isGuest && profile.emailVerified === false) {
+      return new Response(JSON.stringify({ error: 'Security block: Google account email must be verified.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (!isGuest && enforceDomain && allowedDomains.length && !allowedDomains.map((d) => d.toLowerCase()).includes(domain)) {
+      return new Response(
+        JSON.stringify({ error: `Security block: Domain @${domain} is not in allowed workspace domains (${allowedDomains.join(', ')}).` }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (profile.status === 'deactivated') {
+      return new Response(JSON.stringify({ error: 'Account deactivated by administrator.' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    const claims = {
+      sub: profile.googleSub || `${isGuest ? 'guest' : 'g'}-${Date.now()}`,
+      email,
+      name: String(profile.name || email.split('@')[0]).trim(),
+      avatar: profile.avatar || '',
+      hd: domain,
+      provider: isGuest ? 'guest' : 'google',
+      emailVerified: !isGuest,
+      iat: Date.now(),
+      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    };
+
+    const signedToken = await signJwt(claims);
+    return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+}

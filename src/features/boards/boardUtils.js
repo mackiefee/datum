@@ -1,0 +1,24 @@
+import { DC } from '../../config/constants.js';
+
+export const BC=["#0a84ff","#34c759","#ff9f0a","#ff375f","#bf5af2","#8e8e93"],EC=["#8e8e93","#0a84ff","#34c759","#ff9f0a"];
+export const NS={res:[250,76],folder:[210,72],note:[200,128],shape:[160,64]};
+export const MIN={res:[250,76],folder:[160,64],note:[120,80],shape:[100,48]};
+export const bbox=N=>{const x0=Math.min(...N.map(n=>n.x)),y0=Math.min(...N.map(n=>n.y)),x1=Math.max(...N.map(n=>n.x+n.w)),y1=Math.max(...N.map(n=>n.y+n.h));return{x0,y0,x1,y1,w:x1-x0,h:y1-y0}};
+export const nid=()=>"n"+Math.random().toString(36).slice(2,8);
+export const sn=v=>Math.round(v/8)*8;
+export const anc=(a,b)=>{const ay=a.y+a.h/2,by=b.y+b.h/2,ax=a.x+a.w/2,bx=b.x+b.w/2;
+if(b.x>=a.x+a.w-12)return[[a.x+a.w,ay],[b.x,by],"h"];
+if(b.x+b.w<=a.x+12)return[[a.x,ay],[b.x+b.w,by],"l"];
+return by>=ay?[[ax,a.y+a.h],[bx,b.y],"d"]:[[ax,a.y],[bx,b.y+b.h],"u"]};
+export const bez=(p,q,d)=>{const h=d==="h"||d==="l",k=Math.max(40,Math.abs(h?q[0]-p[0]:q[1]-p[1])/2)*(d==="h"||d==="d"?1:-1);return h?"M"+p+"C"+[p[0]+k,p[1]]+" "+[q[0]-k,q[1]]+" "+q:"M"+p+"C"+[p[0],p[1]+k]+" "+[q[0],q[1]-k]+" "+q};
+export const lay=(N,E)=>{const d={};N.forEach(n=>d[n.id]=0);for(let i=0;i<N.length;i++)E.forEach(e=>{if(d[e.a]!==undefined&&d[e.b]!==undefined&&d[e.b]<d[e.a]+1&&d[e.a]<N.length)d[e.b]=d[e.a]+1});
+const cols={};[...N].sort((a,b)=>a.y-b.y).forEach(n=>(cols[d[n.id]]=cols[d[n.id]]||[]).push(n));const P={};
+Object.keys(cols).forEach(k=>{const c=cols[k];let y=-(c.reduce((t,n)=>t+n.h+44,-44))/2;c.forEach(n=>{P[n.id]=[k*340,y];y+=n.h+44})});
+return N.map(n=>({...n,x:P[n.id][0],y:P[n.id][1]}))};
+export const seedBoard=res=>{const nodes=[{id:"s",t:"shape",x:0,y:220,w:150,h:70,txt:"Project start",c:5}],edges=[];
+[["VDC","VDC",4],["Structure","Structural",3],["Interior","Interior",2]].forEach(([d,nm,c],i)=>{const f="f"+i;nodes.push({id:f,t:"folder",x:260,y:i*240,w:210,h:72,txt:nm,c});edges.push({id:"e"+f,a:"s",b:f,lab:"",dash:false,c:0});
+res.filter(r=>r.disc===d&&r.id!==100).slice(0,2).forEach((r,k)=>{const id="r"+i+k;nodes.push({id,t:"res",rid:r.id,x:590,y:i*240+k*116-22,w:250,h:76});edges.push({id:"e"+id,a:f,b:id,lab:"",dash:false,c:0})})});
+return{id:"b1",name:"Model issue process",at:Date.now(),nodes,edges,vp:null}};
+export const fromLib=res=>{const ids=new Set();res.forEach(r=>r.links.forEach(l=>{ids.add(r.id);ids.add(l[0])}));const use=res.filter(r=>ids.has(r.id)),nodes=use.map(r=>({id:"r"+r.id,t:"res",rid:r.id,w:250,h:76,x:0,y:0})),edges=[];
+use.forEach(r=>r.links.forEach(l=>use.some(x=>x.id===l[0])&&edges.push({id:nid(),a:"r"+r.id,b:"r"+l[0],lab:l[1]==="hard"?"depends on":"",dash:l[1]!=="hard",c:l[1]==="hard"?0:1})));
+return{id:"b"+Date.now(),name:"Library links",at:Date.now(),nodes:lay(nodes,edges),edges,vp:null}};
