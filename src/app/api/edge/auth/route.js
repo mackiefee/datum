@@ -54,6 +54,19 @@ async function verifyJwt(token) {
   return { valid: true, claims };
 }
 
+const DB_ROLE_MAP = {
+  super_admin: 'SuperAdmin',
+  admin: 'Admin',
+  editor: 'Editor',
+  member: 'Member',
+  guest: 'Guest',
+};
+
+function mapDbRole(r, fallback = 'Member') {
+  if (!r) return fallback;
+  return DB_ROLE_MAP[r] || r;
+}
+
 function getSupabaseAdmin() {
   const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
   const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
@@ -165,7 +178,7 @@ export async function POST(req) {
         hd: meta.hd || email.split('@')[1] || '',
         provider: 'google',
         emailVerified: true,
-        role: (dbUser && dbUser.role) || 'Member',
+        role: mapDbRole(dbUser && dbUser.role, 'Member'),
         sv: (dbUser && dbUser.session_version) || 1,
         iat: Date.now(),
         exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
@@ -226,7 +239,7 @@ export async function POST(req) {
       hd: domain,
       provider: isGuest ? 'guest' : 'google',
       emailVerified: !isGuest,
-      role: (dbUser && dbUser.role) || profile.role || (isGuest ? 'Guest' : 'Member'),
+      role: mapDbRole(dbUser && dbUser.role, profile.role || (isGuest ? 'Guest' : 'Member')),
       sv: (dbUser && dbUser.session_version) || 1,
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,

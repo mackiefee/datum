@@ -44,7 +44,19 @@ export const ROLES = {
 };
 
 export const normRole = (r) =>
-  r === "Owner" ? "SuperAdmin" : r === "Moderator" ? "Admin" : r === "Reader" ? "Member" : ROLES[r] ? r : "Member";
+  r === "Owner" || r === "super_admin"
+    ? "SuperAdmin"
+    : r === "Moderator" || r === "admin"
+    ? "Admin"
+    : r === "editor"
+    ? "Editor"
+    : r === "Reader" || r === "member"
+    ? "Member"
+    : r === "guest"
+    ? "Guest"
+    : ROLES[r]
+    ? r
+    : "Member";
 
 export const can = {
   admin: (r) => {

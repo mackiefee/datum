@@ -652,7 +652,7 @@ CREATE POLICY "Collections respect tier and visibility" ON collections
     OR (visibility = 'Internal' AND is_internal_active_user())
     OR EXISTS (
       SELECT 1 FROM shares s
-      WHERE s.target_type = 'collection' AND s.target_id = id
+      WHERE s.target_type = 'collection' AND s.target_id = collections.id
         AND (s.expires_at IS NULL OR s.expires_at > now())
         AND ((s.grantee_type = 'user' AND s.grantee_id = current_app_user_id())
           OR (s.grantee_type = 'team' AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = s.grantee_id AND tm.user_id = current_app_user_id())))
