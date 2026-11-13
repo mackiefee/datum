@@ -8,8 +8,8 @@ import '../styles/polish.css';
 import '../styles/editor.css';
 
 export const metadata = {
-  title: 'Knowledge Library',
-  description: 'Internal BIM Knowledge Library with Notion-style editor, dependency graph, and visual link boards.',
+  title: 'Datum',
+  description: 'Datum — Centralized BIM standards, engineering SOPs, dependency graph, and visual link boards.',
 };
 
 export const viewport = {

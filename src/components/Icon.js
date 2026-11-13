@@ -4,3 +4,18 @@ export const IC={boards:"M4 5h7v6H4zM13 13h7v6h-7zM11 8h3a3 3 0 0 1 3 3v2",curso
 Object.assign(IC,{fit:"M4 9V5h4M20 9V5h-4M4 15v4h4M20 15v4h-4",sliders:"M4 7h9M17 7h3M4 17h3M11 17h9M15 4v6M9 14v6",minus:"M5 12h14",target:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"});
 Object.assign(IC,{more:"M6 12h.01M12 12h.01M18 12h.01",dup:"M8 8h11v11H8zM5 15V5h10",pencil:"M4 20l1-4L16 5l3 3L8 19zM14 7l3 3",swap:"M7 4L3 8l4 4M3 8h14M17 20l4-4-4-4M21 16H7",dash:"M4 12h3M10.5 12h3M17 12h3",solid:"M4 12h16",expand:"M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7",openx:"M14 4h6v6M20 4L10 14M18 14v5H5V6h5",map:"M9 4L3 6.5v13L9 17l6 3 6-2.5v-13L15 7zM9 4v13M15 7v13",alL:"M4 4v16M8 7h12M8 14h7",alC:"M12 4v16M6 7h12M8 14h8",alR:"M20 4v16M4 7h12M9 14h7",alT:"M4 4h16M7 8v12M14 8v7",alM:"M4 12h16M7 6v12M14 8v8",alB:"M4 20h16M7 4v12M14 9v7",dsH:"M4 4v16M20 4v16M10 8h4v8h-4z",dsV:"M4 4h16M4 20h16M8 10v4h8v-4z",template:"M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5",shield:"M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z",globe:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",lock:"M7 11V7a5 5 0 0 1 10 0v4M5 11h14v9H5z",layers:"M12 3l9 4.5-9 4.5-9-4.5zM3 12l9 4.5 9-4.5M3 16.5l9 4.5 9-4.5",clock:"M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2"});
 export const Ic=({n,s=18,f})=>html`<svg width=${s} height=${s} viewBox="0 0 24 24" fill=${f?"currentColor":"none"} stroke="currentColor" strokeWidth=${Math.max(1,1.7+(18-s)*.05).toFixed(2)} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d=${IC[n]||IC.doc}/></svg>`;
+
+export const DatumMark = ({ s = 26 }) => html`<svg width=${s} height=${s} viewBox="0 0 32 32" fill="none" aria-hidden="true" style=${{ flexShrink: 0, display: "block" }}>
+  <defs>
+    <linearGradient id="datumMarkGrad" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#2997FF" />
+      <stop offset="55%" stopColor="#0A84FF" />
+      <stop offset="100%" stopColor="#5E5CE6" />
+    </linearGradient>
+  </defs>
+  <rect x="1.5" y="1.5" width="29" height="29" rx="8" fill="url(#datumMarkGrad)" />
+  <rect x="1.5" y="1.5" width="29" height="29" rx="8" stroke="rgba(255,255,255,0.22)" strokeWidth="1" />
+  <path d="M9.5 8.5H15.2C19.8 8.5 22.8 11.4 22.8 16C22.8 20.6 19.8 23.5 15.2 23.5H9.5V8.5Z" stroke="#FFFFFF" strokeWidth="2.4" strokeLinejoin="round" />
+  <path d="M15.2 12.2V19.8M11.8 16H18.8" stroke="rgba(255,255,255,0.55)" strokeWidth="1.5" strokeLinecap="round" />
+  <circle cx="15.2" cy="16" r="2.2" fill="#FFFFFF" />
+</svg>`;

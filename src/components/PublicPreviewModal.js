@@ -1,7 +1,7 @@
 import { html, useState } from '../lib/react.js';
 import { md } from '../utils/markdown.js';
 import { fmt } from '../utils/format.js';
-import { Ic } from './Icon.js';
+import { Ic, DatumMark } from './Icon.js';
 
 export function PublicPreviewModal({ target, res, imgs, close }) {
   const [selectedDocId, setSelectedDocId] = useState(
@@ -44,7 +44,7 @@ export function PublicPreviewModal({ target, res, imgs, close }) {
   return html`<div className="pdl-pub" role="dialog" aria-modal="true" aria-label="Public External Portal Preview">
     <div className="pdl-pub-in">
       <div className="bar sc" style=${{ borderRadius: 20, marginBottom: 24, border: "1px solid var(--line)", padding: "10px 18px" }}>
-        <div className="logo" style=${{ padding: 0 }}><i><${Ic} n="globe" s=${16} /></i>Planit Public Portal</div>
+        <div className="logo" style=${{ padding: 0 }}><${DatumMark} s=${24} /><span>Datum Public Portal</span></div>
         <span className="pill" style=${{ "--c": "#34c759" }}>Sanitized External View</span>
         <span style=${{ marginLeft: "auto" }}></span>
         <button className="btn p" onClick=${close}><${Ic} n="x" s=${14} /> Exit Preview</button>
@@ -71,7 +71,7 @@ export function PublicPreviewModal({ target, res, imgs, close }) {
 
       ${activeItem
         ? html`<article className="hc" style=${{ padding: 32 }}>
-            <div className="crumb">Planit Data Library · Public Release · Updated ${fmt(activeItem.upd)}</div>
+            <div className="crumb">Datum · Public Release · Updated ${fmt(activeItem.upd)}</div>
             <h1 style=${{ marginTop: 8 }}>${activeItem.title}</h1>
             <p className="lead" style=${{ marginBottom: 22 }}>${activeItem.desc}</p>
             ${activeItem.url &&

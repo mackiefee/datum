@@ -7,7 +7,7 @@ import {
   issueVerifiedSession,
   makeGooglePhotoFallback,
 } from '../lib/auth.js';
-import { Ic } from './Icon.js';
+import { Ic, DatumMark } from './Icon.js';
 import { Avatar } from './Badge.js';
 
 const GoogleMark = () =>
@@ -78,9 +78,9 @@ export function LoginView({ users = [], onSignedIn }) {
   return html`<div className="lgn-wrap">
     <div className="lgn-card">
       <div className="lgn-brand">
-        <div className="logo" style=${{ padding: 0, justifyContent: "center", fontSize: 18 }}>
-          <i><${Ic} n="book" s=${18} /></i>
-          <span>Planit Data Library</span>
+        <div className="logo" style=${{ padding: 0, justifyContent: "center", fontSize: 20 }}>
+          <${DatumMark} s=${30} />
+          <span>Datum</span>
         </div>
         <h1>Sign in to your workspace</h1>
         <p className="lead" style=${{ fontSize: 15 }}>
@@ -138,7 +138,7 @@ export function LoginView({ users = [], onSignedIn }) {
           <${GoogleMark} />
           <div>
             <h3>${customMode ? "Sign in with Google Account" : "Choose a Google Account"}</h3>
-            <small>Pulls verified name, email, and profile photo into Planit Library</small>
+            <small>Pulls verified name, email, and profile photo into Datum</small>
           </div>
         </div>
 

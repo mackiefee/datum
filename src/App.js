@@ -14,7 +14,7 @@ import {
 import { fmt, pl } from './utils/format.js';
 import { hay } from './utils/search.js';
 import { docxImport } from './utils/docx.js';
-import { Ic } from './components/Icon.js';
+import { Ic, DatumMark } from './components/Icon.js';
 import { Pill, VisPill } from './components/Badge.js';
 import { Select, UserSwitcher } from './components/Select.js';
 import { Node } from './components/SpaceTree.js';
@@ -783,7 +783,7 @@ export function App() {
     ${nav && html`<div className="ov" style=${{ zIndex: 57 }} onClick=${() => setNav(false)}></div>`}
 
     <aside className=${"side" + (nav ? " open" : "")}>
-      <div className="logo"><i><${Ic} n="book" s=${16} /></i>Planit Library</div>
+      <div className="logo"><${DatumMark} s=${26} /><span>Datum</span></div>
 
       ${!isGuest &&
       html`<button className=${"ti" + (view === "home" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("home")}>
@@ -1018,7 +1018,7 @@ export function App() {
 
       <div className=${"pad" + (view === "home" ? " ph" : "") + (view === "graph" ? " pgx" : "")} hidden=${!!rr || !!edt}>
         <div className="crumb">
-          ${view === "lib" && curCat ? curCat.path.join(" › ") + ` · Owner: ${curCat.owner}` : "Planit Data Library"}
+          ${view === "lib" && curCat ? curCat.path.join(" › ") + ` · Owner: ${curCat.owner}` : "Datum"}
         </div>
         <h1>${pageTitle}</h1>
 
