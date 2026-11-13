@@ -54,13 +54,68 @@ async function verifyJwt(token) {
   return { valid: true, claims };
 }
 
+function getSupabaseAdmin() {
+  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
+  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
+  if (!url || !serviceKey) return null;
+  const headers = { 'Content-Type': 'application/json', apikey: serviceKey };
+  if (serviceKey.startsWith('eyJ')) {
+    headers.Authorization = `Bearer ${serviceKey}`;
+  }
+  return { url, headers };
+}
+
+async function lookupDbUser(admin, email) {
+  if (!admin || !email) return null;
+  try {
+    const res = await fetch(
+      `${admin.url}/rest/v1/users?email=eq.${encodeURIComponent(email)}&select=id,role,status,session_version&limit=1`,
+      { headers: admin.headers }
+    );
+    if (!res.ok) return null;
+    const rows = await res.json();
+    return Array.isArray(rows) && rows[0] ? rows[0] : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function writeAuditLog(admin, entry) {
+  if (!admin) return;
+  try {
+    await fetch(`${admin.url}/rest/v1/auth_audit_logs`, {
+      method: 'POST',
+      headers: { ...admin.headers, Prefer: 'return=minimal' },
+      body: JSON.stringify(entry),
+    });
+  } catch (e) {
+    // Best-effort audit logging when Supabase schema is deployed
+  }
+}
+
 export async function POST(req) {
   try {
     const body = await req.json();
     const { action = 'issue', profile, token, enforceDomain = false, allowedDomains = ['planit.studio'] } = body || {};
+    const admin = getSupabaseAdmin();
 
     if (action === 'verify') {
       const checked = await verifyJwt(token);
+      if (checked.valid && checked.claims?.email) {
+        const dbUser = await lookupDbUser(admin, checked.claims.email);
+        if (dbUser && dbUser.status === 'deactivated') {
+          return new Response(JSON.stringify({ valid: false, reason: 'Account deactivated' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        if (dbUser && checked.claims.sv && dbUser.session_version > checked.claims.sv) {
+          return new Response(JSON.stringify({ valid: false, reason: 'Session revoked' }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+      }
       return new Response(JSON.stringify(checked), {
         status: checked.valid ? 200 : 401,
         headers: { 'Content-Type': 'application/json' },
@@ -95,6 +150,13 @@ export async function POST(req) {
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      const dbUser = await lookupDbUser(admin, email);
+      if (dbUser && dbUser.status === 'deactivated') {
+        return new Response(JSON.stringify({ error: 'Account deactivated by administrator.' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       const claims = {
         sub: meta.provider_id || meta.sub || supaUser.id,
         email,
@@ -103,10 +165,20 @@ export async function POST(req) {
         hd: meta.hd || email.split('@')[1] || '',
         provider: 'google',
         emailVerified: true,
+        role: (dbUser && dbUser.role) || 'Member',
+        sv: (dbUser && dbUser.session_version) || 1,
         iat: Date.now(),
         exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
       };
       const signedToken = await signJwt(claims);
+      await writeAuditLog(admin, {
+        event: 'google_oauth_verified',
+        email,
+        google_sub: claims.sub,
+        provider: 'google',
+        domain: claims.hd,
+        success: true,
+      });
       return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -139,7 +211,8 @@ export async function POST(req) {
       );
     }
 
-    if (profile.status === 'deactivated') {
+    const dbUser = !isGuest ? await lookupDbUser(admin, email) : null;
+    if (profile.status === 'deactivated' || (dbUser && dbUser.status === 'deactivated')) {
       return new Response(JSON.stringify({ error: 'Account deactivated by administrator.' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
@@ -154,11 +227,23 @@ export async function POST(req) {
       hd: domain,
       provider: isGuest ? 'guest' : 'google',
       emailVerified: !isGuest,
+      role: (dbUser && dbUser.role) || profile.role || (isGuest ? 'Guest' : 'Member'),
+      sv: (dbUser && dbUser.session_version) || 1,
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
     };
 
     const signedToken = await signJwt(claims);
+    if (!isGuest) {
+      await writeAuditLog(admin, {
+        event: 'session_issued',
+        email,
+        google_sub: claims.sub,
+        provider: claims.provider,
+        domain,
+        success: true,
+      });
+    }
     return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
