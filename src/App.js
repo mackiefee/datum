@@ -99,7 +99,7 @@ export function App() {
   const [view, setView] = useState("home");
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
-  const [open, setOpen] = useState(["int", "c10-ovw", "c10-doc", "c10-mod", "c10-crd", "c10-drw"]);
+  const [open, setOpen] = useState([]);
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
   const [sel, setSel] = useState(null);
