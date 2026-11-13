@@ -115,31 +115,6 @@ export function LoginView({ users = [], onSignedIn }) {
           <${GoogleMark} />
           <span>${busy ? "Redirecting to Google…" : "Continue with Google"}</span>
         </button>
-
-        ${hasSupabaseAuth &&
-        html`<button
-          type="button"
-          className="btn"
-          style=${{ width: "100%", justifyContent: "center", height: 42, borderRadius: 12 }}
-          onClick=${() => {
-            setErr("");
-            setChooser(true);
-            setCustomMode(false);
-          }}
-        >
-          Demo Accounts (Offline Preview)
-        </button>`}
-
-        <button
-          type="button"
-          className="btn"
-          disabled=${busy}
-          style=${{ width: "100%", justifyContent: "center", height: 42, borderRadius: 12 }}
-          onClick=${() => handleGoogleUser({ ...guestUser, provider: "guest", emailVerified: false })}
-        >
-          <${Ic} n="globe" s=${15} />
-          <span>Continue as External Guest (Public Portal Only)</span>
-        </button>
       </div>
 
       <div className="lgn-sec">
