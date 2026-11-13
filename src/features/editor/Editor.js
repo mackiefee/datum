@@ -6,6 +6,7 @@ import { esc, md, ewTx, ewMd } from '../../utils/markdown.js';
 import { shrink, docxImport } from '../../utils/docx.js';
 import { Ic } from '../../components/Icon.js';
 import { Select } from '../../components/Select.js';
+import { db } from '../../lib/db.js';
 import { EW_TBL, EW_SL, EW_CL, TURN } from './editorConfig.js';
 
 export function Editor(p){
@@ -58,13 +59,14 @@ const inlMd=()=>{const s=getSelection();if(!s.rangeCount||!s.isCollapsed)return 
 const P=[[/(^|[^*\w])\*\*([^*\s](?:[^*]*[^*\s])?)\*\*$/,"b"],[/(^|[^*\w])\*([^*\s](?:[^*]*[^*\s])?)\*$/,"i"],[/(^|[^`])`([^`\s](?:[^`]*[^`\s])?)`$/,"code"],[/(^|[^~])~~([^~\s](?:[^~]*[^~\s])?)~~$/,"s"]];
 for(const[re,tag]of P){const m=bf.match(re);if(!m)continue;const st=o-m[0].length+m[1].length,el=document.createElement(tag);el.textContent=m[2];const aft=n.data.slice(o);n.data=n.data.slice(0,st);const z=document.createTextNode("\u200b"+aft);n.after(el);el.after(z);const r=document.createRange();r.setStart(z,1);r.collapse(true);s.removeAllRanges();s.addRange(r);return true}return false};
 const A={p:()=>fmt("p"),h1:()=>fmt("h1"),quote:quoteB,date:dateI,h2:()=>fmt("h2"),h3:()=>fmt("h3"),ul:()=>list("ul"),ol:()=>list("ol"),ck:()=>list("ck"),note:()=>call("note"),tip:()=>call("tip"),warn:()=>call("warn"),code:codeB,tbl:()=>put(EW_TBL,"th"),img:()=>fi.current.click(),hr:()=>put("<hr>")};
-const addImgs=async fs=>{for(const f of fs){if(!/^image\//.test(f.type))continue;const u=await shrink(f),id="i"+Math.random().toString(36).slice(2,8);loc.current[id]=u;p.setImgs(o=>({...o,[id]:u}));const im=document.createElement("img");im.src=u;im.alt="";const fg=document.createElement("figure");fg.contentEditable="false";fg.appendChild(im);const c=document.createElement("figcaption");c.contentEditable="true";fg.appendChild(c);put(fg.outerHTML,"figcaption")}};
+const addImgs=async fs=>{for(const f of fs){if(!/^image\//.test(f.type))continue;const u=await shrink(f);if(!u)continue;const id="i"+Math.random().toString(36).slice(2,8);loc.current[id]=u;p.setImgs(o=>({...o,[id]:u}));const im=document.createElement("img");im.src=u;im.setAttribute("data-id",id);im.alt="";const fg=document.createElement("figure");fg.contentEditable="false";fg.appendChild(im);const c=document.createElement("figcaption");c.contentEditable="true";fg.appendChild(c);put(fg.outerHTML,"figcaption");db.uploadImage(id,u).then(remoteUrl=>{if(remoteUrl&&remoteUrl!==u){loc.current[id]=remoteUrl;p.setImgs(o=>({...o,[id]:remoteUrl}));const liveImg=root.current&&root.current.querySelector('img[data-id="'+id+'"]');if(liveImg)liveImg.setAttribute("src",remoteUrl)}})}};
 const impDocx=async f=>{if(!f||ib)return;if(!/\.docx$/i.test(f.name)){alert("A .docx file is required (Word 2007 or newer).");return}
 if(m==="w")sync();if(bdr.current.trim()&&!confirm("Replace the current text with the document contents?"))return;
 setIb(true);try{const r=await docxImport(f);loc.current={...loc.current,...r.imgs};p.setImgs(o=>({...o,...r.imgs}));
 if(!t.trim())setT(r.title);if(!ds.trim())setDs(r.desc);
 const b=t.trim()&&r.h1?"## "+r.h1+"\n\n"+r.body:r.body;bdr.current=b;
 if(m==="w")load(b);else{setM("w")}
+db.uploadImagesMap(r.imgs).then(uploaded=>{if(!uploaded||!Object.keys(uploaded).length)return;loc.current={...loc.current,...uploaded};p.setImgs(o=>({...o,...uploaded}));if(root.current){Object.entries(uploaded).forEach(([id,url])=>{const liveImg=root.current.querySelector('img[data-id="'+id+'"]');if(liveImg&&url)liveImg.setAttribute("src",url)})}});
 }catch(e){alert(e&&e.message==="lib"?"Failed to load the import library. Check your internet connection and try again.":"Could not read the file. Make sure it is a genuine .docx (not .doc and not password-protected).")}setIb(false)};
 const flt=sl?EW_SL.filter(x=>!sl.q||(x[1]+" "+x[5]).toLowerCase().includes(sl.q)):[];
 const cTxt=()=>{const s=getSelection();if(!s.rangeCount||!s.isCollapsed)return null;let n=s.anchorNode,o=s.anchorOffset;if(n&&n.nodeType===1&&o>0&&n.childNodes[o-1]&&n.childNodes[o-1].nodeType===3){n=n.childNodes[o-1];o=n.data.length}return n&&n.nodeType===3?[n,o]:null};

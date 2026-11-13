@@ -23,7 +23,12 @@ export function Reader(p) {
   const [act, setAct] = useState("");
   const [zm, setZm] = useState(null);
 
+  const lastRecBucketRef = useMemo(() => ({ key: "" }), []);
   useEffect(() => {
+    const bucket = Math.round(pg * 10);
+    const sig = `${r.id}:${bucket}`;
+    if (lastRecBucketRef.key === sig) return;
+    lastRecBucketRef.key = sig;
     p.rec(r.id, pg);
   }, [r.id, Math.round(pg * 10)]);
 
@@ -191,6 +196,6 @@ export function Reader(p) {
       </div>
       ${m.toc.length > 1 && html`<nav className="toc" aria-label="Contents"><b>Contents</b>${m.toc.map(TL)}</nav>`}
     </div>
-    ${zm && html`<div className="zoom" onClick=${() => setZm(null)}><img src=${zm} alt="" /></div>`}
+    ${zm && html`<div className="zoom" onClick=${() => setZm(null)}><img src=${zm} alt="" decoding="async" /></div>`}
   </article>`;
 }

@@ -1,11 +1,11 @@
--- Planit Data Library - Consolidated Idempotent Supabase Setup Script
+﻿-- Planit Data Library - Consolidated Idempotent Supabase Setup Script
 -- Run the ENTIRE script once in Supabase Dashboard -> SQL Editor
 
 SET search_path TO public, extensions;
 
 -- 1) Core Schema
 -- ============================================================================
--- Planit Data Library — 0001 Core PostgreSQL Schema
+-- Planit Data Library â€” 0001 Core PostgreSQL Schema
 -- Covers: Users, Teams, Categories (max 3 levels), Tags, Unified Catalog
 -- (Documents + Resources), Versions, Attachments, Links, Comments,
 -- Collections/Boards, Personal Bookmarks, Shares, Activity Audit & Search Logs.
@@ -444,7 +444,7 @@ $$ LANGUAGE sql STABLE;
 
 -- 2) Row-Level Security Policies
 -- ============================================================================
--- Planit Data Library — 0002 Row-Level Security (RLS) & Conflict Resolution
+-- Planit Data Library â€” 0002 Row-Level Security (RLS) & Conflict Resolution
 -- Enforces:
 --   1. Deactivated users denied all access.
 --   2. Super Admin / Admin global access.
@@ -665,7 +665,7 @@ CREATE POLICY "Admins read all activities; internal users read permitted" ON act
 
 -- 3) Google OAuth & Security Hardening
 -- ============================================================================
--- Planit Data Library — 0003 Google OAuth + Supabase Auth Security Hardening
+-- Planit Data Library â€” 0003 Google OAuth + Supabase Auth Security Hardening
 -- Enforces verified Google Identity profile syncing (name, email, avatar_url),
 -- hosted domain whitelisting, deactivated account blocking, and auth audit logs.
 -- ============================================================================
@@ -864,7 +864,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- 4) Initial Seed Data
 -- ============================================================================
--- Planit Data Library — Initial Seed Data
+-- Planit Data Library â€” Initial Seed Data
 -- ============================================================================
 
 INSERT INTO public.teams (id, name, group_type, color) VALUES
@@ -903,14 +903,158 @@ INSERT INTO public.categories (id, parent_id, level, name, slug, color, owner_id
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.catalog_items (id, item_class, type, title, summary, body, target_url, category_id, owner_id, status, visibility, stage, discipline, is_required_reading, last_verified_at, updated_at) VALUES
-  (1, 'document', 'doc', 'BIM Execution Plan — template', 'BEP basis for every new project: roles, CDE, exchange schedule.', 'The BEP defines roles, responsibilities, exchange formats and project checkpoints.', '', 'vdc-bim', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Concept', 'VDC', false, '2026-10-14', '2026-10-14'),
+  (1, 'document', 'doc', 'BIM Execution Plan â€” template', 'BEP basis for every new project: roles, CDE, exchange schedule.', 'The BEP defines roles, responsibilities, exchange formats and project checkpoints.', '', 'vdc-bim', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Concept', 'VDC', false, '2026-10-14', '2026-10-14'),
   (2, 'document', 'doc', 'File and model naming', 'Unified code scheme: project-originator-volume-level-type-number.', 'All files in the CDE are named using the project-originator-volume-level-type-number scheme.', '', 'vdc-name', '22222222-2222-2222-2222-222222222202', 'Approved', 'Public', 'Design', 'VDC', true, '2026-09-30', '2026-09-30'),
-  (9, 'resource', 'service', 'pyRevit — corporate extension', 'Custom scripts for sheets, annotations and model checking.', 'Install via internal repo and run weekly updater.', 'https://pyrevitlabs.io', 'vdc-tool', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Design', 'VDC', false, '2026-10-19', '2026-10-19'),
-  (10, 'resource', 'service', 'Redmine — project tasks', 'Tracker of tasks and deadlines by project.', 'Log all model changes affecting issue.', 'https://www.redmine.org', 'gen-link', '22222222-2222-2222-2222-222222222204', 'Approved', 'Internal', 'Design', 'Architecture', false, '2026-08-30', '2026-08-30'),
+  (9, 'resource', 'service', 'pyRevit â€” corporate extension', 'Custom scripts for sheets, annotations and model checking.', 'Install via internal repo and run weekly updater.', 'https://pyrevitlabs.io', 'vdc-tool', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Design', 'VDC', false, '2026-10-19', '2026-10-19'),
+  (10, 'resource', 'service', 'Redmine â€” project tasks', 'Tracker of tasks and deadlines by project.', 'Log all model changes affecting issue.', 'https://www.redmine.org', 'gen-link', '22222222-2222-2222-2222-222222222204', 'Approved', 'Internal', 'Design', 'Architecture', false, '2026-08-30', '2026-08-30'),
   (12, 'document', 'policy', 'CDE access policy', 'Who can see and edit what, and at which level.', 'Access is granted at the department, folder or individual document level.', '', 'gen-pol', '22222222-2222-2222-2222-222222222201', 'Draft', 'Restricted', 'Concept', 'VDC', false, '2026-10-21', '2026-10-21')
 ON CONFLICT (id) DO NOTHING;
 
 SELECT setval(pg_get_serial_sequence('public.catalog_items', 'id'), (SELECT COALESCE(MAX(id), 1) FROM public.catalog_items));
 
--- 5) Refresh PostgREST schema cache immediately
+-- 5) Performance Indexes, RLS InitPlan & Lightweight Summary RPC (0004)
+CREATE INDEX IF NOT EXISTS idx_users_auth_uid ON public.users(auth_uid);
+CREATE INDEX IF NOT EXISTS idx_team_members_user ON public.team_members(user_id, team_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_list_cover
+  ON public.catalog_items(status, visibility, category_id, updated_at DESC);
+
+CREATE OR REPLACE FUNCTION current_app_user_id()
+RETURNS UUID AS $$
+  SELECT id FROM users
+  WHERE auth_uid = (SELECT auth.uid()) AND status = 'active'
+  LIMIT 1;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION current_app_user_role()
+RETURNS user_role AS $$
+  SELECT role FROM users
+  WHERE auth_uid = (SELECT auth.uid()) AND status = 'active'
+  LIMIT 1;
+$$ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION can_view_item(p_item_id BIGINT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_status lifecycle_status;
+  v_vis visibility_level;
+  v_owner_id UUID;
+  v_cat_id TEXT;
+  v_uid UUID := current_app_user_id();
+BEGIN
+  SELECT status, visibility, owner_id, category_id
+  INTO v_status, v_vis, v_owner_id, v_cat_id
+  FROM catalog_items
+  WHERE id = p_item_id;
+
+  IF NOT FOUND OR v_status = 'Deleted' THEN RETURN false; END IF;
+  IF is_app_admin() THEN RETURN true; END IF;
+  IF v_vis = 'Public' AND v_status = 'Approved' THEN RETURN true; END IF;
+  IF v_uid IS NULL THEN RETURN false; END IF;
+  IF v_owner_id = v_uid THEN RETURN true; END IF;
+
+  IF v_status <> 'Approved' THEN
+    RETURN EXISTS (
+      SELECT 1 FROM categories c WHERE c.id = v_cat_id AND c.owner_id = v_uid
+    ) OR EXISTS (
+      SELECT 1 FROM shares s
+      WHERE s.target_type = 'category' AND s.target_id = v_cat_id
+        AND s.granted_role IN ('editor', 'category_owner')
+        AND ((s.grantee_type = 'user' AND s.grantee_id = v_uid) OR
+             (s.grantee_type = 'team' AND EXISTS (SELECT 1 FROM team_members tm WHERE tm.team_id = s.grantee_id AND tm.user_id = v_uid)))
+    );
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM shares s
+    WHERE s.target_type IN ('document', 'resource') AND s.target_id = p_item_id::text
+      AND (s.expires_at IS NULL OR s.expires_at > now())
+      AND (
+        (s.grantee_type = 'user' AND s.grantee_id = v_uid) OR
+        (s.grantee_type = 'team' AND EXISTS (
+          SELECT 1 FROM team_members tm WHERE tm.team_id = s.grantee_id AND tm.user_id = v_uid
+        ))
+      )
+  ) THEN
+    RETURN true;
+  END IF;
+
+  IF v_vis = 'Restricted' THEN RETURN false; END IF;
+  RETURN can_view_category(v_cat_id);
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public;
+
+CREATE OR REPLACE FUNCTION public.get_catalog_summaries(
+  p_limit INTEGER DEFAULT 24,
+  p_offset INTEGER DEFAULT 0
+)
+RETURNS TABLE (
+  id BIGINT,
+  item_class item_class,
+  type item_subtype,
+  title TEXT,
+  summary TEXT,
+  target_url TEXT,
+  category_id TEXT,
+  owner_id UUID,
+  status lifecycle_status,
+  visibility visibility_level,
+  stage TEXT,
+  discipline TEXT,
+  is_required_reading BOOLEAN,
+  review_cycle_days INTEGER,
+  last_verified_at DATE,
+  updated_at DATE
+) AS $$
+  SELECT
+    ci.id, ci.item_class, ci.type, ci.title, ci.summary, ci.target_url,
+    ci.category_id, ci.owner_id, ci.status, ci.visibility, ci.stage, ci.discipline,
+    ci.is_required_reading, ci.review_cycle_days, ci.last_verified_at, ci.updated_at
+  FROM public.catalog_items ci
+  WHERE ci.status <> 'Deleted'
+    AND can_view_item(ci.id)
+  ORDER BY ci.updated_at DESC, ci.id DESC
+  LIMIT GREATEST(1, LEAST(p_limit, 100))
+  OFFSET GREATEST(0, p_offset);
+$$ LANGUAGE sql STABLE SECURITY INVOKER SET search_path = public;
+
+-- 5b) Supabase Storage 'attachments' Bucket & RLS Policies
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'attachments',
+  'attachments',
+  true,
+  10485760,
+  ARRAY['image/webp', 'image/jpeg', 'image/png', 'image/gif', 'image/svg+xml']
+)
+ON CONFLICT (id) DO UPDATE SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "attachments_public_read" ON storage.objects;
+CREATE POLICY "attachments_public_read" ON storage.objects
+  FOR SELECT USING (bucket_id = 'attachments');
+
+DROP POLICY IF EXISTS "attachments_internal_insert" ON storage.objects;
+CREATE POLICY "attachments_internal_insert" ON storage.objects
+  FOR INSERT WITH CHECK (
+    bucket_id = 'attachments'
+    AND COALESCE(public.current_app_user_role() IN ('super_admin', 'admin', 'editor'), false)
+  );
+
+DROP POLICY IF EXISTS "attachments_internal_update" ON storage.objects;
+CREATE POLICY "attachments_internal_update" ON storage.objects
+  FOR UPDATE USING (
+    bucket_id = 'attachments'
+    AND COALESCE(public.current_app_user_role() IN ('super_admin', 'admin', 'editor'), false)
+  );
+
+DROP POLICY IF EXISTS "attachments_admin_delete" ON storage.objects;
+CREATE POLICY "attachments_admin_delete" ON storage.objects
+  FOR DELETE USING (
+    bucket_id = 'attachments'
+    AND public.is_app_admin()
+  );
+
+-- 6) Refresh PostgREST schema cache immediately
 NOTIFY pgrst, 'reload schema';

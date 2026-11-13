@@ -5,6 +5,7 @@ import { TODAY, KB, ST, TY, STG, DISC, DC, ROLES, can, normRole, isDocType, isRe
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, NOTES, USERS, SEED_TEAMS, SEED_COLLECTIONS, SEED_ACTIVITIES } from './data/seed.js';
 import { db } from './lib/db.js';
+import { edgeClient } from './lib/edgeClient.js';
 import {
   loadStoredSession,
   saveStoredSession,
@@ -104,6 +105,8 @@ export function App() {
   const [edt, setEdt] = useState(null);
   const [imgs, setImgs] = useState(() => ({ ...IMG0, ...(db.load("kb2-img", null) || {}) }));
   const [sort, setSort] = useState("new");
+  const PAGE_SIZE = 24;
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [toast, setToast] = useState(null);
 
   useEffect(() => { db.save("kb2-res", res); }, [res]);
@@ -144,6 +147,15 @@ export function App() {
   useEffect(() => { db.save("kb2-seen", seen); }, [seen]);
   useEffect(() => { db.save("kb2-chk", chk); }, [chk]);
   useEffect(() => { db.save("kb2-img", imgs); }, [imgs]);
+  useEffect(() => {
+    let alive = true;
+    db.hydrateImages(imgs).then((hydrated) => {
+      if (alive && hydrated) setImgs((o) => ({ ...o, ...hydrated }));
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   useEffect(() => { db.save("kb2-sb-col", sbCol); }, [sbCol]);
 
   const sessionClaims = authSession && authSession.claims;
@@ -286,7 +298,11 @@ export function App() {
     flash(text);
     setNotes((n) => [{ id: Date.now() + Math.random(), text, rid, t: "just now", un: 1 }, ...n]);
   };
-  const upd = (id, fn) => setRes((rs) => rs.map((r) => (r.id === id ? fn(r) : r)));
+  const upd = (id, fn) => {
+    db.invalidateArticle(id);
+    edgeClient.clearAiCache();
+    setRes((rs) => rs.map((r) => (r.id === id ? fn(r) : r)));
+  };
   const titleOf = (id) => (res.find((r) => r.id === id) || {}).title || "";
 
   const act = {
@@ -386,6 +402,8 @@ export function App() {
       setEdt(null);
     } else {
       const id = Date.now();
+      db.invalidateArticle(id);
+      edgeClient.clearAiCache();
       setRes((rs) => [
         {
           links: [],
@@ -409,6 +427,8 @@ export function App() {
 
   const delItem = (id) => {
     const t = titleOf(id);
+    db.invalidateArticle(id);
+    edgeClient.clearAiCache();
     setRes((rs) => rs.filter((x) => x.id !== id).map((x) => ({ ...x, links: x.links.filter((l) => l[0] !== id) })));
     setFavs((a) => a.filter((x) => x !== id));
     setWatch((a) => a.filter((x) => x !== id));
@@ -430,7 +450,9 @@ export function App() {
   const recRead = (id, pct) =>
     setHist((h) => {
       const o = h.find((x) => x.id === id);
-      return [{ id, pct: Math.max(o ? o.pct : 0, pct), at: Date.now() }, ...h.filter((x) => x.id !== id)].slice(0, 12);
+      const nextPct = Math.max(o ? o.pct : 0, pct);
+      if (h[0] && h[0].id === id && h[0].pct >= nextPct) return h;
+      return [{ id, pct: nextPct, at: Date.now() }, ...h.filter((x) => x.id !== id)].slice(0, 12);
     });
 
   const ack = (id) => {
@@ -534,10 +556,14 @@ export function App() {
       if (f.disc && r.disc !== f.disc) return false;
       if (f.tag && !r.tags.includes(f.tag)) return false;
       if (f.author && r.author !== f.author) return false;
-      if (s && !hay(r).toLowerCase().includes(s)) return false;
+      if (s && !hay(r).includes(s)) return false;
       return true;
     });
   }, [visibleRes, q, view, cur, catFilter, f, favs, watch, hist, userName, flatCats]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [view, cur, catFilter, q, f, sort]);
 
   const recentSearches = useMemo(() => [...new Set(searchLogs.map((l) => l.query))].slice(0, 5), [searchLogs]);
   const unread = notes.filter((n) => n.un).length;
@@ -1003,6 +1029,11 @@ export function App() {
               setImgs((o) => ({ ...o, ...r.imgs }));
               setEdt({ title: r.title, desc: r.desc, body: r.body, k: Date.now() });
               flash("Document imported — review and save");
+              db.uploadImagesMap(r.imgs).then((uploaded) => {
+                if (uploaded && Object.keys(uploaded).length) {
+                  setImgs((o) => ({ ...o, ...uploaded }));
+                }
+              });
             } catch (x) {
               flash("Could not read the .docx");
             }
@@ -1150,73 +1181,86 @@ export function App() {
             <h2>All items</h2>
           </section>`}
 
-          ${list.length
-            ? html`<div className="grid">
-                ${(showFeat ? shown.filter((r) => !rec.includes(r)) : shown).map(
-                  (r) => html`<div
-                    key=${r.id}
-                    className="card"
-                    role="button"
-                    tabIndex="0"
-                    onClick=${() => rd(r.id)}
-                    onKeyDown=${(e) => e.key === "Enter" && rd(r.id)}
-                  >
-                    ${!isGuest &&
-                    html`<div className="acts">
-                      <button
-                        className=${watch.includes(r.id) ? "on" : ""}
-                        aria-label="Watch"
-                        onClick=${(e) => {
-                          e.stopPropagation();
-                          tgl(setWatch, r.id);
-                        }}
+          ${(() => {
+            const gridItems = showFeat ? shown.filter((r) => !rec.includes(r)) : shown;
+            const pageItems = gridItems.slice(0, visibleCount);
+            const remaining = gridItems.length - pageItems.length;
+            return list.length
+              ? html`<div>
+                  <div className="grid">
+                    ${pageItems.map(
+                      (r) => html`<div
+                        key=${r.id}
+                        className="card"
+                        role="button"
+                        tabIndex="0"
+                        onClick=${() => rd(r.id)}
+                        onKeyDown=${(e) => e.key === "Enter" && rd(r.id)}
                       >
-                        ${html`<${Ic} n="eye" s=${16} />`}
-                      </button>
-                      <button
-                        className=${favs.includes(r.id) ? "on" : ""}
-                        aria-label="Bookmark"
-                        onClick=${(e) => {
-                          e.stopPropagation();
-                          tgl(setFavs, r.id);
-                        }}
-                      >
-                        ${html`<${Ic} n="star" s=${16} f=${favs.includes(r.id)} />`}
-                      </button>
-                    </div>`}
-                    <div className="ch2">
-                      <span className="tl" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${18} /></span>
-                      <span className="who"><b>${r.disc}</b><small>${TY[r.type] || "Document"}</small></span>
-                    </div>
-                    <h3>${r.title}</h3>
-                    <p>${r.desc}</p>
-                    <div className="row">
-                      <${Pill} s=${r.status} />
-                      ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
-                      <span>v${r.v.length}</span>
-                      ${r.url &&
-                      isResType(r.type) &&
-                      html`<a
-                        className="mn"
-                        style=${{ marginLeft: "auto" }}
-                        href=${r.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick=${(e) => e.stopPropagation()}
-                      >
-                        Open ↗
-                      </a>`}
-                      ${(!r.url || !isResType(r.type)) && html`<span style=${{ marginLeft: "auto" }}>${fmt(r.upd)}</span>`}
-                    </div>
-                  </div>`
-                )}
-              </div>`
-            : html`<div className="empty">
-                <${Ic} n="search" s=${34} />
-                <b>Nothing found</b>
-                <span>Try adjusting your query or filters.</span>
-                ${hasF && html`<button className="btn" onClick=${() => setF({})}>Reset filters</button>`}
-              </div>`}
+                        ${!isGuest &&
+                        html`<div className="acts">
+                          <button
+                            className=${watch.includes(r.id) ? "on" : ""}
+                            aria-label="Watch"
+                            onClick=${(e) => {
+                              e.stopPropagation();
+                              tgl(setWatch, r.id);
+                            }}
+                          >
+                            ${html`<${Ic} n="eye" s=${16} />`}
+                          </button>
+                          <button
+                            className=${favs.includes(r.id) ? "on" : ""}
+                            aria-label="Bookmark"
+                            onClick=${(e) => {
+                              e.stopPropagation();
+                              tgl(setFavs, r.id);
+                            }}
+                          >
+                            ${html`<${Ic} n="star" s=${16} f=${favs.includes(r.id)} />`}
+                          </button>
+                        </div>`}
+                        <div className="ch2">
+                          <span className="tl" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${18} /></span>
+                          <span className="who"><b>${r.disc}</b><small>${TY[r.type] || "Document"}</small></span>
+                        </div>
+                        <h3>${r.title}</h3>
+                        <p>${r.desc}</p>
+                        <div className="row">
+                          <${Pill} s=${r.status} />
+                          ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
+                          <span>v${r.v.length}</span>
+                          ${r.url &&
+                          isResType(r.type) &&
+                          html`<a
+                            className="mn"
+                            style=${{ marginLeft: "auto" }}
+                            href=${r.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick=${(e) => e.stopPropagation()}
+                          >
+                            Open ↗
+                          </a>`}
+                          ${(!r.url || !isResType(r.type)) && html`<span style=${{ marginLeft: "auto" }}>${fmt(r.upd)}</span>`}
+                        </div>
+                      </div>`
+                    )}
+                  </div>
+                  ${remaining > 0 &&
+                  html`<div style=${{ display: "flex", justifyContent: "center", marginTop: 22 }}>
+                    <button className="btn" onClick=${() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                      Show more (${remaining} remaining)
+                    </button>
+                  </div>`}
+                </div>`
+              : html`<div className="empty">
+                  <${Ic} n="search" s=${34} />
+                  <b>Nothing found</b>
+                  <span>Try adjusting your query or filters.</span>
+                  ${hasF && html`<button className="btn" onClick=${() => setF({})}>Reset filters</button>`}
+                </div>`;
+          })()}
         </div>`}
 
         ${view === "boards" &&

@@ -1,12 +1,12 @@
 export const esc=t=>t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
 export const inl=t=>esc(t).replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>').replace(/`([^`]+)`/g,"<code>$1</code>").replace(/~~([^~]+)~~/g,"<s>$1</s>").replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>").replace(/\*([^*\s][^*]*)\*/g,"<i>$1</i>");
 export const plain=b=>b.replace(/!\[[^\]]*\]\([^)]*\)/g,"").replace(/[#>*`|]/g," ").replace(/\s+/g," ").trim();
-export function md(src,im,chk){chk=chk||[];let ck=0;const L=(src||"").split("\n"),o=[],toc=[];let i=0,p=[];const fl=()=>{p.length&&o.push("<p>"+inl(p.join(" "))+"</p>");p=[]};const LI=/^\s*([-*]|\d+\.)\s/;
+export function md(src,im,chk){chk=chk||[];let ck=0,imgCount=0;const L=(src||"").split("\n"),o=[],toc=[];let i=0,p=[];const fl=()=>{p.length&&o.push("<p>"+inl(p.join(" "))+"</p>");p=[]};const LI=/^\s*([-*]|\d+\.)\s/;
 while(i<L.length){const l=L[i];let m;
 if(/^```/.test(l)){fl();const b=[];i++;while(i<L.length&&!/^```/.test(L[i]))b.push(L[i++]);o.push("<pre><code>"+esc(b.join("\n"))+"</code></pre>")}
 else if(m=l.match(/^(#{1,3})\s+(.*)/)){fl();const lv=m[1].length,id="s"+toc.length;toc.push({id,t:m[2],l:lv});o.push("<h"+lv+' id="'+id+'">'+inl(m[2])+"</h"+lv+">")}
 else if(/^---+$/.test(l)){fl();o.push("<hr>")}
-else if(m=l.match(/^!\[([^\]]*)\]\(img:(\w+)\)\s*$/)){fl();im[m[2]]&&o.push('<figure><img src="'+im[m[2]]+'" alt="'+esc(m[1])+'">'+(m[1]?"<figcaption>"+esc(m[1])+"</figcaption>":"")+"</figure>")}
+else if(m=l.match(/^!\[([^\]]*)\]\(img:(\w+)\)\s*$/)){fl();const u=im[m[2]];if(u&&!u.startsWith("idb:")){const ld=imgCount++===0?"eager":"lazy";o.push('<figure><img src="'+u+'" data-id="'+m[2]+'" alt="'+esc(m[1])+'" loading="'+ld+'" decoding="async">'+(m[1]?"<figcaption>"+esc(m[1])+"</figcaption>":"")+"</figure>")}}
 else if(/^>/.test(l)){fl();const b=[];while(i<L.length&&/^>/.test(L[i]))b.push(L[i++].replace(/^>\s?/,""));i--;let k="";const t=b.join(" ").replace(/^\[!(note|tip|warn)\]\s*/i,(a,x)=>(k=x.toLowerCase(),""));o.push('<blockquote class="'+k+'">'+(k?"<b>"+{note:"Note",tip:"Tip",warn:"Warning"}[k]+"</b>":"")+inl(t)+"</blockquote>")}
 else if(LI.test(l)){fl();const ord=/^\s*\d+\./.test(l),b=[];while(i<L.length&&LI.test(L[i]))b.push(L[i++].replace(/^\s*([-*]|\d+\.)\s+/,""));i--;const T=ord?"ol":"ul";o.push("<"+T+">"+b.map(x=>{const c=x.match(/^\[( |x)\]\s+(.*)/i);if(c){const k=ck++,on=(c[1]!==" ")!==chk.includes(k);return'<li class="ck'+(on?" on":"")+'" data-k="'+k+'">'+inl(c[2])+"</li>"}return"<li>"+inl(x)+"</li>"}).join("")+"</"+T+">")}
 else if(/^\|/.test(l)){fl();const b=[];while(i<L.length&&/^\|/.test(L[i]))b.push(L[i++]);i--;const rw=b.filter(x=>!/^\|[\s:|-]+\|?$/.test(x)).map(x=>x.replace(/^\||\|\s*$/g,"").split("|").map(c=>c.trim()));o.push('<div class="tw"><table>'+rw.map((r,k)=>"<tr>"+r.map(c=>(k?"<td>":"<th>")+inl(c)+(k?"</td>":"</th>")).join("")+"</tr>").join("")+"</table></div>")}
@@ -29,7 +29,7 @@ else if(t==="BLOCKQUOTE"){const k=["note","tip","warn"].find(c=>n.classList.cont
 else if(t==="PRE"){o.push("```\n"+ewTx(n).replace(/\n+$/,"")+"\n```")}
 else if(t==="TABLE"){const R=[...n.rows].map(r=>[...r.cells].map(c=>par(c).replace(/\|/g,"/")||"\u200b"));if(R.length){const L=R.map(r=>"| "+r.join(" | ")+" |");L.splice(1,0,"|"+R[0].map(()=>"---").join("|")+"|");o.push(L.join("\n"))}}
 else if(t==="HR")o.push("---");
-else if(t==="FIGURE"){const im=n.querySelector("img");if(!im)return;rev=rev||new Map(Object.entries(imgs).map(([k,v])=>[v,k]));const id=rev.get(im.getAttribute("src")),c=n.querySelector("figcaption");id&&o.push("!["+(c?par(c):"").replace(/[\[\]]/g,"")+"](img:"+id+")")}
+else if(t==="FIGURE"){const im=n.querySelector("img");if(!im)return;rev=rev||new Map(Object.entries(imgs).map(([k,v])=>[v,k]));const id=im.getAttribute("data-id")||rev.get(im.getAttribute("src")),c=n.querySelector("figcaption");id&&o.push("!["+(c?par(c):"").replace(/[\[\]]/g,"")+"](img:"+id+")")}
 else if((t==="DIV"||t==="P")&&[...n.children].some(c=>/^(DIV|P|H\d|UL|OL|TABLE|PRE|BLOCKQUOTE|FIGURE|HR)$/.test(c.tagName)))n.childNodes.forEach(blk);
 else{const x=par(n);x&&o.push(x)}};
 root.childNodes.forEach(blk);return o.join("\n\n")}
