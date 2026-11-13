@@ -36,7 +36,7 @@ export function CategoryModal({ modal, tree, res, users, role, userName, onClose
 
   const reassignChoices = flatCats.filter((c) => !descendantIds.includes(c.id));
   const [reassignTo, setReassignTo] = useState(
-    (reassignChoices[0] && reassignChoices[0].id) || "gen-pol"
+    (reassignChoices[0] && reassignChoices[0].id) || "c10-ovw-std"
   );
 
   const eligibleOwners = users

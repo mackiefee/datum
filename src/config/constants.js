@@ -138,6 +138,28 @@ export const can = {
 };
 
 export const KB = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
-export const RC = { General: "#8e8e93", VDC: DC.VDC, Structural: DC.Structure, Interior: DC.Interior, "P&C": DC.Architecture };
-export const RD = { General: "Architecture", VDC: "VDC", Structural: "Structure", Interior: "Interior", "P&C": "Architecture" };
+export const RC = {
+  General: "#8e8e93",
+  VDC: DC.VDC,
+  Structural: DC.Structure,
+  Interior: DC.Interior,
+  "P&C": DC.Architecture,
+  "Overview & Standards": DC.Interior,
+  "Documentation & Codes": DC.Architecture,
+  "Modeling & Families": DC.VDC,
+  "Coordination & QA": DC.MEP,
+  "Drawings & Schedules": "#34c759",
+};
+export const RD = {
+  General: "Architecture",
+  VDC: "VDC",
+  Structural: "Structure",
+  Interior: "Interior",
+  "P&C": "Architecture",
+  "Overview & Standards": "Interior",
+  "Documentation & Codes": "Architecture",
+  "Modeling & Families": "Interior",
+  "Coordination & QA": "VDC",
+  "Drawings & Schedules": "Interior",
+};
 export const CITE = /\[(\d+)\]/g;

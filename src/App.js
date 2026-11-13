@@ -36,9 +36,28 @@ import { CollectionsView } from './features/collections/CollectionsView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
 
+const DATASET_VER = "c10-interior-v2";
+const RESET_KEYS_ON_CUTOVER = [
+  "kb2-res", "kb2-tree", "kb2-cols", "kb2-acts", "kb2-notes",
+  "kb2-pins", "kb2-fav", "kb2-watch", "kb2-req", "kb2-ack",
+  "kb2-hist", "kb2-chk", "kb2-img", "kb2-users", "kb2-teams",
+];
+
+function ensureDatasetVersion() {
+  if (typeof window === "undefined") return;
+  try {
+    if (localStorage.getItem("kb2-dataset-ver") !== DATASET_VER) {
+      RESET_KEYS_ON_CUTOVER.forEach((k) => localStorage.removeItem(k));
+      localStorage.setItem("kb2-dataset-ver", DATASET_VER);
+    }
+  } catch (e) {}
+}
+
 export function App() {
+  ensureDatasetVersion();
   const [res, setRes] = useState(() => {
-    const a = db.load("kb2-res", null) || SEED;
+    const a = db.load("kb2-res", null);
+    if (!a || !Array.isArray(a) || !a.length) return [GUIDE, ...SEED];
     return a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
   });
   const [tree, setTree] = useState(() => db.load("kb2-tree", null) || TREE);
@@ -71,16 +90,16 @@ export function App() {
   const [activities, setActivities] = useState(() => db.load("kb2-acts", null) || SEED_ACTIVITIES);
   const [searchLogs, setSearchLogs] = useState(() => db.load("kb2-slogs", null) || []);
   const [flaggedIds, setFlaggedIds] = useState(() => db.load("kb2-flags", null) || []);
-  const [pinned, setPinned] = useState(() => db.load("kb2-pins", null) || [2, 9]);
+  const [pinned, setPinned] = useState(() => db.load("kb2-pins", null) || [100, 113, 129, 132]);
 
-  const [favs, setFavs] = useState(() => db.load("kb2-fav", null) || [6]);
-  const [watch, setWatch] = useState(() => db.load("kb2-watch", null) || [1, 3]);
+  const [favs, setFavs] = useState(() => db.load("kb2-fav", null) || [102, 118, 123]);
+  const [watch, setWatch] = useState(() => db.load("kb2-watch", null) || [113, 129, 131]);
   const [notes, setNotes] = useState(() => db.load("kb2-notes", null) || NOTES);
 
   const [view, setView] = useState("home");
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
-  const [open, setOpen] = useState(["vdc", "str"]);
+  const [open, setOpen] = useState(["int", "c10-ovw", "c10-doc", "c10-mod", "c10-crd", "c10-drw"]);
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
   const [sel, setSel] = useState(null);
@@ -93,9 +112,9 @@ export function App() {
   const [retB, setRetB] = useState(null);
   const [pubTarget, setPubTarget] = useState(null);
   const [acks, setAcks] = useState(() => db.load("kb2-ack", null) || {});
-  const [req, setReq] = useState(() => db.load("kb2-req", null) || [2, 3]);
+  const [req, setReq] = useState(() => db.load("kb2-req", null) || [100, 112, 127]);
   const [hist, setHist] = useState(() => db.load("kb2-hist", null) || []);
-  const [seen, setSeen] = useState(() => db.load("kb2-seen", null) || "2026-10-12");
+  const [seen, setSeen] = useState(() => db.load("kb2-seen", null) || "2026-11-13");
   const [chk, setChk] = useState(() => db.load("kb2-chk", null) || {});
   const [pal, setPal] = useState(false);
   const [aq, setAq] = useState(null);

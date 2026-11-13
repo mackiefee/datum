@@ -7,26 +7,28 @@ const avSvg = (bg, fg, init) =>
   );
 
 export const USERS = [
-  { id: "u1", name: "Maxim", email: "maxim@planit.studio", title: "Head of VDC & BIM Lead", role: "SuperAdmin", dept: "VDC", teams: ["VDC", "General"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291001", avatar: avSvg("#0a84ff", "#5e5ce6", "M") },
-  { id: "u2", name: "Olena K.", email: "olena@planit.studio", title: "Principal Structural Engineer", role: "Admin", dept: "Structural", teams: ["Structural", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291002", avatar: avSvg("#ff375f", "#bf5af2", "OK") },
-  { id: "u3", name: "Iryna P.", email: "iryna@planit.studio", title: "Senior BIM Coordinator", role: "Editor", dept: "VDC", teams: ["VDC", "Interior"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291003", avatar: avSvg("#8e5cf7", "#30b0c7", "IP") },
-  { id: "u4", name: "Andrii B.", email: "andrii@planit.studio", title: "BIM Modeler & Dynamo Specialist", role: "Editor", dept: "Structural", teams: ["Structural", "VDC"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291004", avatar: avSvg("#34c759", "#0a84ff", "AB") },
-  { id: "u5", name: "Sofiia L.", email: "sofiia@planit.studio", title: "Interior Architect", role: "Member", dept: "Interior", teams: ["Interior"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291005", avatar: avSvg("#ff9f0a", "#ff375f", "SL") },
-  { id: "u6", name: "External Partner", email: "partner@client.example", title: "External Reviewer", role: "Guest", dept: "External", teams: [], status: "active", provider: "guest", emailVerified: false, googleSub: "", avatar: avSvg("#8e8e93", "#48484a", "EP") },
+  { id: "u1", name: "Maxim", email: "maxim@planit.studio", title: "Head of VDC & BIM Lead", role: "SuperAdmin", dept: "VDC", teams: ["VDC", "Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291001", avatar: avSvg("#0a84ff", "#5e5ce6", "M") },
+  { id: "u2", name: "Elena Khlivetskaya", email: "elena@planit.studio", title: "Interior PE Standard Owner", role: "Admin", dept: "Interior", teams: ["Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291002", avatar: avSvg("#ff9f0a", "#ff375f", "EK") },
+  { id: "u3", name: "Iryna P.", email: "iryna@planit.studio", title: "Senior Interior PE Coordinator", role: "Editor", dept: "Interior", teams: ["Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291003", avatar: avSvg("#8e5cf7", "#30b0c7", "IP") },
+  { id: "u4", name: "Andrii Lytvynov", email: "andrii@planit.studio", title: "BIM Automation & Planit Tools Lead", role: "Editor", dept: "VDC", teams: ["VDC", "Interior PE", "MEP", "Structural"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291004", avatar: avSvg("#34c759", "#0a84ff", "AL") },
+  { id: "u5", name: "Sofiia L.", email: "sofiia@planit.studio", title: "Interior PE Specialist", role: "Member", dept: "Interior", teams: ["Interior PE"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291005", avatar: avSvg("#ff375f", "#bf5af2", "SL") },
+  { id: "u6", name: "External Partner", email: "partner@client.example", title: "Design Team / GC Reviewer", role: "Guest", dept: "External", teams: [], status: "active", provider: "guest", emailVerified: false, googleSub: "", avatar: avSvg("#8e8e93", "#48484a", "EP") },
 ];
 
 export const SEED_TEAMS = [
-  { id: "t-vdc", name: "VDC", desc: "BIM standards, CDE coordination, model health & automation.", color: "#8e5cf7", lead: "Maxim", members: ["Maxim", "Iryna P.", "Andrii B."] },
-  { id: "t-str", name: "Structural", desc: "Load-bearing standards, foundations, stiffness cores & Revit templates.", color: "#ff375f", lead: "Olena K.", members: ["Olena K.", "Andrii B.", "Sofiia L."] },
-  { id: "t-int", name: "Interior", desc: "Interior drawing presentation, schedules & family libraries.", color: "#ff9f0a", lead: "Sofiia L.", members: ["Sofiia L.", "Iryna P.", "Maxim"] },
-  { id: "t-pc", name: "P&C", desc: "Project delivery, quality assurance & restricted client documentation issue.", color: "#0071e3", lead: "Olena K.", members: ["Olena K.", "Maxim", "Iryna P."] },
+  { id: "t-int", name: "Interior PE", desc: "C10_INTERIOR modeling, ADA & code compliance, CL-RFI layouts and QA.", color: "#ff9f0a", lead: "Elena Khlivetskaya", members: ["Elena Khlivetskaya", "Iryna P.", "Maxim", "Andrii Lytvynov", "Sofiia L."] },
+  { id: "t-vdc", name: "VDC", desc: "Revit Warehouse families, Planit Tools / pyPlanIt, Dusty Robotics & naming rules.", color: "#8e5cf7", lead: "Maxim", members: ["Maxim", "Andrii Lytvynov", "Elena Khlivetskaya"] },
+  { id: "t-pc", name: "P&C", desc: "Plan & Control standards, revision workflows, Input/Output checklists & client handoff.", color: "#0071e3", lead: "Elena Khlivetskaya", members: ["Elena Khlivetskaya", "Iryna P.", "Maxim"] },
+  { id: "t-mep", name: "MEP", desc: "Plumbing wet-wall coordination, risers, shafts and ceiling access panels.", color: "#30b0c7", lead: "Andrii Lytvynov", members: ["Andrii Lytvynov", "Maxim", "Elena Khlivetskaya"] },
+  { id: "t-str", name: "Structural", desc: "Concrete slab/column tolerances, CMU lintels, shear walls and weld embeds.", color: "#ff375f", lead: "Andrii Lytvynov", members: ["Andrii Lytvynov", "Maxim"] },
 ];
 
 export const TEAMS = [
-  ["VDC", [["Maxim", "SuperAdmin"], ["Iryna P.", "Editor"], ["Andrii B.", "Editor"]]],
-  ["Structural", [["Olena K.", "Admin"], ["Andrii B.", "Editor"], ["Sofiia L.", "Member"]]],
-  ["Interior", [["Sofiia L.", "Member"], ["Iryna P.", "Editor"], ["Maxim", "SuperAdmin"]]],
-  ["P&C", [["Olena K.", "Admin"], ["Maxim", "SuperAdmin"], ["Iryna P.", "Member"]]],
+  ["Interior PE", [["Elena Khlivetskaya", "Admin"], ["Iryna P.", "Editor"], ["Maxim", "SuperAdmin"], ["Andrii Lytvynov", "Editor"], ["Sofiia L.", "Member"]]],
+  ["VDC", [["Maxim", "SuperAdmin"], ["Andrii Lytvynov", "Editor"], ["Elena Khlivetskaya", "Admin"]]],
+  ["P&C", [["Elena Khlivetskaya", "Admin"], ["Iryna P.", "Editor"], ["Maxim", "SuperAdmin"]]],
+  ["MEP", [["Andrii Lytvynov", "Editor"], ["Maxim", "SuperAdmin"], ["Elena Khlivetskaya", "Admin"]]],
+  ["Structural", [["Andrii Lytvynov", "Editor"], ["Maxim", "SuperAdmin"]]],
 ];
 
 export const mk = (o) => ({
@@ -39,386 +41,1240 @@ export const mk = (o) => ({
   ...o,
   v: o.prev
     ? [
-        { n: 1, by: o.author, d: "2026-08-12", note: "Created", body: o.prev },
+        { n: 1, by: o.author, d: "2026-08-12", note: "Created from C10_INTERIOR", body: o.prev },
         { n: 2, by: o.author, d: o.upd, note: "Updated", body: o.body },
       ]
-    : [{ n: 1, by: o.author, d: o.upd, note: "Created", body: o.body }],
+    : [{ n: 1, by: o.author, d: o.upd, note: "Imported from C10_INTERIOR.pptx", body: o.body }],
 });
 
-export const SEED = [
-  mk({
-    id: 1,
-    node: "vdc-bim",
-    type: "doc",
-    vis: "Internal",
-    title: "BIM Execution Plan — template",
-    desc: "BEP basis for every new project: roles, CDE, exchange schedule.",
-    body: "The BEP defines roles, responsibilities, exchange formats and project checkpoints. It is filled in at the start and updated at every stage. All changes are recorded in versions.",
-    prev: "The BEP defines roles and exchange formats.",
-    status: "Approved",
-    stage: "Concept",
-    disc: "VDC",
-    tags: ["BEP", "BIM", "start"],
-    author: "Maxim",
-    upd: "2026-10-14",
-    links: [[2, "hard"], [12, "soft"]],
-  }),
-  mk({
-    id: 2,
-    node: "vdc-name",
-    type: "doc",
-    vis: "Public",
-    title: "File and model naming",
-    desc: "Unified code scheme: project-originator-volume-level-type-number.",
-    body: "All files in the CDE are named using the project-originator-volume-level-type-number scheme. Discipline codes are listed in the appendix. Files with incorrect names are not accepted for publication.",
-    status: "Approved",
-    stage: "Design",
-    disc: "VDC",
-    tags: ["naming", "CDE"],
-    author: "Iryna P.",
-    upd: "2026-09-30",
-  }),
-  mk({
-    id: 3,
-    node: "vdc-proc",
-    type: "doc",
-    vis: "Internal",
-    title: "Model coordination and clash detection",
-    desc: "Procedure for weekly clash checks between disciplines.",
-    body: "Every week by Friday the disciplines publish their models to the CDE. VDC assembles the federated model, runs the clash check and sends the report to the responsible people. Critical clashes are closed before the next meeting.",
-    status: "Review",
-    stage: "Design",
-    disc: "VDC",
-    tags: ["Navisworks", "clashes"],
-    author: "Maxim",
-    upd: "2026-10-20",
-    links: [[1, "hard"], [13, "soft"]],
-    c: [{ by: "Andrii B.", d: "2026-10-20", t: "@Maxim add clash priority criteria." }],
-  }),
-  mk({
-    id: 4,
-    node: "str-std",
-    type: "doc",
-    vis: "Internal",
-    title: "Design loads — standard",
-    desc: "Baseline loads and factors for structural models.",
-    body: "The document defines baseline loads, reliability factors and load combinations. It is used as input data for load-bearing elements and foundations.",
-    status: "Approved",
-    stage: "Design",
-    disc: "Structure",
-    tags: ["loads", "calculation"],
-    author: "Olena K.",
-    upd: "2026-09-12",
-  }),
-  mk({
-    id: 5,
-    node: "str-tpl",
-    type: "doc",
-    vis: "Internal",
-    title: "Foundation — typical solution",
-    desc: "Typical slab and strip foundations with details.",
-    body: "Typical slab and strip foundation solutions with wall junction details. Before use, compliance with the design loads is verified.",
-    status: "Draft",
-    stage: "Design",
-    disc: "Structure",
-    tags: ["foundation", "details"],
-    author: "Olena K.",
-    upd: "2026-10-18",
-    links: [[4, "hard"]],
-  }),
-  mk({
-    id: 6,
-    node: "int-fam",
-    type: "media",
-    vis: "Internal",
-    title: "Furniture family library",
-    desc: "Verified furniture and equipment families for Revit.",
-    body: "The families have been checked for naming, parameters and file size. Do not upload third-party families without a check by the VDC team.",
-    status: "Approved",
-    stage: "Construction",
-    disc: "Interior",
-    tags: ["families", "Revit"],
-    author: "Sofiia L.",
-    upd: "2026-09-22",
-    url: "https://drive.google.com",
-  }),
-  mk({
-    id: 7,
-    node: "int-std",
-    type: "doc",
-    vis: "Internal",
-    title: "Interior drawing presentation",
-    desc: "Title blocks, scales, line weights and schedules for interiors.",
-    body: "A0-A3 formats, title block, line and fill styles, rules for placing plans, elevations and schedules on sheets.",
-    status: "Review",
-    stage: "Construction",
-    disc: "Interior",
-    tags: ["sheets", "graphics"],
-    author: "Sofiia L.",
-    upd: "2026-10-16",
-    links: [[2, "soft"]],
-  }),
-  mk({
-    id: 8,
-    node: "pc-proc",
-    type: "doc",
-    vis: "Restricted",
-    title: "Issuing the documentation set",
-    desc: "Preparing, checking and issuing sheets to the client.",
-    body: "The model is frozen and versioned. Sheets are checked against a checklist, PDF and DWG are exported, and the issue is recorded in the register. The package is uploaded to the CDE and the team is notified.",
-    status: "Approved",
-    stage: "Construction",
-    disc: "Architecture",
-    tags: ["issue", "QA"],
-    author: "Olena K.",
-    upd: "2026-10-02",
-    links: [[1, "hard"], [2, "hard"]],
-  }),
-  mk({
-    id: 9,
-    node: "vdc-tool",
-    type: "service",
-    vis: "Internal",
-    title: "pyRevit — corporate extension",
-    desc: "Custom scripts for sheets, annotations and model checking.",
-    body: "pyRevit extension with tools for managing sheets, transferring annotations and checking the model. Updated weekly from the repository.",
-    status: "Approved",
-    stage: "Design",
-    disc: "VDC",
-    tags: ["pyRevit", "Python", "automation"],
-    author: "Maxim",
-    upd: "2026-10-19",
-    url: "https://pyrevitlabs.io",
-    links: [[3, "soft"]],
-  }),
-  mk({
-    id: 10,
-    node: "gen-link",
-    type: "service",
-    vis: "Internal",
-    title: "Redmine — project tasks",
-    desc: "Tracker of tasks and deadlines by project.",
-    body: "Tasks, deadlines and owners by project. Every model change that affects the issue must have a task.",
-    status: "Approved",
-    stage: "Design",
-    disc: "Architecture",
-    tags: ["tasks", "tracker"],
-    author: "Olena K.",
-    upd: "2026-08-30",
-    url: "https://www.redmine.org",
-  }),
-  mk({
-    id: 11,
-    node: "gen-link",
-    type: "link",
-    vis: "Public",
-    title: "DBN regulatory framework",
-    desc: "Current building codes of Ukraine.",
-    body: "Check the edition and effective date of the codes before starting a stage.",
-    status: "Approved",
-    stage: "Concept",
-    disc: "Architecture",
-    tags: ["DBN", "codes"],
-    author: "Andrii B.",
-    upd: "2026-06-15",
-    url: "https://dbn.co.ua",
-  }),
-  mk({
-    id: 12,
-    node: "gen-pol",
-    type: "doc",
-    vis: "Internal",
-    title: "CDE access policy",
-    desc: "Who can see and edit what, and at which level.",
-    body: "Access is granted at the department, folder or individual document level. Roles: Super Admin, Admin, Editor, Member, Guest. Permissions are reviewed quarterly.",
-    status: "Draft",
-    stage: "Concept",
-    disc: "VDC",
-    tags: ["access", "CDE", "roles"],
-    author: "Maxim",
-    upd: "2026-10-21",
-  }),
-  mk({
-    id: 13,
-    node: "vdc-proc",
-    type: "report",
-    vis: "Internal",
-    title: "Report: model quality for the month",
-    desc: "Trends in warnings, duplicates and clashes by project.",
-    body: "Monthly report: number of Revit warnings, duplicates, open clashes and deviations from the naming standard by project.",
-    status: "Review",
-    stage: "Design",
-    disc: "VDC",
-    tags: ["QA", "report", "clashes"],
-    author: "Iryna P.",
-    upd: "2026-10-10",
-    links: [[3, "soft"]],
-  }),
-  mk({
-    id: 14,
-    node: "str-std",
-    type: "doc",
-    vis: "Internal",
-    title: "Elevator shaft — requirements",
-    desc: "Geometry, loads and coordination of the stiffness core.",
-    body: "Requirements for shaft geometry, anchors and loads from elevator equipment. The stiffness core is coordinated with the walls and foundation.",
-    status: "Draft",
-    stage: "Design",
-    disc: "Structure",
-    tags: ["elevator", "core"],
-    author: "Andrii B.",
-    upd: "2026-10-17",
-    links: [[15, "hard"], [5, "soft"]],
-  }),
-  mk({
-    id: 15,
-    node: "str-std",
-    type: "doc",
-    vis: "Internal",
-    title: "Load-bearing wall — standard",
-    desc: "Thicknesses, reinforcement, openings and junctions with the foundation.",
-    body: "Minimum thicknesses, reinforcement layouts and rules for forming openings. The wall rests on the foundation and interacts with the elevator shaft core.",
-    status: "Approved",
-    stage: "Design",
-    disc: "Structure",
-    tags: ["wall", "reinforcement"],
-    author: "Olena K.",
-    upd: "2026-09-25",
-    links: [[5, "hard"], [14, "soft"]],
-  }),
-  mk({
-    id: 16,
-    node: "str-tpl",
-    type: "template",
-    vis: "Internal",
-    title: "Revit Project Starter Template (BEP v3)",
-    desc: "Clean .rte template with shared parameters, view templates and title blocks.",
-    body: "Use this starter template for all new Revit 2026 architectural and structural models. Purge unused families before first CDE publication.",
-    status: "Approved",
-    stage: "Concept",
-    disc: "VDC",
-    tags: ["template", "Revit", "start"],
-    author: "Maxim",
-    upd: "2026-10-15",
-    url: "https://drive.google.com/starter-template",
-    links: [[1, "hard"], [2, "hard"]],
-  }),
-];
-
-export const NOTES = [
-  { id: "a", text: "Andrii B. left a comment on “Model coordination and clash detection”", rid: 3, t: "2 h ago", un: 1 },
-  { id: "b", text: "“Interior drawing presentation” submitted for approval", rid: 7, t: "yesterday", un: 1 },
-  { id: "c", text: "Olena K. updated “Foundation — typical solution”", rid: 5, t: "4 days ago", un: 0 },
-];
-
 export const IMG0 = {
-  demo:
-    "data:image/svg+xml," +
-    encodeURIComponent(
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 260"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0a84ff"/><stop offset="1" stop-color="#8e5cf7"/></linearGradient></defs><rect width="720" height="260" fill="url(#g)"/><g fill="#fff" font-family="sans-serif" font-size="20" text-anchor="middle"><rect x="50" y="95" width="170" height="70" rx="16" fill-opacity=".22"/><rect x="275" y="95" width="170" height="70" rx="16" fill-opacity=".22"/><rect x="500" y="95" width="170" height="70" rx="16" fill-opacity=".22"/><text x="135" y="137">Draft</text><text x="360" y="137">Approval</text><text x="585" y="137">Published</text></g></svg>'
-    ),
+  c10_image59: "/c10-media/image59.png",
+  c10_image65: "/c10-media/image65.png",
+  c10_image67: "/c10-media/image67.png",
+  c10_image68: "/c10-media/image68.jpg",
+  c10_image70: "/c10-media/image70.png",
+  c10_image73: "/c10-media/image73.png",
+  c10_image75: "/c10-media/image75.jpg",
+  c10_image77: "/c10-media/image77.jpg",
+  c10_image78: "/c10-media/image78.png",
+  c10_image82: "/c10-media/image82.png",
+  c10_image86: "/c10-media/image86.png",
+  c10_image95: "/c10-media/image95.png",
+  c10_image139: "/c10-media/image139.png",
+  c10_image140: "/c10-media/image140.png",
+  c10_image142: "/c10-media/image142.png",
+  c10_image160: "/c10-media/image160.png",
+  c10_image167: "/c10-media/image167.png",
+  c10_image176: "/c10-media/image176.png",
+  c10_image183: "/c10-media/image183.png",
+  c10_image200: "/c10-media/image200.png",
+  c10_image208: "/c10-media/image208.png",
+  c10_image209: "/c10-media/image209.png",
+  c10_image211: "/c10-media/image211.png",
+  c10_image215: "/c10-media/image215.png",
+  c10_image243: "/c10-media/image243.png",
+  c10_image245: "/c10-media/image245.png",
+  c10_image260: "/c10-media/image260.png",
+  c10_image279: "/c10-media/image279.png",
+  c10_image280: "/c10-media/image280.png",
+  c10_image295: "/c10-media/image295.png",
+  c10_image298: "/c10-media/image298.png",
+  c10_image302: "/c10-media/image302.png",
+  c10_image305: "/c10-media/image305.png",
+  c10_image306: "/c10-media/image306.png",
+  c10_image315: "/c10-media/image315.png",
+  c10_image327: "/c10-media/image327.png",
+  c10_image330: "/c10-media/image330.png",
+  c10_image333: "/c10-media/image333.png",
+  c10_image343: "/c10-media/image343.png",
+  c10_image347: "/c10-media/image347.png",
+  c10_image359: "/c10-media/image359.png",
+  c10_image367: "/c10-media/image367.png",
+  c10_image380: "/c10-media/image380.png",
+  c10_image385: "/c10-media/image385.png",
+  c10_image409: "/c10-media/image409.png",
+  c10_image410: "/c10-media/image410.png",
+  c10_image425: "/c10-media/image425.png",
+  c10_image442: "/c10-media/image442.png",
+  c10_image455: "/c10-media/image455.png",
+  c10_image470: "/c10-media/image470.png",
+  c10_image474: "/c10-media/image474.png",
+  c10_image478: "/c10-media/image478.png",
+  c10_image480: "/c10-media/image480.png",
+  c10_image499: "/c10-media/image499.png",
+  c10_image500: "/c10-media/image500.png",
+  c10_image501: "/c10-media/image501.png",
+  c10_image511: "/c10-media/image511.png",
+  c10_image542: "/c10-media/image542.png",
+  c10_image543: "/c10-media/image543.png",
+  c10_image549: "/c10-media/image549.png",
+  c10_image551: "/c10-media/image551.png",
+  c10_image563: "/c10-media/image563.jpg",
+  c10_image580: "/c10-media/image580.png",
+  c10_image584: "/c10-media/image584.jpg",
+  c10_image595: "/c10-media/image595.png",
+  c10_image597: "/c10-media/image597.jpg",
+  c10_image602: "/c10-media/image602.png",
+  c10_image606: "/c10-media/image606.jpg",
+  c10_image610: "/c10-media/image610.jpg",
+  c10_image625: "/c10-media/image625.jpg",
+  c10_image633: "/c10-media/image633.jpg",
+  c10_image635: "/c10-media/image635.png",
+  c10_image639: "/c10-media/image639.png",
+  c10_image650: "/c10-media/image650.png",
+  c10_image661: "/c10-media/image661.png",
+  c10_image669: "/c10-media/image669.png",
+  c10_image675: "/c10-media/image675.png",
+  c10_image683: "/c10-media/image683.png",
+  c10_image689: "/c10-media/image689.png",
+  c10_image723: "/c10-media/image723.png",
+  c10_image728: "/c10-media/image728.png",
+  c10_image733: "/c10-media/image733.png",
+  c10_image741: "/c10-media/image741.png",
+  c10_image750: "/c10-media/image750.png",
+  c10_image767: "/c10-media/image767.png",
+  c10_image785: "/c10-media/image785.png",
+  c10_image790: "/c10-media/image790.png",
+  c10_image812: "/c10-media/image812.jpg",
+  c10_image821: "/c10-media/image821.jpg",
+  c10_image833: "/c10-media/image833.jpg",
+  c10_image846: "/c10-media/image846.png",
+  c10_image852: "/c10-media/image852.jpg",
+  c10_image884: "/c10-media/image884.jpg",
+  c10_image886: "/c10-media/image886.png",
+  c10_image887: "/c10-media/image887.jpg",
+  c10_image893: "/c10-media/image893.jpg",
+  c10_image897: "/c10-media/image897.jpg",
+  c10_image898: "/c10-media/image898.png",
 };
 
 export const GUIDE = mk({
   id: 100,
-  node: "gen-pol",
+  node: "c10-ovw-std",
   type: "doc",
   vis: "Public",
-  publicAttachments: ["demo"],
-  title: "How to use the Knowledge Library",
-  desc: "Quick guide: creating articles, markup, images, table of contents and templates.",
+  publicAttachments: ["c10_image140"],
+  title: "C10_INTERIOR — Master Standard & Navigation Guide",
+  desc: "Complete Planit Interior PE Knowledge Base structured from the 465-slide C10_INTERIOR manual into 5 engineering divisions.",
   status: "Approved",
-  stage: "Concept",
-  disc: "VDC",
-  tags: ["guide", "markup"],
+  stage: "Construction",
+  disc: "Interior",
+  tags: ["C10_INTERIOR", "standard", "onboarding", "overview"],
   author: ME,
   upd: TODAY,
-  body: `## What it is
-The library keeps the studio’s standards, procedures and instructions in one place. Every article has versions, links and comments.
+  links: [[101, "hard"], [102, "hard"], [104, "soft"], [128, "soft"]],
+  body: `## Purpose & Scope of C10_INTERIOR
+The **C10_INTERIOR** engineering manual governs all interior BIM detailing, code compliance verification, cross-discipline coordination, and **CL-RFI** deliverable preparation across Planit projects. The full 465-slide knowledge base has been organized in Datum into five engineering divisions.
 
-## Creating an article
-1. Click **Create** in the top bar.
-2. Choose a template, a space and enter a title.
-3. Write on the left — the result is shown immediately on the right.
+![C10_INTERIOR Uniformat & Workflow Overview](img:c10_image140)
 
-![Article lifecycle](img:demo)
+## Knowledge Base Structure
+| Division | Focus Areas | Slide Coverage |
+|---|---|---|
+| Overview & Standards | Revisions, abbreviations, project start, Warehouse R21 | Slides 1–35 |
+| Documentation & Codes | Reading A-sets, naming, fire resistance, ADA clearances | Slides 36–128 |
+| Modeling & Families | GWB/wood/metal walls, wire mesh, doors, kitchens, baths, blocking | Slides 129–305 |
+| Coordination & QA | Concrete tolerances, MEP/STR sync, Dusty Robotics, QA audit | Slides 306–325 & 390–465 |
+| Drawings & Schedules | CL-RFI 1/1.1/1.4/1.5/4/4.1, B/B/R tags, schedules, markups | Slides 326–389 |
 
-## Markup
-### Headings and table of contents
-Headings ## and ### automatically build the table of contents on the side.
-### Images
-Add an image with the “Image” button, drag a file in, or paste from the clipboard with Ctrl+V.
+> [!tip] Sections marked OUTDATED in legacy slides now link directly to live Actual Google Docs inside the Documentation & Standards hub.
 
-> [!tip] Click an image in an article to open it full screen.
-
-> [!warn] Images are stored in this browser. A server is required for shared work.
-
-## Tables and checklist
-| Type | When to use |
-|---|---|
-| Instruction | Step-by-step actions |
-| Procedure | Rules and responsibility |
-
-- [ ] Check naming
-- [x] Publish the model to the CDE
+## Quick Onboarding Checklist
+- [x] Verify Revit version (2019–2026) and install **Planit Tools** (\`\\\\srv\\install\\RUN\`)
+- [ ] Review Project Input/Output Checklist before opening any model
+- [ ] Confirm applicable building codes (IBC / CBC Ch. 7 & Ch. 11A/11B)
+- [ ] Run common-mistakes pre-check prior to submitting CL-RFI sheets to QA
 `,
 });
 
+export const SEED = [
+  mk({
+    id: 101,
+    node: "c10-ovw-std",
+    type: "doc",
+    vis: "Internal",
+    title: "Revision History, Standard Owners & Contacts",
+    desc: "Document governance, process owners, contributor roster and chronological revision log of C10_INTERIOR.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["governance", "contacts", "revisions"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-18",
+    links: [[100, "hard"], [102, "hard"]],
+    body: `## Document Governance
+**Standard Owner / Contact Person:** Elena Khlivetskaya  
+**Maintained by:** P&C PE Team & Interior PE Team
+
+> [!note] Before applying legacy slide procedures for Interior Walls, Chain-Link Partitions, Interior Doors, Parking Control, or Drawing Revisions, verify the linked Actual Google Doc in article #102.
+
+## Contributors Roster
+| Area | Contributors |
+|---|---|
+| General Standards, Codes & Appliances | Elena Khlivetskaya, Oksana Denysiuk, Svetlana Schmidt |
+| Modeling (Walls, Ceilings, 3D Room Tags) | Dmytro Kryshchuk, Nikita Mishchenko |
+| Doors, Kitchens & Bathrooms | Maksim Borisov, Daria Levchenko, Artem Honchar |
+| Coordination & Concrete Tolerances | Anton Kolmykov, Anastasia Batechko |
+| CL-RFI Drawings & Planit Tools | Aleksey Girdvoin, Aleksandr Kuchma, Andrii Lytvynov (ALI) |
+
+![Standard Governance and Update Tracking](img:c10_image77)
+
+![Process Update Summary Table](img:c10_image75)
+
+![Revision History Log Part 1](img:c10_image68)
+
+![Revision History Log Part 2](img:c10_image65)
+`,
+  }),
+
+  mk({
+    id: 102,
+    node: "c10-ovw-std",
+    type: "link",
+    vis: "Public",
+    title: "Actual Interior Standards & P&C Google Docs Hub",
+    desc: "Direct portal to the superseding Google Docs for Interior Walls, Wire Mesh, Interior Doors, Parking Control & Revisions.",
+    url: "https://docs.google.com/document/d/1vSa4jYwxz6ltsmDjm2AOhATwWZXIZaDNq6m_x9ZzdlM/edit",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["google-docs", "actual-standard", "links"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-21",
+    links: [[100, "hard"], [111, "hard"], [115, "hard"], [129, "hard"]],
+    body: `## Active Google Docs Standards (Supersedes Legacy Slides)
+Whenever a slide displays the **OUTDATED / SUPERSEDED** badge, engineers must use these authoritative living documents:
+
+| Standard Document | Status | Direct URL |
+|---|---|---|
+| **Actual Interior Walls Standard** | Active | https://docs.google.com/document/d/1vSa4jYwxz6ltsmDjm2AOhATwWZXIZaDNq6m_x9ZzdlM/edit |
+| **Chain-Link & Wire Mesh Partitions Standard** | Active | https://docs.google.com/document/d/18vfb2HUIVXFYD00ell66yt-k6L04nnzxde0gn4yQWg0/edit |
+| **Interior Doors Standard** | Active | https://docs.google.com/document/d/1GY7rxmEqB6CbE9ruBXyMqFdJXMPsiQlD3oXHKheDTGI/edit |
+| **Parking Control Modeling & Detailing** | Active | https://docs.google.com/document/d/15ker8RuPV26e23PgLOLOFRI8mM5Y1-39Ypq7cwgqw4g/edit |
+| **P&C Planit Revision Standard** | Active | https://docs.google.com/document/d/1bHDuWqf-1rCZZhi4HcVbzyGfWUTd4tf8PHHWfYujRm0/edit |
+
+> [!warn] Never issue CL-RFI revision clouds or markup PDFs using superseded title-block notes; follow the **P&C Planit Revision Standard** directly.
+`,
+  }),
+
+  mk({
+    id: 103,
+    node: "c10-ovw-std",
+    type: "doc",
+    vis: "Public",
+    title: "Abbreviations, Scope Boundaries & Uniformat C10",
+    desc: "Studio abbreviations (PE, PL, ET, NF, iRFI, oRFI), Uniformat C1010–C1030 classification and in-scope/out-of-scope rules.",
+    status: "Approved",
+    stage: "Concept",
+    disc: "Interior",
+    tags: ["abbreviations", "uniformat", "C10", "scope"],
+    author: "Iryna P.",
+    upd: "2026-10-10",
+    links: [[100, "soft"], [104, "hard"]],
+    body: `## Key Studio & Deliverable Abbreviations
+| Code | Meaning |
+|---|---|
+| **PE / PL / PM** | Project Engineer / Project Lead / Project Manager |
+| **DD / CD** | Design Documents / Construction Documents |
+| **CL / CL-RFI** | Coordinated Layout / Coordinated Layout Request for Information |
+| **NF / iRFI / oRFI** | Notification (Internal Request) / Internal RFI / Official RFI |
+| **ET** | Estimated Time allocated per Redmine task |
+| **TOS / AFF** | Top of Slab / Above Finish Floor |
+| **B/B/R** | Black (per DD), Blue (confirmed/updated), Red (missing info / RFI) |
+
+## Uniformat C10 Scope Matrix
+![Uniformat C10 Breakdown](img:c10_image59)
+
+![Scope Inclusion vs Exclusion Chart](img:c10_image70)
+
+> [!important] Wall finishes thinner than 1/8" (skim coat plaster, paint) and wall bases are excluded from modeling scope unless explicitly added to the Project Input/Output Checklist.
+`,
+  }),
+
+  mk({
+    id: 104,
+    node: "c10-ovw-start",
+    type: "doc",
+    vis: "Internal",
+    title: "Project Start — Input Analysis, Checklists & Warehouse",
+    desc: "Step-by-step intake workflow for new Interior projects: Redmine review, DD folders, Input/Output Checklist & Warehouse R21.",
+    status: "Approved",
+    stage: "Concept",
+    disc: "Interior",
+    tags: ["project-start", "redmine", "warehouse", "intake"],
+    author: "Iryna P.",
+    upd: "2026-10-16",
+    links: [[105, "hard"], [106, "hard"], [114, "soft"]],
+    body: `## Mandatory First Steps When Assigned a Project
+1. Read the **Redmine task description** carefully and verify the assigned **ET** (Estimated Time).
+2. Inspect the **Project Input/Output Checklist** before raising any missing-information RFI(NF).
+3. Collect all baseline documents: Architectural Set, Structural Drawings (Steel/Concrete/Wood Framing), Project Manual (Divisions 05, 06, 08, 09, 10, 11, 12), Submittals, and LOD Report.
+4. Link **Warehouse Model R21+** families from \`\\\\SRV\\_P&C_ProcessDoc\\01 FAMILIES WAREHOUSE\\03. C Interiors\`.
+
+![Project Start Input Verification Flow](img:c10_image73)
+
+![Revit Setup and Warehouse Paths](img:c10_image67)
+
+## Pre-Modeling Verification Checklist
+- [ ] Verify whether floor finishes are included in budget (doors must rest on finished floor!)
+- [ ] Confirm dimensioning logic in DD (Face of Stud vs Face of Finish)
+- [ ] Check Communal Areas & Typical Units boundaries
+- [ ] Verify official RFIs already answered prior to CL start
+`,
+  }),
+
+  mk({
+    id: 105,
+    node: "c10-ovw-start",
+    type: "template",
+    vis: "Internal",
+    title: "Project Input/Output, Naming & Communal Checklists",
+    desc: "Master Google Sheets templates for Input/Output tracking, Element/Material Naming, Model Naming & Communal Areas.",
+    url: "https://docs.google.com/spreadsheets/d/12SthUlO2i9DI_x0Ypn1SMEOPryrVr_GkDb0jfWGMqSM/edit",
+    status: "Approved",
+    stage: "Concept",
+    disc: "VDC",
+    tags: ["template", "checklist", "google-sheets", "naming"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-19",
+    links: [[104, "hard"], [107, "hard"]],
+    body: `## Official Google Sheets Templates
+| Sheet | Purpose | Link |
+|---|---|---|
+| **Project Input/Output Checklist** | Required DD/submittal inputs & deliverable outputs per category | https://docs.google.com/spreadsheets/d/12SthUlO2i9DI_x0Ypn1SMEOPryrVr_GkDb0jfWGMqSM/edit |
+| **T/U_Interior Naming (Elements & Materials)** | Partition, door, finish and material naming formulas | https://docs.google.com/spreadsheets/d/1tFoVT60ILi13fFpUo3GIbYBPys9JZi3MxT_UEMotU-s/edit |
+| **Project Browser & Model Naming** | Standard view browser grouping & RVT file names | https://docs.google.com/spreadsheets/d/1HEBzL-OPx7mZmfqcyhWQZenbsMPf2oFx2pP4ubGCe78/edit |
+| **Communal Areas Checklist** | Corridor, lobby, amenity & restroom scope matrix | https://docs.google.com/spreadsheets/d/1JAzba9f_FbAfJdJexWpqZDRUqx25vEigrfuk0aBF90Y/edit |
+
+> [!tip] Always check the Input Checklist row for a category (e.g., Wire Mesh or Appliances) before flagging \`NF\`: if filled in the checklist without drawings, treat as pending submittal rather than missing-drawing RFI.
+`,
+  }),
+
+  mk({
+    id: 106,
+    node: "c10-doc-read",
+    type: "doc",
+    vis: "Internal",
+    title: "How to Read Design Documents — Plans, Enlarged & Specs",
+    desc: "Guide to reading Architectural sets, Partition Type sheets, Enlarged Unit Plans, Elevations, Schedules & Project Manual.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Architecture",
+    tags: ["design-documents", "A-series", "specifications", "reading"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-14",
+    links: [[104, "soft"], [108, "hard"], [109, "hard"]],
+    body: `## Reading Sequence for Architectural Packages
+1. **G-Series / Life Safety Plans**: Exit routes, fire-rated corridors, occupancy loads, ADA diagrams.
+2. **A0 / Partition Type Sheets**: Wall assembly composition, STC rating, HR fire rating, framing gage/width.
+3. **Overall Floor Plans & Reflected Ceiling Plans**: Grid references, matchlines, ceiling heights (AFF vs TOS).
+4. **Enlarged Unit Plans, Restrooms & Interior Elevations**: Grab bars, millwork, backing heights, outlets.
+5. **Schedules & Project Manual**: Door/Hardware Schedule (08 10 00), Room Finish Schedule (09), Cold-Formed Metal Framing (05 40 00).
+
+![Reading Overall and Enlarged Floor Plans](img:c10_image78)
+
+![Partition Type Legend Interpretation](img:c10_image82)
+
+![Interior Elevations and Detail Cross-Referencing](img:c10_image86)
+
+![Room Finish and Door Schedule Cross-Check](img:c10_image95)
+
+> [!warn] Contract plumbing drawings are diagrammatic only — never rely solely on plumbing symbols for wet-wall thickness without verifying pipe diameters and fixture rough-ins.
+`,
+  }),
+
+  mk({
+    id: 107,
+    node: "c10-doc-read",
+    type: "doc",
+    vis: "Internal",
+    title: "Naming Conventions, Worksets & Shared Parameters",
+    desc: "Revit naming formulas for walls, doors, ceilings, materials, worksets (3D Room Tags, Plumbing Fixtures) & shared parameters.",
+    status: "Approved",
+    stage: "Design",
+    disc: "VDC",
+    tags: ["naming", "worksets", "shared-parameters", "Revit"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-15",
+    links: [[105, "hard"], [130, "hard"]],
+    body: `## Element & Material Naming Rules
+Every Revit family type, wall assembly, door type, and material in the **C10_INTERIOR** model must conform strictly to \`T/U_Interior_Naming of the Elements/Materials\`.
+
+![Revit Wall and Material Naming Structure](img:c10_image142)
+
+![Workset and Shared Parameter Assignment](img:c10_image139)
+
+## Standard Interior Worksets
+| Workset Name | Assigned Elements | Visibility in CL-RFI |
+|---|---|---|
+| **Interior Partitions** | GWB, Metal Stud, Wood Stud, CMU, Shaft walls | Visible |
+| **Interior Doors** | Frames, Panels, Clear Zones, ADA Zones | Visible |
+| **Plumbing Fixtures** | Lavs, WCs, Tubs, Showers, Residential W/D | Visible on Floor Plan |
+| **3D Room Tags** | Dynamo-generated 3D Room Tag families | Turned OFF on sheets |
+| **Hidden / Tolerance** | Concrete pouring tolerance envelopes | Visible for QA only |
+`,
+  }),
+
+  mk({
+    id: 108,
+    node: "c10-doc-codes",
+    type: "doc",
+    vis: "Public",
+    title: "Building Codes — Fire Resistance, Rated Walls & Shafts",
+    desc: "IBC/CBC Chapter 7 rules for 1-HR/2-HR fire barriers, shaft enclosures (Sec. 713.4), corridors, Type X GWB & head-of-wall joints.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Architecture",
+    tags: ["fire-rating", "CBC", "IBC", "shafts", "Chapter-7"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-20",
+    links: [[109, "hard"], [110, "hard"], [111, "hard"]],
+    body: `## Fire-Resistance Requirements (IBC / CBC Chapter 7)
+- **Shaft Enclosures (Sec. 713.4)**: Minimum **2-hour** rating when connecting 4 or more stories; minimum **1-hour** when connecting fewer than 4 stories.
+- **Wood 2-HR Shaft Walls**: Type X 5/8" GWB provides 1-HR per layer (1/2" provides 3/4-HR) -> 2-HR wood shaft walls require **two Type X GWB layers on each side**.
+- **Rated Corridors & Exit Access**: Wall fire rating must match adjacent door fire rating (\`20 min\`, \`45 min\`, \`60 min\`, \`90 min\`).
+- **Penetrations & Risers**: Piping shown outside a shaft assembly cannot penetrate rated floors/walls unprotected without an additional 2-HR chase enclosure.
+
+![Fire-Rated Wall and Shaft Assembly Diagram](img:c10_image176)
+
+![Penetration and Corridor Fire Barrier Check](img:c10_image160)
+
+> [!important] Always verify shaft vertical stacking across all levels via CL overlays or longitudinal sections before locking partition layout.
+`,
+  }),
+
+  mk({
+    id: 109,
+    node: "c10-doc-codes",
+    type: "doc",
+    vis: "Public",
+    title: "Accessibility & Egress — ADA Doors, Clearances & Holds",
+    desc: "CBC Chapter 11A & 11B maneuvering clearances, pull/push door zones, 8-inch frame offset tolerance, 30x48 FEC & appliance zones.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Architecture",
+    tags: ["ADA", "CBC-11B", "CBC-11A", "egress", "clearances"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-20",
+    links: [[108, "soft"], [110, "hard"], [117, "hard"]],
+    body: `## Accessibility Standards (CBC 11A / 11B & ADA 2010)
+All public-access rooms, dwelling units governed by accessibility statutes, and egress paths require modeled **ADA Clear Zones** inside door, plumbing, kitchen, and equipment families.
+
+![ADA Pull and Push Maneuvering Clearances](img:c10_image167)
+
+![CBC Figure 11B-404.2 Pocket and Sliding Door Clearances](img:c10_image200)
+
+![Appliance and Restroom Turning Circle Verification](img:c10_image183)
+
+## Key Modeling Rules
+- **Door Frame Alignment**: Place Door Clear Zone and ADA Clear Zone flush with the **door frame** (not raw wall), except with non-standard offset hinges.
+- **8-Inch Wall Offset Allowance**: ADA door clear zones may sit up to **8"** from the frame to clear thin wall finishes, trim ledges, or grab bars — confirm no downstream wall/fixture clash occurs.
+- **HOLD Dimensions**: Egress corridor widths and ADA clearances marked as **HOLD** must never be compromised by slab/column tolerances.
+`,
+  }),
+
+  mk({
+    id: 110,
+    node: "c10-doc-codes",
+    type: "link",
+    vis: "Public",
+    title: "Building Codes Portal — ICC, UpCodes & ADA 2010",
+    desc: "External legal code references used during Design Document verification and RFI preparation.",
+    url: "https://codes.iccsafe.org/",
+    status: "Approved",
+    stage: "Concept",
+    disc: "Architecture",
+    tags: ["codes", "iccsafe", "upcodes", "ada"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-08",
+    links: [[108, "hard"], [109, "hard"]],
+    body: `## Authorized Code Portals
+Always verify the **project jurisdiction & adoption year** in the Title Sheet Code Summary before citing sections in an RFI:
+
+- **ICC Digital Codes (IBC / CBC)**: https://codes.iccsafe.org/
+- **UpCodes General & State Library**: https://up.codes/codes/general
+- **2010 ADA Standards for Accessible Design**: https://www.ada.gov/law-and-regs/design-standards/2010-stds/
+- **ClarkDietrich Structural Stud Height Calculator**: https://www.itools.clarkdietrich.com/structural_stud.php
+`,
+  }),
+
+  mk({
+    id: 111,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "GWB & Metal Stud Walls — Framing, Height Limits & Shafts",
+    desc: "Metal stud profiles (C, CH, U/Z furring), Sec. 05 40 00 height checks, wet-wall width analysis & vertical shaft alignment.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["walls", "metal-stud", "GWB", "shaft", "furring"],
+    author: "Iryna P.",
+    upd: "2026-10-19",
+    links: [[102, "hard"], [108, "hard"], [119, "hard"]],
+    body: `## Metal Stud & Furring Profiles
+Interior metal partitions are categorized into four primary frame geometries:
+- **C-Stud (S)**: Standard partition and structural stud framing.
+- **CH-Stud (CH)**: Cavity shaftwall framing.
+- **U-Furring / Hat Channel (U)**: Furring strip attached over concrete/CMU.
+- **Z-Furring (Z)**: Insulation standoff furring at exterior/concrete interfaces.
+
+![Metal Stud Frame Profiles C CH U Z](img:c10_image333)
+
+![Wet Wall Width and Plumbing Box Coordination](img:c10_image330)
+
+## Wall Height Limits & RFIs
+When partition height exceeds the manufacturer limit for the scheduled gage/spacing in **Spec 05 40 00**:
+1. Highlight the wall on **CL-RFI** and issue a **GENERAL RFI**.
+2. Proposed assumptions: reduce stud spacing, increase stud depth/gage, or add lateral bracing above the ceiling.
+
+![Stud Height Limits and Deflection Table](img:c10_image343)
+
+![Shaft Wall Alignment Verification Across Levels](img:c10_image347)
+`,
+  }),
+
+  mk({
+    id: 112,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "Wood Stud Walls, Sheathing & Shear Wall Alignment",
+    desc: "Actual vs nominal lumber sizing (2x4/2x6), OSB/Plywood sheathing rules across non-rated/1HR/2HR walls & tie-rod shear alignment.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Structure",
+    tags: ["wood-stud", "sheathing", "OSB", "plywood", "shear-wall"],
+    author: "Iryna P.",
+    upd: "2026-10-15",
+    links: [[102, "soft"], [111, "soft"]],
+    body: `## Actual vs Nominal Wood Stud Dimensions
+The CL model always uses **actual lumber dimensions** (e.g., \`1-1/2" x 3-1/2"\` for nominal 2x4, \`1-1/2" x 5-1/2"\` for nominal 2x6) to guarantee field fabrication accuracy. If Design Documents sum nominal sizes, submit an RFI immediately.
+
+![Wood Stud Actual Dimensions and Sheathing Placement](img:c10_image359)
+
+## Plywood (P) & OSB (O) Sheathing Rules
+Check Wood Structural Drawings and Sheet Notes carefully:
+- **Non-rated walls**: Add sheathing as an additional layer attached to the wood studs.
+- **1-HR rated walls**: Sheathing replaces one layer of 5/8" Type X GWB unless rated assembly states otherwise — clarify via RFI.
+- **2-HR rated walls**: Add sheathing outside studs or verify GWB backing per structural engineer notes.
+- **Shear Walls with Tie Rods**: Vertically align shear walls by **wall centerline** across all levels.
+`,
+  }),
+
+  mk({
+    id: 113,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "Ceilings, Floors, Soffits & Wire Mesh Partitions",
+    desc: "RCP soffit modeling, finish hosting rules, Chain-Link & Wire Mesh C1010.10.07 Curtain Wall detailing & HILTI/embed anchors.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["ceilings", "floors", "wire-mesh", "C1010", "curtain-wall"],
+    author: "Maxim",
+    upd: "2026-10-21",
+    links: [[102, "hard"], [123, "hard"], [131, "hard"]],
+    body: `## Ceilings, Soffits & Finishes
+- Verify ceiling datum convention in DD: **AFF** (Above Finish Floor) vs **TOS** (Top of Slab).
+- Model dropped soffits and bulkheads above cabinetry, HVAC trunks, and smoke curtains.
+- Finishes thinner than **1/8"** (paint, skim coat) and rubber wall bases are out of modeling scope; model finishes around bathtubs and shower pans per tile submittals.
+
+![Ceiling Types Soffits and Finishes](img:c10_image209)
+
+![Floor Finish Transitions at Doors and Wet Areas](img:c10_image211)
+
+## Chain-Link & Wire Mesh Partitions (Uniformat C1010.10.07)
+- **Revit Tool**: Model using **Curtain Wall** families in parking, retail, and storage levels.
+- **Base Plates**: Standard posts anchored to concrete via **HILTI** mechanical/chemical anchors do not require modeled base plates; if welded to slab **embeds**, notify Structural to add embeds to the STR model.
+
+![Chain-Link Fence and Wire Mesh Curtain Wall Assembly](img:c10_image367)
+`,
+  }),
+
+  mk({
+    id: 114,
+    node: "c10-mod-wall",
+    type: "service",
+    vis: "Internal",
+    title: "3D Room Tag Generation — pyPlanIt & Planit Tools",
+    desc: "Automated generation and updating of 3D Room Tags in Revit 2019–2026 without shifting annotated room centers.",
+    url: "https://docs.google.com/presentation/d/1x0Aokj-TbT9uIWm7Cb7j48lFIGF26asOMOejSWsBdY0/edit",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["automation", "Planit-Tools", "pyPlanIt", "3D-Room-Tag"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-20",
+    links: [[104, "soft"], [107, "hard"]],
+    body: `## Revit Version Tool Matrix
+| Revit Version | Tool | Family Source Path |
+|---|---|---|
+| **Revit 2019–2021** | pyPlanIt (Dynamo script) | \`\\\\SRV\\_P&C_ProcessDoc\\02 LIBRARY\\DYNAMO\\3D Room Tags Generation\` |
+| **Revit 2022–2026** | Planit Tools (\`\\\\srv\\install\\RUN\`) | \`\\\\SRV\\_P&C_ProcessDoc\\01 FAMILIES WAREHOUSE\\17. Dynamo scripts\\3D Room Tags Generation\` |
+
+![3D Room Tag Generation via Planit Tools](img:c10_image385)
+
+![Bounded vs Unbounded Room Tag Placement](img:c10_image380)
+
+## Execution Rules
+- Ensure rooms are fully enclosed by walls or Room Separation Lines before execution.
+- Use **"Preserve existing tag position"** when updating room numbers so manually adjusted 2D/3D tags stay aligned.
+- Assign all generated tags to the **3D Room Tags** workset and keep it turned **OFF** on final CL-RFI sheets.
+`,
+  }),
+
+  mk({
+    id: 115,
+    node: "c10-mod-door",
+    type: "doc",
+    vis: "Internal",
+    title: "Interior Door Modeling — Rules, Rough Openings & Sizes",
+    desc: "Core door modeling requirements: Actual vs Nominal sizes, CMU +1/4\" sealant tolerance, Hardware Set & swing angles.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["doors", "rough-opening", "nominal", "hardware"],
+    author: "Maxim",
+    upd: "2026-10-18",
+    links: [[102, "hard"], [116, "hard"], [117, "hard"]],
+    body: `## Core Modeling Rules
+- **Floor Hosting**: All interior doors rest on **Finish Floor** — verify floor finishes are complete before door placement.
+- **Actual vs Nominal**: Nominal schedule widths include frame-to-leaf operating gaps; confirm via RFI if Door Schedule lists actual leaf vs nominal opening.
+- **CMU Walls**: Add **1/4" clearance on each side** of rough opening for frame mount and acoustic/fire sealant.
+- **Hardware Set Parameter**: Always populate the **Hardware Set** parameter (LOD 300 non-graphic requirement) and verify handle projection does not clash with perpendicular walls.
+- **Open Angle**: Model door panel open at maximum swing (**90°–180°**) for clear coordination checks.
+
+![Door Frame Leaf Rough Opening Anatomy](img:c10_image409)
+
+![Actual vs Nominal Door Size Comparison](img:c10_image410)
+
+![Door Offset and Hinge Analysis Diagram](img:c10_image425)
+`,
+  }),
+
+  mk({
+    id: 116,
+    node: "c10-mod-door",
+    type: "doc",
+    vis: "Internal",
+    title: "Door Types — Swinging, Pivot, Pocket, Sliding & Specialty",
+    desc: "Detailing specifications for all 11 door categories including elevator doors, Smoke Guard curtains, coiling grilles & Won-Doors.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["pocket-door", "sliding", "smoke-curtain", "won-door", "elevator"],
+    author: "Maxim",
+    upd: "2026-10-19",
+    links: [[115, "hard"], [117, "hard"]],
+    body: `## Supported Door Categories & Special Rules
+| Door Type | Required Sub-Elements & Clearances |
+|---|---|
+| **Swinging / Double / Unequal** | Frame, panel(s), threshold if required, swing clear zone, ADA pull/push |
+| **Pivot Door** | Panel, pivot hinge location + overhead/floor backing check, curved clear zone |
+| **Pocket Door** | Leaf width > nominal schedule width; track clear zone above frame; CBC 11B-404.2 ADA |
+| **Bi-Fold / Folding** | Fold stack zone + floor/head track clearance |
+| **Sliding & Barn Door** | Leaf overlap in closed position + freestanding/wall track mount verification |
+| **Elevator Door** | Coordinated shaft opening, infill grout clearance in concrete walls, car track |
+| **Smoke Guard Curtain** | Head casing + side guide channels + ceiling/wall maintenance access clear zone |
+| **Coiling Doors / Grilles** | Barrel casing + side guides + Hardware Set non-graphic LOD300 parameters |
+| **Access Doors & Panels** | Wall/ceiling hatch framed clear zone per MEP elevations & submittals |
+| **Accordion Won-Door** | Fire-rated niche pocket & ceiling envelope matching barrier rating (\`wondoor.com\`) |
+
+![Pocket and Bi-Fold Door Modeling Zones](img:c10_image442)
+
+![Sliding and Barn Door Overlap and Track Clearances](img:c10_image455)
+
+![Smoke Guard Curtain and Coiling Grille Detail](img:c10_image470)
+
+![Accordion Won-Door and Niche Fire Envelope](img:c10_image478)
+`,
+  }),
+
+  mk({
+    id: 117,
+    node: "c10-mod-door",
+    type: "doc",
+    vis: "Internal",
+    title: "Door Family Assembly — Nested Families, ADA & Threshold",
+    desc: "6-step Revit family assembly workflow: Frame/Mullion, Panel, Door Opening Zone, ADA Clear Zone, Threshold & L#_ADA view.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["Revit-family", "ADA-zone", "threshold", "nested-family"],
+    author: "Maxim",
+    upd: "2026-10-21",
+    links: [[115, "hard"], [109, "hard"], [132, "soft"]],
+    body: `## 6-Step Door Family Construction
+1. **Frame Family (\`Frame/Mullion\`)**: Opening cut for Rough Opening + sweep frame + Width/Height/Material bindings.
+2. **Door Leaf Family (\`Panel\`)**: Extrusion panel, 2D plan swing lines, \`Frame Type\`, \`ADA Pull Side\`, \`ADA Push Side\`, \`Offset from wall\`.
+3. **Door Opening Zone (\`Door Clear Zone\`)**: Extruded swing volume locked to leaf face.
+4. **ADA Clear Zone & Tolerance**: Nested ADA zone + 8" tolerance solid (subcategory assigned for view toggles).
+5. **Nest & Lock**: Align and lock Frame, Opening Zone, and ADA Zone to host reference planes.
+6. **Project Parameter Fill**: Populate Leaf/Frame materials, Fire Rating, Mark, Type Mark, Rough W/H, Hardware Set.
+
+![Threshold Components and Non-Graphic LOD300 Rule](img:c10_image474)
+
+![Nested Door Frame Leaf and Opening Zone Hierarchy](img:c10_image500)
+
+![CL-RFI Visibility Settings for ADA Zones and L#_ADA 3D View](img:c10_image480)
+
+> [!tip] On **CL-RFI** sheets, keep **ADA Tolerances** and **Door Clear Zones** hidden, **Required ADA Zones** visible, and door linework set to **Black**.
+`,
+  }),
+
+  mk({
+    id: 118,
+    node: "c10-mod-eqp",
+    type: "doc",
+    vis: "Internal",
+    title: "Unit Kitchens, Millwork & Casework Detailing",
+    desc: "Kitchen cabinetry layout, appliance bays, countertop clearances, wet-wall stacking & millwork door swing zones.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["kitchens", "casework", "millwork", "clearances"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-17",
+    links: [[119, "hard"], [120, "hard"], [123, "soft"]],
+    body: `## Kitchen & Casework Modeling Workflow
+- Review Architectural Enlarged Unit Kitchen Plans, Interior Elevations, and Casework Shop Drawings / Submittals.
+- Model **opening clearances** (18"–24" swing/drawer zones) for all upper/lower cabinets, dishwashers, and refrigerators.
+- Verify receptacle/plumbing boxes inside the kitchen backing wall match sink centerline and range hood ducting.
+
+![Unit Kitchen Plan and Elevation Alignment](img:c10_image501)
+
+![Base and Upper Cabinet Clearance Zones](img:c10_image499)
+
+![Kitchen Appliance Integration and Sink Backing](img:c10_image511)
+
+![Casework ADA Approach and Countertop Height Check](img:c10_image543)
+
+![Kitchen Dimensioning Example for CL-RFI Plans](img:c10_image542)
+`,
+  }),
+
+  mk({
+    id: 119,
+    node: "c10-mod-eqp",
+    type: "doc",
+    vis: "Internal",
+    title: "Bathrooms, Plumbing Fixtures & Wet-Wall Coordination",
+    desc: "WC, lavatories, bathtubs, shower pans, wall-carrier brackets & wet-wall thickness verification against MEP risers.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["bathrooms", "plumbing-fixtures", "wet-wall", "grab-bars"],
+    author: "Iryna P.",
+    upd: "2026-10-18",
+    links: [[111, "hard"], [120, "hard"], [123, "hard"]],
+    body: `## Bathroom & Restroom Detailing
+- Place WC, lavatories, shower pans, and tubs accurately from Architectural Enlarged Restroom Plans and Fixture Cut Sheets.
+- Confirm **wet-wall width** accommodates both horizontal drain branches and vertical vent/waste stacks between stacked unit floors.
+- Verify accessible restroom turning radius (60" circle / T-turn) and grab-bar height/length compliance before issuing for MEP sync.
+
+![Enlarged Bathroom Plan and Fixture Placement](img:c10_image551)
+
+![Accessible Restroom Clearances and Grab Bar Zones](img:c10_image549)
+
+![Wet Wall Thickness and Carrier Bracket Coordination](img:c10_image602)
+`,
+  }),
+
+  mk({
+    id: 120,
+    node: "c10-mod-eqp",
+    type: "doc",
+    vis: "Internal",
+    title: "Wall Backings & Blocking Families (Warehouse R21)",
+    desc: "Nesting blocking families inside fixtures/casework, 2x6 lumber assumptions, 'Moves With Nearby Elements' & 'Layers quantity'.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["backings", "blocking", "Warehouse-R21", "grab-bars"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-20",
+    links: [[118, "hard"], [119, "hard"], [131, "hard"]],
+    body: `## Elements Requiring Wall Blocking Analysis
+- Restroom grab bars, toilet partitions, wall-hung carriers & accessories
+- TVs, heavy wall equipment (mini-splits, heaters), curtain rails & ceiling shades
+- Stair handrails, wall-mounted FEC cabinets, heavy mirrors & artwork
+
+![Wall Backing Requirements for Mounted Equipment](img:c10_image563)
+
+![Blocking Family Type Selection in Warehouse R21](img:c10_image584)
+
+## Mandatory Family Rules ("Warehouse Model - R21")
+- **Nest Inside Host Families**: Load blocking families directly inside plumbing/kitchen/casework families so copying typical units never leaves orphan or shifted blockings!
+- **Moves With Nearby Elements**: Enable this parameter so shifting a partition automatically pulls embedded blockings.
+- **Layers quantity**: Offsets only the **2D color hatch** on Studs & Backing layouts when multiple blockings stack vertically, while keeping the **3D lumber geometry (assumed 2x6)** flush against the wall stud face.
+
+![Moves With Nearby Elements and Mount Side Mark](img:c10_image580)
+
+![Layers Quantity Offset Parameter Behavior](img:c10_image597)
+
+![Backing Elevation and Stud-to-Stud Length Example](img:c10_image595)
+`,
+  }),
+
+  mk({
+    id: 121,
+    node: "c10-mod-eqp",
+    type: "doc",
+    vis: "Internal",
+    title: "Residential Appliances, FECs & Interior Specialties",
+    desc: "Stacked/side-by-side Washer/Dryer Specialty Equipment rules, 30x48 FEC maneuvering zones, trash chutes, railings & shades.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["appliances", "washer-dryer", "FEC", "specialties"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-16",
+    links: [[105, "soft"], [109, "hard"], [111, "soft"]],
+    body: `## Residential Appliances (W/D)
+- **Category & Workset**: Model Washers and Dryers as **Specialty Equipment** assigned to the **Plumbing Fixtures** workset.
+- **Clearances**: Model manufacturer installation clearances plus door swing opening zone and **ADA 30"×48" maneuvering approach**.
+- **Outlet Boxes**: Verify whether the W/D cut sheet locks drain/valve boxes to left/right sidewall vs free placement behind unit.
+
+![Stacked and Side-by-Side Washer Dryer Clearances](img:c10_image610)
+
+![Appliance Cut Sheet Hookup and Outlet Box Check](img:c10_image606)
+
+## Interior Specialties Coverage
+- **Fire Extinguisher Cabinets (FEC)**: Recessed rated contour & framing rough opening + **30"×48"** floor clear zone.
+- **Postal Equipment, Trash Chutes & Waste/Recycling Bins**: Coordinate chute slab openings and ADA reach range.
+- **Interior Railings & Roller Shades**: Coordinate pocket ceiling depths and handrail backing height.
+
+![FEC Recessed Rough Opening and Maneuvering Zone](img:c10_image625)
+
+![Postal and Waste Specialty Room Layout](img:c10_image633)
+
+![Interior Guardrail and Handrail Detailing](img:c10_image635)
+
+![Ceiling Pocket for Motorized Roller Shades](img:c10_image639)
+`,
+  }),
+
+  mk({
+    id: 122,
+    node: "c10-crd-sys",
+    type: "doc",
+    vis: "Internal",
+    title: "Concrete Pouring Tolerances & NF Simulation Workflow",
+    desc: "Preventing ADA & clear-zone clashes caused by slab/wall concrete tolerances; mandatory NF simulation prior to CL edits.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["tolerances", "concrete", "NF", "ADA-clash"],
+    author: "Anton Kolmykov / Anastasia Batechko",
+    upd: "2026-10-19",
+    links: [[109, "hard"], [123, "hard"], [125, "soft"]],
+    body: `## Tolerance Impact on Interior Walls
+When an interior furring or GWB partition aligns to a cast-in-place concrete wall or column, permissible **concrete pouring deviations** can push the GWB face inward — causing critical clashes with **door ADA maneuvering zones** or **HOLD corridor dimensions**.
+
+![Concrete Tolerance Shift vs Door ADA Clear Zone Clash](img:c10_image650)
+
+## Mandatory Resolution Protocol
+1. **Simulate in NF**: Model the worst-case concrete tolerance envelope and capture the resulting ADA/door clash.
+2. **Present Options**: Propose clear alternatives (shift furred wall away, swap to thinner U/hat-furring assembly, adjust door swing/hardware).
+3. **Wait for Approval**: **Never** permanently relocate partitions for concrete tolerances until confirmed via **NF / RFI response**.
+`,
+  }),
+
+  mk({
+    id: 123,
+    node: "c10-crd-sys",
+    type: "doc",
+    vis: "Internal",
+    title: "Workflow with MEP, Structural & Plumbing Systems",
+    desc: "Cross-discipline change notification rules for fixtures, ceiling offsets, wet walls, shafts & cloud-tracked revisions.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "MEP",
+    tags: ["MEP", "plumbing", "coordination", "Navisworks", "communication"],
+    author: "Anton Kolmykov / Anastasia Batechko",
+    upd: "2026-10-20",
+    links: [[119, "hard"], [122, "hard"], [125, "soft"]],
+    body: `## Four Changes That Must Always Notify Plumber / MEP
+1. **Plumbing Fixture Moved / Added / Deleted**: Unconnected sanitary stubs or orphaned pipes on site.
+2. **Ceiling Height Adjusted or Removed**: Plumbing access panels and horizontal mains left exposed below the ceiling plane.
+3. **Wet-Wall Position or Thickness Reduced**: Vertical risers protruding out through finished gypsum surfaces.
+4. **Shaft Deleted / Shifted / Resized**: Unenclosed vertical pipe chases running mid-room.
+
+![MEP Coordination Checklist Fixtures Ceilings Wet Walls and Shafts](img:c10_image661)
+
+> [!important] Load all active MEP and Structural Revit links (or inspect federated **Navisworks** weekly builds) and cloud every interior geometry update in the title block before publishing.
+`,
+  }),
+
+  mk({
+    id: 124,
+    node: "c10-crd-sys",
+    type: "template",
+    vis: "Internal",
+    title: "Dusty Robotics Field-Print Export Checklist",
+    desc: "Mandatory Revit wall layer order, continuous segments, stud-to-stud RO & TOS elevations required before Dusty Robotics export.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["Dusty-Robotics", "layout-printing", "export", "checklist"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-18",
+    links: [[111, "hard"], [115, "hard"], [125, "soft"]],
+    body: `## Mandatory Pre-Export Modeling Rules
+Before exporting any **Interior CL** model to **Dusty Robotics** automated floor layout printers, verify every item below:
+
+- [ ] **Wall Layer Ordering**: Inside Revit Edit Assembly, **Finish 1** must immediately border **Structure** (Core), and **Finish 2** follows outside Finish 1.
+- [ ] **No Split Collinear Segments**: Never break one continuous wall type into multiple co-linear wall segments without a structural reason.
+- [ ] **Door Rough Openings**: Detailed accurately **stud-to-stud**, with Type/Instance parameters matching physical model geometry.
+- [ ] **Recessed Niches & Cabinets**: Wall opening modeled **stud-to-stud** with **Elevation to RO from T.O.S.** populated.
+- [ ] **Backings**: Exact \`LENGTH × WIDTH\` dimensions and **Elevation from T.O.S.** entered in instance properties.
+
+![Dusty Robotics Wall Layer Structure Rule](img:c10_image669)
+
+![Dusty Robotics Door and Niche Stud-to-Stud Rough Opening](img:c10_image675)
+`,
+  }),
+
+  mk({
+    id: 125,
+    node: "c10-crd-qa",
+    type: "report",
+    vis: "Internal",
+    title: "Interior CL & CL-RFI Quality Assurance Protocol",
+    desc: "QA return thresholds (-1 rule), Bluebeam/Revit markup legends, Ctrl+F5 navigation & tolerance view toggling before issue.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["QA", "quality-assurance", "markup", "tolerances"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-21",
+    links: [[126, "hard"], [127, "hard"], [128, "hard"]],
+    body: `## QA Review & Rework Policy
+- **Systemic / Repeating Errors**: If a submission contains widespread repeating errors across typical units, QA must return the task immediately for rework (**Quality cannot exceed -1**) rather than logging dozens of identical comments.
+- **QA Markup Legend**: For non-blocking repeating observations, group annotations under the **QA Clouds / Marks Legend** and step through comments using \`Ctrl + F5\`.
+- **Dual Template Rule**: Maintain two View Templates — **With Tolerances** (printed for QA review) and **Clean CL** (tolerances hidden prior to final upload to Scheduler / Procore / Box).
+
+![QA Markup Legend and Pre-Print View Check](img:c10_image689)
+`,
+  }),
+
+  mk({
+    id: 126,
+    node: "c10-crd-qa",
+    type: "doc",
+    vis: "Internal",
+    title: "Common Mistakes — Part 1: Partitions, Shafts & Levels",
+    desc: "Visual catalog of frequent PE audit failures in wall assemblies, shaft vertical stacking, nominal lumber & typical unit overlays.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["mistakes", "QA", "shafts", "partitions", "audit"],
+    author: "Maxim",
+    upd: "2026-10-22",
+    links: [[125, "hard"], [127, "hard"], [111, "soft"]],
+    body: `## Critical Errors Observed in CL Audits (Slides 390–430)
+1. **Unstacked Shaft Walls**: Mechanical/stair shafts shifted between floors due to uncoordinated level overlays.
+2. **Wrong Fire Rating Assembly**: Missing second Type X GWB layer on 2-HR wood-framed shafts or corridor penetrations.
+3. **Nominal vs Actual Wood Studs**: Modeling 2.0"×4.0" nominal walls instead of 1-1/2"×3-1/2" actual framing.
+4. **Misaligned Typical Units**: Vertical offset between typical dwelling floors causing sleeve and riser collisions.
+
+![Audit Case 1 Shaft Stacking Mismatch](img:c10_image812)
+
+![Audit Case 2 Partition Type and Layer Order Error](img:c10_image821)
+
+![Audit Case 3 Wood Framing Sheathing and Furring Gap](img:c10_image852)
+
+![Audit Case 4 Typical Unit Overlay Displacement](img:c10_image833)
+`,
+  }),
+
+  mk({
+    id: 127,
+    node: "c10-crd-qa",
+    type: "doc",
+    vis: "Internal",
+    title: "Common Mistakes — Part 2: Doors, ADA, Fixtures & Annotations",
+    desc: "Visual catalog of PE audit errors in door ADA clearances, swing angles, fixture disconnects, mixed F.F./Stud notes & stale clouds.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["mistakes", "ADA", "doors", "annotations", "QA"],
+    author: "Maxim",
+    upd: "2026-10-22",
+    links: [[125, "hard"], [126, "hard"], [129, "hard"]],
+    body: `## Door, Fixture & Documentation Errors (Slides 431–465)
+1. **ADA Zone Clipped by Wall / Fixture**: Push/pull zone overlapping toilet bowl, millwork edge, or adjacent partition.
+2. **Inconsistent Stud vs Finish Dimensions**: Mixing face-of-stud and face-of-finish strings on the same sheet violates field readability.
+3. **Disconnected Plumbing Risers**: Moving WC/sink in INT without notifying MEP.
+4. **Uncoordinated Hardware / Swing Angle**: Doors overlapping or handles colliding with adjacent concrete walls.
+
+![Audit Case 5 Door ADA Maneuvering Overlap](img:c10_image846)
+
+![Audit Case 6 Pocket and Sliding Track Clearance Miss](img:c10_image886)
+
+![Audit Case 7 Mixed Stud vs Finish Dimension String](img:c10_image884)
+
+![Audit Case 8 Restroom Grab Bar and Fixture Spacing](img:c10_image887)
+
+![Audit Case 9 Ceiling Height vs Plumbing Access Panel](img:c10_image898)
+
+![Audit Case 10 Missing B/B/R Annotation Color Coding](img:c10_image897)
+
+![Audit Case 11 Revision Cloud and Overlay Mismatch](img:c10_image893)
+`,
+  }),
+
+  mk({
+    id: 128,
+    node: "c10-drw-gen",
+    type: "doc",
+    vis: "Internal",
+    title: "CL-RFI Package Architecture & View Configuration",
+    desc: "Standard sheet numbering (1, 1.1, 1.4, 1.5, 4, 4.1), View Range, Object Styles 1 Black, STR Solid Grey 192 & Dependent views.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["CL-RFI", "view-settings", "object-styles", "visibility"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-19",
+    links: [[129, "hard"], [130, "hard"], [131, "hard"]],
+    body: `## Standard CL-RFI Deliverable Sheets
+| Sheet Code | Deliverable Title |
+|---|---|
+| \`CL-RFI L##.1\` | Coordinated Partition Layout (General & Enlarged Dependent Areas) |
+| \`CL-RFI L##.1.1\` | Egress and Holds Plan |
+| \`CL-RFI L##.1.4\` | Studs & Backing Layout |
+| \`CL-RFI L##.1.5\` | Interior Door Schedule |
+| \`CL-RFI L##.4\` | Coordinated Ceiling Plan (RCP) |
+| \`CL-RFI L##.4.1\` | Revised Ceiling Devices Plan |
+
+## Mandatory View & Visibility Rules
+- **Object Styles**: Set Walls, Doors, Ceilings, Plumbing Fixtures, and Generic Models line color/weight to **\`1 Black\`**.
+- **Transparency & Scale**: Match Architectural scale with **20% transparency**; create Enlarged Area plans as **Dependent Views** bounded by Matchlines & View References.
+- **Links**: All CL links **Halftone**; STR concrete columns/walls **Solid Fill Grey (192,192,192)** with metal assemblies & slabs White and embeds/studrails hidden.
+- **B/B/R Color Logic**: Use uniform text heights (\`1/8"\`, \`1/16"\`, \`3/64"\`, \`1/32"\`) per **Black/Blue/Red Annotation Logic**.
+
+![CL-RFI Visibility Graphics and Object Styles Settings](img:c10_image683)
+`,
+  }),
+
+  mk({
+    id: 129,
+    node: "c10-drw-gen",
+    type: "doc",
+    vis: "Internal",
+    title: "Title Blocks, Legends, General Notes & Revision Markups",
+    desc: "CL RFI Title_30x42 setup, Guide Grids, Stud vs FF general notes, B/B/R legends, blue/red PDF overlay & Planit Revision Standard.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["title-block", "legends", "revisions", "Planit-Comments", "B/B/R"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-21",
+    links: [[102, "hard"], [128, "hard"], [130, "soft"]],
+    body: `## Sheets, Guide Grids & Legends
+- **Standard Title Block**: \`CL RFI Title_30x42 - Interior\` with shared text parameters \`Sheet Type\` and \`Sheet Subtype\`.
+- **Guide Grids**: Share one Guide Grid across all General Plans and one per Enlarged Area so floor-to-floor PDF overlays register cleanly.
+- **Separate Legends**: Never include Tag Decoding legends on General overall plans where partition/door tags are hidden.
+- **General Notes Consistency**: Align dimension reference note (*Face of Stud* vs *Face of Finish*) and ceiling datum (*AFF* vs *TOS*) strictly with DD, and **never mix Stud and Finish dimensions** on the same sheet.
+
+![CL-RFI Sheet Layout Guide Grid and Key Plan](img:c10_image208)
+
+![General Notes Stud vs Finish Consistency](img:c10_image215)
+
+## Revision Block & Markups (Per P&C Planit Revision Standard)
+- Include revision reason (RFI / DD / Submittal), area location, and concise action summary.
+- When producing **\`- Planit Comments\`** markups: append a **Blue (Previous) / Red (Current)** overall-plan overlay (except R0), list Open/Returned RFIs, and cloud every changed geometry element.
+
+![B/B/R Legend and Revision Cloud Styling](img:c10_image245)
+
+![Typical Level-to-Level Overlay Comparison Check](img:c10_image243)
+`,
+  }),
+
+  mk({
+    id: 130,
+    node: "c10-drw-lay",
+    type: "doc",
+    vis: "Internal",
+    title: "CL-RFI L##.1 — Coordinated Partition Layout & Tagging",
+    desc: "Composite ARCH + PLANIT wall tags (1.S.4-PB), nominal thickness coding, Black/Blue/Red tag families & typical area hatching.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["L##.1", "wall-tag", "door-tag", "partition-layout", "tagging"],
+    author: "Elena Khlivetskaya",
+    upd: "2026-10-21",
+    links: [[107, "hard"], [128, "hard"], [129, "hard"]],
+    body: `## Composite Wall Tag Anatomy
+Every partition tag in \`CL-RFI L##.1\` displays **ARCH** (original DD tag at top) over **PLANIT** composite code (e.g., \`1.S.4-PB\`):
+1. **Fire Rating**: \`0\`, \`1\`, \`2\` (CBC Ch. 7)
+2. **Framing Type**: \`S\` (Structural/C Stud), \`CH\`, \`U\` (Hat), \`Z\`, \`F\` (Wood), \`CMU\` — use \`/\` for composite dual-framing walls (e.g., \`U/F\`, \`3/5\`)
+3. **Nominal Stud Thickness**: Drop \`,1\` / \`,2\` decimals if intermediate stud sizes are unused on the project
+4. **Additional Layer Suffixes**: Insulation code + modified layers (\`-PB\`, Plywood, Moisture-resistant \`G\`, \`2G\`)
+
+![Composite Wall Tag ARCH over PLANIT Anatomy](img:c10_image723)
+
+![Partition Layer Color Code and Hatching Legend](img:c10_image728)
+
+## Wall Tag Color Variants & Typical Zones
+- **Black (\`Wall Tag - 1x16 - Black\`)**: Matches Contract Documents.
+- **Blue**: Changed partition type after initial approval.
+- **Red**: Missing wall/layer information in Contract Documents.
+- **Door Tags**: Numeric fire rating only (\`20\`, \`180\`, \`-\` without "min").
+- **Typical Floor Hatching**: Hide interior dimensions/tags inside typical repeat areas and note \`"SIMILAR LEVEL 8 / CL-RFI L08.1A"\`.
+
+![Wall Tag B/B/R Types and Shared Parameters](img:c10_image733)
+
+![Door Tag Legend and Elevation Tags for Half-Walls](img:c10_image741)
+
+![Enlarged Partition Layout Annotation and HOLD Check](img:c10_image750)
+`,
+  }),
+
+  mk({
+    id: 131,
+    node: "c10-drw-lay",
+    type: "doc",
+    vis: "Internal",
+    title: "CL-RFI L##.4, Studs/Backing Layout & Parking Control",
+    desc: "Coordinated Ceiling Plans (4), Ceiling Devices (4.1), Studs & Backing Layouts (1.4), Interior Elevations & Parking Control plans.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["RCP", "studs-backing", "elevations", "parking-control"],
+    author: "Iryna P.",
+    upd: "2026-10-20",
+    links: [[102, "hard"], [113, "hard"], [120, "hard"]],
+    body: `## Coordinated Ceiling Plans (\`L##.4\` & \`L##.4.1\`)
+- Show only **Ceilings** and **Walls** categories on \`L##.4\`; display ceiling types, datum heights (AFF/TOS), bulkhead drops, and soffit framing.
+- Coordinate \`L##.4.1 Revised Ceiling Devices Plan\` with lighting fixtures, diffusers, smoke detectors, and plumbing access panels.
+
+![Coordinated Ceiling Plan RCP Tagging and Datum](img:c10_image767)
+
+![Revised Ceiling Devices Plan Sync with MEP Lighting](img:c10_image785)
+
+## Studs & Backing Layout (\`L##.1.4\`) & Elevations
+- Display nested 2x6 lumber backings with distinct \`Layers quantity\` 2D color hatches and T.O.S. mounting elevations.
+- Verify **Parking Control** gates, arms, islands, and sensors using the dedicated Actual Google Doc standard.
+
+![Studs and Backing Layout L##.1.4 Annotation](img:c10_image790)
+
+![Ceiling Height and Soffit Section Callout](img:c10_image260)
+
+![Enlarged Kitchen and Restroom Elevation Detailing](img:c10_image279)
+
+![Parking Control Equipment Layout Coordination](img:c10_image280)
+`,
+  }),
+
+  mk({
+    id: 132,
+    node: "c10-drw-sch",
+    type: "doc",
+    vis: "Internal",
+    title: "Schedules, Finish Legends, 3D Views & Batch Printing",
+    desc: "GWB Partition Schedule, Interior Door Schedule (L##.1.5), Warehouse Legend pruning, L#_ADA 3D views & Bluebeam/Bullzip print sets.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Interior",
+    tags: ["schedules", "door-schedule", "printing", "Bluebeam", "3D-views"],
+    author: "Andrii Lytvynov",
+    upd: "2026-10-22",
+    links: [[117, "hard"], [128, "hard"], [129, "hard"]],
+    body: `## GWB Partition Schedule & Door Schedule (\`L##.1.5\`)
+- **Partition Schedule**: Synchronize Warehouse GWB assemblies with project partition tags; remove unused types from the **Project Legend** (never modify standard designations).
+- **Door Schedule**: Include Door Mark, Type Mark, Nominal/Rough W×H, Leaf/Frame Materials, Fire Rating, Threshold Type, and **Hardware Set**.
+
+![GWB Partition Schedule Sample](img:c10_image302)
+
+![Interior Door Schedule L##.1.5 Formatting](img:c10_image295)
+
+## Legends, 3D Views & Print Settings
+- Maintain both \`Partition Tag Legend - Standard\` (reference) and \`Partition Tag Legend - [Project]\` (sheet legend).
+- Configure **\`L#_ADA\` 3D Coordination Views** to inspect door/fixture/restroom maneuvering envelopes visually.
+- **Batch Print**: Output combined PDFs via **Bluebeam** or **Bullzip** using saved sets named \`CL - L02 - RPL\` / \`CL - L16 - RCP\`.
+
+![Material Finish Matrix and Legend Cleanup](img:c10_image305)
+
+![Warehouse Standard vs Project Legend Filtering](img:c10_image298)
+
+![3D ADA Coordination View Template Setup](img:c10_image306)
+
+![Bluebeam and Bullzip Batch Print Set Naming](img:c10_image327)
+
+![Final Combined CL-RFI PDF Deliverable Structure](img:c10_image315)
+`,
+  }),
+];
+
+export const NOTES = [
+  { id: "a", text: "Elena Khlivetskaya flagged Actual Interior Walls Doc on #102", rid: 102, t: "2 h ago", un: 1 },
+  { id: "b", text: "Maxim added Common Mistakes Parts 1 & 2 to QA Protocol", rid: 126, t: "yesterday", un: 1 },
+  { id: "c", text: "Andrii Lytvynov updated Planit Tools 3D Room Tags guide for Revit 2026", rid: 114, t: "3 days ago", un: 0 },
+];
+
 export const SEED_COLLECTIONS = [
   {
-    id: "col-onboarding",
-    name: "New Hire BIM Onboarding Kit",
-    desc: "Essential standards, naming rules and tools every new engineer completes during Week 1.",
+    id: "col-c10-onboarding",
+    name: "Interior PE Onboarding Kit (C10_INTERIOR)",
+    desc: "Essential 5-step track for new Interior PE specialists before starting their first CL-RFI project.",
+    tier: "official",
+    mode: "list",
+    owner: "Elena Khlivetskaya",
+    vis: "Internal",
+    coEditors: ["Maxim", "Iryna P.", "Andrii Lytvynov"],
+    at: Date.now() - 86400000 * 3,
+    items: [
+      { id: 100, note: "Start here: 465-slide C10_INTERIOR division map." },
+      { id: 102, note: "Bookmark Actual Google Docs that supersede old slides." },
+      { id: 104, note: "Follow Project Start Intake & Input/Output Checklist." },
+      { id: 108, note: "Verify IBC/CBC Chapter 7 fire & shaft ratings." },
+      { id: 115, note: "Master interior door modeling & Hardware Set rules." },
+    ],
+    nodes: [],
+    edges: [],
+    vp: null,
+  },
+  {
+    id: "col-clrfi-release",
+    name: "CL-RFI Deliverable & QA Release Gate",
+    desc: "Pre-issue verification sequence before exporting CL-RFI PDFs or Dusty Robotics layout files.",
     tier: "official",
     mode: "list",
     owner: "Maxim",
     vis: "Internal",
-    coEditors: ["Iryna P.", "Olena K."],
-    at: Date.now() - 86400000 * 3,
-    items: [
-      { id: 100, note: "Start here to learn the workspace." },
-      { id: 1, note: "Core BEP framework for all projects." },
-      { id: 2, note: "Mandatory CDE naming conventions." },
-      { id: 9, note: "Install pyRevit before joining a project model." },
-      { id: 16, note: "Clone the project starter template." },
-    ],
-    nodes: [],
-    edges: [],
-    vp: null,
-  },
-  {
-    id: "col-client-public",
-    name: "Client BIM Handover Package",
-    desc: "Curated public standards and regulatory references cleared for external clients and partners.",
-    tier: "official",
-    mode: "list",
-    owner: "Maxim",
-    vis: "Public",
-    coEditors: ["Olena K."],
+    coEditors: ["Elena Khlivetskaya", "Andrii Lytvynov"],
     at: Date.now() - 86400000 * 2,
     items: [
-      { id: 2, note: "Shared file & model naming specification." },
-      { id: 11, note: "Ukrainian building regulatory codes reference." },
-      { id: 100, note: "Library reader walkthrough." },
+      { id: 124, note: "Verify Dusty Robotics Finish 1 / Core / Finish 2 order." },
+      { id: 125, note: "Run QA check & toggle tolerance view templates." },
+      { id: 126, note: "Check common shaft, stud & typical-unit mistakes." },
+      { id: 129, note: "Validate B/B/R legends, General Notes & Revision Clouds." },
+      { id: 132, note: "Export combined PDF sets via Bluebeam/Bullzip." },
     ],
     nodes: [],
     edges: [],
     vp: null,
   },
   {
-    id: "col-my-kit",
-    name: "My VDC Weekly Coordination Kit",
-    desc: "Personal quick-access kit for Friday clash detection reviews.",
-    tier: "personal",
+    id: "col-codes-public",
+    name: "Design Team & Client Code Reference",
+    desc: "Public standards, code portals, and ADA maneuvering guidelines shared with external partners.",
+    tier: "official",
     mode: "list",
-    owner: "Maxim",
-    vis: "Restricted",
-    coEditors: [],
+    owner: "Elena Khlivetskaya",
+    vis: "Public",
+    coEditors: ["Maxim"],
     at: Date.now() - 86400000,
     items: [
-      { id: 3, note: "Weekly clash procedure." },
-      { id: 13, note: "Monthly model quality report." },
-      { id: 10, note: "Open Redmine issues before meeting." },
+      { id: 100, note: "Master C10_INTERIOR Knowledge Base overview." },
+      { id: 102, note: "Live Google Docs Standards index." },
+      { id: 108, note: "Chapter 7 Fire-Resistance & Shaft rules." },
+      { id: 109, note: "Chapter 11A/11B ADA door & approach clearances." },
+      { id: 110, note: "Direct links to ICC, UpCodes & ADA 2010." },
     ],
     nodes: [],
     edges: [],
@@ -427,10 +1283,10 @@ export const SEED_COLLECTIONS = [
 ];
 
 export const SEED_ACTIVITIES = [
-  { id: "act-1", actor: "Maxim", action: "Published", targetType: "document", targetId: "100", targetTitle: "How to use the Knowledge Library", note: "Marked Public with attachment demo cleared", at: "2026-10-22" },
-  { id: "act-2", actor: "Iryna P.", action: "Published", targetType: "document", targetId: "2", targetTitle: "File and model naming", note: "Updated naming appendix", at: "2026-09-30" },
-  { id: "act-3", actor: "Andrii B.", action: "Commented", targetType: "document", targetId: "3", targetTitle: "Model coordination and clash detection", note: "Requested clash priority criteria", at: "2026-10-20" },
-  { id: "act-4", actor: "Olena K.", action: "Verified", targetType: "document", targetId: "15", targetTitle: "Load-bearing wall — standard", note: "Verified up to date", at: "2026-09-25" },
+  { id: "act-1", actor: "Maxim", action: "Published", targetType: "document", targetId: "100", targetTitle: "C10_INTERIOR — Master Standard & Navigation Guide", note: "Migrated 465 slides and 98 diagrams into 5 structured divisions", at: "2026-10-22" },
+  { id: "act-2", actor: "Elena Khlivetskaya", action: "Verified", targetType: "document", targetId: "102", targetTitle: "Actual Interior Standards & P&C Google Docs Hub", note: "Confirmed live Google Doc links for Walls, Doors & Revisions", at: "2026-10-21" },
+  { id: "act-3", actor: "Andrii Lytvynov", action: "Published", targetType: "document", targetId: "114", targetTitle: "3D Room Tag Generation — pyPlanIt & Planit Tools", note: "Updated Planit Tools instructions for Revit 2022–2026", at: "2026-10-20" },
+  { id: "act-4", actor: "Iryna P.", action: "Published", targetType: "document", targetId: "131", targetTitle: "CL-RFI L##.4, Studs/Backing Layout & Parking Control", note: "Linked Parking Control Google Doc & RCP device sync rules", at: "2026-10-20" },
 ];
 
 export const DEFAULT_URLS = {

@@ -11,7 +11,7 @@ import { EW_TBL, EW_SL, EW_CL, TURN } from './editorConfig.js';
 
 export function Editor(p){
 const flatCats=buildFlat(p.tree);
-const i=p.init,n0=i.node||(byId(p.cur,p.tree)?p.cur:"gen-pol");
+const i=p.init,n0=i.node||(byId(p.cur,p.tree)?p.cur:"c10-ovw-std");
 const catObj=byId(n0,p.tree)||flatCats[0];
 const [t,setT]=useState(i.title||""),[ds,setDs]=useState(i.desc||""),[nd,setNd]=useState(n0),[ty,setTy]=useState(i.type||"doc"),[st,setSt]=useState(i.status||"Draft"),[vs,setVs]=useState(i.vis||(catObj&&catObj.vis)||"Internal"),[url,setUrl]=useState(i.url||""),[sg,setSg]=useState(i.stage||STG[0]),[dc,setDc]=useState(i.disc||RD[catObj?.path?.[0]]||"VDC"),[tg,setTg]=useState((i.tags||[]).join(", ")),[m,setM]=useState("w"),[dl,setDl]=useState(false),[emp,setEmp]=useState(!i.body),[fb,setFb]=useState(null),[inT,setInT]=useState(false),[sl,setSl]=useState(null),[toc,setToc]=useState([]),[hd,setHd]=useState(null),[bm,setBm]=useState(null),[dp,setDp]=useState(null),[tb,setTb]=useState(null),[lk,setLk]=useState(null),[fa,setFa]=useState({});
 const wrap=useRef(null),drag=useRef(null),lt=useRef(0);
