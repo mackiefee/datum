@@ -172,12 +172,11 @@ export async function POST(req) {
       };
       const signedToken = await signJwt(claims);
       await writeAuditLog(admin, {
-        event: 'google_oauth_verified',
         email,
-        google_sub: claims.sub,
         provider: 'google',
-        domain: claims.hd,
-        success: true,
+        event_type: 'login_success',
+        hosted_domain: claims.hd,
+        metadata: { google_sub: claims.sub, source: 'oauth' },
       });
       return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {
         status: 200,
@@ -236,12 +235,11 @@ export async function POST(req) {
     const signedToken = await signJwt(claims);
     if (!isGuest) {
       await writeAuditLog(admin, {
-        event: 'session_issued',
         email,
-        google_sub: claims.sub,
         provider: claims.provider,
-        domain,
-        success: true,
+        event_type: 'login_success',
+        hosted_domain: domain,
+        metadata: { google_sub: claims.sub, source: 'edge_session' },
       });
     }
     return new Response(JSON.stringify({ ok: true, claims, token: signedToken }), {

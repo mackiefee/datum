@@ -1,11 +1,11 @@
--- Planit Data Library - Consolidated Supabase Setup Script
--- Run once in Supabase Dashboard -> SQL Editor
+-- Planit Data Library - Consolidated Idempotent Supabase Setup Script
+-- Run the ENTIRE script once in Supabase Dashboard -> SQL Editor
 
--- =============================================================================
--- SOURCE: supabase/migrations/0001_planit_schema.sql
--- =============================================================================
+SET search_path TO public, extensions;
+
+-- 1) Core Schema
 -- ============================================================================
--- Planit Data Library â€” 0001 Core PostgreSQL Schema
+-- Planit Data Library — 0001 Core PostgreSQL Schema
 -- Covers: Users, Teams, Categories (max 3 levels), Tags, Unified Catalog
 -- (Documents + Resources), Versions, Attachments, Links, Comments,
 -- Collections/Boards, Personal Bookmarks, Shares, Activity Audit & Search Logs.
@@ -16,27 +16,66 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- ----------------------------------------------------------------------------
 -- Enums
 -- ----------------------------------------------------------------------------
-CREATE TYPE user_role AS ENUM ('super_admin', 'admin', 'editor', 'member', 'guest');
-CREATE TYPE account_status AS ENUM ('active', 'invited', 'deactivated');
-CREATE TYPE group_type AS ENUM ('department', 'functional_team');
-CREATE TYPE item_class AS ENUM ('document', 'resource');
-CREATE TYPE item_subtype AS ENUM (
+DO $$ BEGIN
+  CREATE TYPE user_role AS ENUM ('super_admin', 'admin', 'editor', 'member', 'guest');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE account_status AS ENUM ('active', 'invited', 'deactivated');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE group_type AS ENUM ('department', 'functional_team');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE item_class AS ENUM ('document', 'resource');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE item_subtype AS ENUM (
   'doc', 'sop', 'guide', 'policy', 'checklist', 'report',
   'service', 'tool', 'link', 'template', 'media'
 );
-CREATE TYPE lifecycle_status AS ENUM ('Draft', 'Review', 'Approved', 'Archived', 'Deleted');
-CREATE TYPE visibility_level AS ENUM ('Restricted', 'Internal', 'Public');
-CREATE TYPE collection_tier AS ENUM ('personal', 'shared', 'official');
-CREATE TYPE collection_mode AS ENUM ('list', 'board');
-CREATE TYPE link_kind AS ENUM ('hard', 'soft');
-CREATE TYPE share_target_type AS ENUM ('category', 'collection', 'document', 'resource');
-CREATE TYPE share_grantee_type AS ENUM ('user', 'team', 'public_link');
-CREATE TYPE granted_access_role AS ENUM ('viewer', 'commenter', 'editor', 'category_owner');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE lifecycle_status AS ENUM ('Draft', 'Review', 'Approved', 'Archived', 'Deleted');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE visibility_level AS ENUM ('Restricted', 'Internal', 'Public');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE collection_tier AS ENUM ('personal', 'shared', 'official');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE collection_mode AS ENUM ('list', 'board');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE link_kind AS ENUM ('hard', 'soft');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE share_target_type AS ENUM ('category', 'collection', 'document', 'resource');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE share_grantee_type AS ENUM ('user', 'team', 'public_link');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+DO $$ BEGIN
+  CREATE TYPE granted_access_role AS ENUM ('viewer', 'commenter', 'editor', 'category_owner');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- ----------------------------------------------------------------------------
 -- Teams & Users (Departments and Functional Teams unified via group_type)
 -- ----------------------------------------------------------------------------
-CREATE TABLE teams (
+CREATE TABLE IF NOT EXISTS teams (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   group_type group_type NOT NULL DEFAULT 'department',
@@ -45,7 +84,7 @@ CREATE TABLE teams (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   auth_uid UUID UNIQUE,
   name TEXT NOT NULL,
@@ -59,11 +98,14 @@ CREATE TABLE users (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-ALTER TABLE teams
+DO $$ BEGIN
+  ALTER TABLE teams
   ADD CONSTRAINT fk_teams_lead_user
   FOREIGN KEY (lead_user_id) REFERENCES users(id) ON DELETE SET NULL;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TABLE team_members (
+CREATE TABLE IF NOT EXISTS team_members (
   team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   team_role TEXT NOT NULL DEFAULT 'member',
@@ -74,7 +116,7 @@ CREATE TABLE team_members (
 -- ----------------------------------------------------------------------------
 -- Categories (Hierarchical, Strictly <= 3 Levels) & Tags
 -- ----------------------------------------------------------------------------
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
   id TEXT PRIMARY KEY,
   parent_id TEXT REFERENCES categories(id) ON DELETE RESTRICT,
   level SMALLINT NOT NULL DEFAULT 1 CHECK (level BETWEEN 1 AND 3),
@@ -90,7 +132,7 @@ CREATE TABLE categories (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_categories_parent ON categories(parent_id);
+CREATE INDEX IF NOT EXISTS idx_categories_parent ON categories(parent_id);
 
 CREATE OR REPLACE FUNCTION enforce_category_depth()
 RETURNS TRIGGER AS $$
@@ -113,11 +155,12 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_categories_depth ON categories;
 CREATE TRIGGER trg_categories_depth
 BEFORE INSERT OR UPDATE OF parent_id ON categories
 FOR EACH ROW EXECUTE FUNCTION enforce_category_depth();
 
-CREATE TABLE tags (
+CREATE TABLE IF NOT EXISTS tags (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL UNIQUE,
   description TEXT DEFAULT '',
@@ -128,7 +171,7 @@ CREATE TABLE tags (
 -- ----------------------------------------------------------------------------
 -- Unified Catalog Items (Knowledge Base Documents + Resource Library Assets)
 -- ----------------------------------------------------------------------------
-CREATE TABLE catalog_items (
+CREATE TABLE IF NOT EXISTS catalog_items (
   id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
   item_class item_class NOT NULL DEFAULT 'document',
   type item_subtype NOT NULL DEFAULT 'doc',
@@ -157,12 +200,12 @@ CREATE TABLE catalog_items (
   ) STORED
 );
 
-CREATE INDEX idx_catalog_items_category ON catalog_items(category_id);
-CREATE INDEX idx_catalog_items_status_vis ON catalog_items(status, visibility);
-CREATE INDEX idx_catalog_items_owner ON catalog_items(owner_id);
-CREATE INDEX idx_catalog_items_search ON catalog_items USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_category ON catalog_items(category_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_status_vis ON catalog_items(status, visibility);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_owner ON catalog_items(owner_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_search ON catalog_items USING GIN(search_vector);
 
-CREATE TABLE item_tags (
+CREATE TABLE IF NOT EXISTS item_tags (
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   tag_id UUID NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
   PRIMARY KEY (item_id, tag_id)
@@ -171,7 +214,7 @@ CREATE TABLE item_tags (
 -- ----------------------------------------------------------------------------
 -- Document Versions, Attachments, Dependency Links & Comments
 -- ----------------------------------------------------------------------------
-CREATE TABLE document_versions (
+CREATE TABLE IF NOT EXISTS document_versions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   version_num INTEGER NOT NULL,
@@ -185,9 +228,9 @@ CREATE TABLE document_versions (
   UNIQUE (item_id, version_num)
 );
 
-CREATE INDEX idx_doc_versions_item ON document_versions(item_id, version_num DESC);
+CREATE INDEX IF NOT EXISTS idx_doc_versions_item ON document_versions(item_id, version_num DESC);
 
-CREATE TABLE attachments (
+CREATE TABLE IF NOT EXISTS attachments (
   id TEXT PRIMARY KEY,
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   file_name TEXT NOT NULL,
@@ -199,9 +242,9 @@ CREATE TABLE attachments (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_attachments_item ON attachments(item_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_item ON attachments(item_id);
 
-CREATE TABLE item_links (
+CREATE TABLE IF NOT EXISTS item_links (
   source_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   target_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   link_kind link_kind NOT NULL DEFAULT 'soft',
@@ -210,7 +253,7 @@ CREATE TABLE item_links (
   CHECK (source_id <> target_id)
 );
 
-CREATE TABLE item_comments (
+CREATE TABLE IF NOT EXISTS item_comments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   author_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -222,7 +265,7 @@ CREATE TABLE item_comments (
 -- ----------------------------------------------------------------------------
 -- Collections & Visual Link Boards (Unified Model)
 -- ----------------------------------------------------------------------------
-CREATE TABLE collections (
+CREATE TABLE IF NOT EXISTS collections (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
@@ -238,12 +281,12 @@ CREATE TABLE collections (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_collections_owner_tier ON collections(owner_id, tier);
+CREATE INDEX IF NOT EXISTS idx_collections_owner_tier ON collections(owner_id, tier);
 
 -- ----------------------------------------------------------------------------
 -- Personal Bookmarks, Watching, Reading Progress & Required Acknowledgments
 -- ----------------------------------------------------------------------------
-CREATE TABLE bookmarks (
+CREATE TABLE IF NOT EXISTS bookmarks (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   is_favorite BOOLEAN NOT NULL DEFAULT false,
@@ -260,7 +303,7 @@ CREATE TABLE bookmarks (
 -- ----------------------------------------------------------------------------
 -- Explicit Access Grants & Public Share Tokens
 -- ----------------------------------------------------------------------------
-CREATE TABLE shares (
+CREATE TABLE IF NOT EXISTS shares (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   target_type share_target_type NOT NULL,
   target_id TEXT NOT NULL,
@@ -273,13 +316,13 @@ CREATE TABLE shares (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_shares_target ON shares(target_type, target_id);
-CREATE INDEX idx_shares_grantee ON shares(grantee_type, grantee_id);
+CREATE INDEX IF NOT EXISTS idx_shares_target ON shares(target_type, target_id);
+CREATE INDEX IF NOT EXISTS idx_shares_grantee ON shares(grantee_type, grantee_id);
 
 -- ----------------------------------------------------------------------------
 -- Immutable Activity Audit Log & Zero-Result Search Gap Logs
 -- ----------------------------------------------------------------------------
-CREATE TABLE activities (
+CREATE TABLE IF NOT EXISTS activities (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
   actor_name TEXT NOT NULL,
@@ -291,9 +334,9 @@ CREATE TABLE activities (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_activities_created ON activities(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activities_created ON activities(created_at DESC);
 
-CREATE TABLE search_logs (
+CREATE TABLE IF NOT EXISTS search_logs (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   query TEXT NOT NULL,
@@ -399,11 +442,9 @@ RETURNS TABLE(dependent_item_id BIGINT, title TEXT, depth INTEGER) AS $$
   ORDER BY depth ASC, ci.title ASC;
 $$ LANGUAGE sql STABLE;
 
--- =============================================================================
--- SOURCE: supabase/migrations/0002_rls_policies.sql
--- =============================================================================
+-- 2) Row-Level Security Policies
 -- ============================================================================
--- Planit Data Library â€” 0002 Row-Level Security (RLS) & Conflict Resolution
+-- Planit Data Library — 0002 Row-Level Security (RLS) & Conflict Resolution
 -- Enforces:
 --   1. Deactivated users denied all access.
 --   2. Super Admin / Admin global access.
@@ -546,21 +587,27 @@ $$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
 -- ----------------------------------------------------------------------------
 -- Table Policies
 -- ----------------------------------------------------------------------------
+DROP POLICY IF EXISTS "Users viewable by internal active users" ON users;
 CREATE POLICY "Users viewable by internal active users" ON users
   FOR SELECT USING (is_internal_active_user() OR id = current_app_user_id());
 
+DROP POLICY IF EXISTS "Admins manage users" ON users;
 CREATE POLICY "Admins manage users" ON users
   FOR ALL USING (is_app_admin());
 
+DROP POLICY IF EXISTS "Categories viewable when permitted" ON categories;
 CREATE POLICY "Categories viewable when permitted" ON categories
   FOR SELECT USING (can_view_category(id));
 
+DROP POLICY IF EXISTS "Admins and category owners manage categories" ON categories;
 CREATE POLICY "Admins and category owners manage categories" ON categories
   FOR ALL USING (is_app_admin() OR owner_id = current_app_user_id());
 
+DROP POLICY IF EXISTS "Catalog items follow visibility & permission resolution" ON catalog_items;
 CREATE POLICY "Catalog items follow visibility & permission resolution" ON catalog_items
   FOR SELECT USING (can_view_item(id));
 
+DROP POLICY IF EXISTS "Owners, category editors and admins edit catalog items" ON catalog_items;
 CREATE POLICY "Owners, category editors and admins edit catalog items" ON catalog_items
   FOR UPDATE USING (
     is_app_admin()
@@ -568,12 +615,15 @@ CREATE POLICY "Owners, category editors and admins edit catalog items" ON catalo
     OR EXISTS (SELECT 1 FROM categories c WHERE c.id = category_id AND c.owner_id = current_app_user_id())
   );
 
+DROP POLICY IF EXISTS "Authenticated internal users create drafts" ON catalog_items;
 CREATE POLICY "Authenticated internal users create drafts" ON catalog_items
   FOR INSERT WITH CHECK (is_internal_active_user() AND owner_id = current_app_user_id());
 
+DROP POLICY IF EXISTS "Versions strictly hidden from guests/public" ON document_versions;
 CREATE POLICY "Versions strictly hidden from guests/public" ON document_versions
   FOR SELECT USING (is_internal_active_user() AND can_view_item(item_id));
 
+DROP POLICY IF EXISTS "Attachments enforce cleared_for_public for guests/public" ON attachments;
 CREATE POLICY "Attachments enforce cleared_for_public for guests/public" ON attachments
   FOR SELECT USING (
     can_view_item(item_id) AND (
@@ -581,15 +631,19 @@ CREATE POLICY "Attachments enforce cleared_for_public for guests/public" ON atta
     )
   );
 
+DROP POLICY IF EXISTS "Comments hidden from public/guests" ON item_comments;
 CREATE POLICY "Comments hidden from public/guests" ON item_comments
   FOR SELECT USING (is_internal_active_user() AND can_view_item(item_id));
 
+DROP POLICY IF EXISTS "Internal non-guests can comment" ON item_comments;
 CREATE POLICY "Internal non-guests can comment" ON item_comments
   FOR INSERT WITH CHECK (is_internal_active_user() AND can_view_item(item_id));
 
+DROP POLICY IF EXISTS "Personal bookmarks strictly isolated per user" ON bookmarks;
 CREATE POLICY "Personal bookmarks strictly isolated per user" ON bookmarks
   FOR ALL USING (user_id = current_app_user_id());
 
+DROP POLICY IF EXISTS "Collections respect tier and visibility" ON collections;
 CREATE POLICY "Collections respect tier and visibility" ON collections
   FOR SELECT USING (
     is_app_admin()
@@ -605,14 +659,13 @@ CREATE POLICY "Collections respect tier and visibility" ON collections
     )
   );
 
+DROP POLICY IF EXISTS "Admins read all activities; internal users read permitted" ON activities;
 CREATE POLICY "Admins read all activities; internal users read permitted" ON activities
   FOR SELECT USING (is_app_admin() OR is_internal_active_user());
 
--- =============================================================================
--- SOURCE: supabase/migrations/0003_google_auth_security.sql
--- =============================================================================
+-- 3) Google OAuth & Security Hardening
 -- ============================================================================
--- Planit Data Library â€” 0003 Google OAuth + Supabase Auth Security Hardening
+-- Planit Data Library — 0003 Google OAuth + Supabase Auth Security Hardening
 -- Enforces verified Google Identity profile syncing (name, email, avatar_url),
 -- hosted domain whitelisting, deactivated account blocking, and auth audit logs.
 -- ============================================================================
@@ -634,7 +687,9 @@ CREATE TABLE IF NOT EXISTS public.allowed_domains (
 );
 
 INSERT INTO public.allowed_domains (domain, default_role, enforce_verified)
-VALUES ('planit.studio', 'member', true)
+VALUES
+  ('planit.studio', 'member', true),
+  ('gmail.com', 'member', true)
 ON CONFLICT (domain) DO NOTHING;
 
 -- Immutable Auth Security Audit Log
@@ -655,10 +710,12 @@ CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON public.auth_audit_logs(crea
 ALTER TABLE public.allowed_domains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auth_audit_logs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS allowed_domains_read ON public.allowed_domains;
 CREATE POLICY allowed_domains_read ON public.allowed_domains
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS allowed_domains_admin_write ON public.allowed_domains;
 CREATE POLICY allowed_domains_admin_write ON public.allowed_domains
   FOR ALL TO authenticated
   USING (
@@ -668,6 +725,7 @@ CREATE POLICY allowed_domains_admin_write ON public.allowed_domains
     )
   );
 
+DROP POLICY IF EXISTS auth_audit_admin_read ON public.auth_audit_logs;
 CREATE POLICY auth_audit_admin_read ON public.auth_audit_logs
   FOR SELECT TO authenticated
   USING (
@@ -796,28 +854,28 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- =============================================================================
--- SOURCE: supabase/seed.sql
--- =============================================================================
+-- 4) Initial Seed Data
 -- ============================================================================
--- Planit Data Library â€” Initial Seed Data
+-- Planit Data Library — Initial Seed Data
 -- ============================================================================
 
-INSERT INTO teams (id, name, group_type, color) VALUES
+INSERT INTO public.teams (id, name, group_type, color) VALUES
   ('11111111-1111-1111-1111-111111111101', 'VDC', 'department', '#8e5cf7'),
   ('11111111-1111-1111-1111-111111111102', 'Structural', 'department', '#ff375f'),
   ('11111111-1111-1111-1111-111111111103', 'Interior', 'department', '#ff9f0a'),
-  ('11111111-1111-1111-1111-111111111104', 'P&C', 'department', '#0071e3');
+  ('11111111-1111-1111-1111-111111111104', 'P&C', 'department', '#0071e3')
+ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO users (id, name, email, role, status, primary_team_id) VALUES
+INSERT INTO public.users (id, name, email, role, status, primary_team_id) VALUES
   ('22222222-2222-2222-2222-222222222201', 'Maxim', 'maxim@planit.studio', 'super_admin', 'active', '11111111-1111-1111-1111-111111111101'),
   ('22222222-2222-2222-2222-222222222202', 'Iryna P.', 'iryna@planit.studio', 'editor', 'active', '11111111-1111-1111-1111-111111111101'),
   ('22222222-2222-2222-2222-222222222203', 'Andrii B.', 'andrii@planit.studio', 'editor', 'active', '11111111-1111-1111-1111-111111111102'),
   ('22222222-2222-2222-2222-222222222204', 'Olena K.', 'olena@planit.studio', 'admin', 'active', '11111111-1111-1111-1111-111111111102'),
   ('22222222-2222-2222-2222-222222222205', 'Sofiia L.', 'sofiia@planit.studio', 'member', 'active', '11111111-1111-1111-1111-111111111103'),
-  ('22222222-2222-2222-2222-222222222206', 'External Partner', 'partner@client.example', 'guest', 'active', NULL);
+  ('22222222-2222-2222-2222-222222222206', 'External Partner', 'partner@client.example', 'guest', 'active', NULL)
+ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO categories (id, parent_id, level, name, slug, color, owner_id, default_visibility, require_approval, review_cycle_days, sort_order) VALUES
+INSERT INTO public.categories (id, parent_id, level, name, slug, color, owner_id, default_visibility, require_approval, review_cycle_days, sort_order) VALUES
   ('gen', NULL, 1, 'General', 'general', '#8e8e93', '22222222-2222-2222-2222-222222222201', 'Internal', true, 90, 1),
   ('gen-pol', 'gen', 2, 'Policies', 'policies', '#8e8e93', '22222222-2222-2222-2222-222222222201', 'Internal', true, 90, 1),
   ('gen-link', 'gen', 2, 'Services and links', 'services-and-links', '#8e8e93', '22222222-2222-2222-2222-222222222204', 'Internal', false, 180, 2),
@@ -833,14 +891,18 @@ INSERT INTO categories (id, parent_id, level, name, slug, color, owner_id, defau
   ('int-fam', 'int', 2, 'Families', 'families', '#ff9f0a', '22222222-2222-2222-2222-222222222205', 'Internal', false, 180, 1),
   ('int-std', 'int', 2, 'Standards', 'standards', '#ff9f0a', '22222222-2222-2222-2222-222222222205', 'Internal', true, 90, 2),
   ('pc', NULL, 1, 'P&C', 'pc', '#0071e3', '22222222-2222-2222-2222-222222222204', 'Restricted', true, 90, 5),
-  ('pc-proc', 'pc', 2, 'Processes', 'processes', '#0071e3', '22222222-2222-2222-2222-222222222204', 'Restricted', true, 90, 1);
+  ('pc-proc', 'pc', 2, 'Processes', 'processes', '#0071e3', '22222222-2222-2222-2222-222222222204', 'Restricted', true, 90, 1)
+ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO catalog_items (id, item_class, type, title, summary, body, target_url, category_id, owner_id, status, visibility, stage, discipline, is_required_reading, last_verified_at, updated_at) VALUES
-  (1, 'document', 'doc', 'BIM Execution Plan â€” template', 'BEP basis for every new project: roles, CDE, exchange schedule.', 'The BEP defines roles, responsibilities, exchange formats and project checkpoints.', '', 'vdc-bim', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Concept', 'VDC', false, '2026-10-14', '2026-10-14'),
+INSERT INTO public.catalog_items (id, item_class, type, title, summary, body, target_url, category_id, owner_id, status, visibility, stage, discipline, is_required_reading, last_verified_at, updated_at) VALUES
+  (1, 'document', 'doc', 'BIM Execution Plan — template', 'BEP basis for every new project: roles, CDE, exchange schedule.', 'The BEP defines roles, responsibilities, exchange formats and project checkpoints.', '', 'vdc-bim', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Concept', 'VDC', false, '2026-10-14', '2026-10-14'),
   (2, 'document', 'doc', 'File and model naming', 'Unified code scheme: project-originator-volume-level-type-number.', 'All files in the CDE are named using the project-originator-volume-level-type-number scheme.', '', 'vdc-name', '22222222-2222-2222-2222-222222222202', 'Approved', 'Public', 'Design', 'VDC', true, '2026-09-30', '2026-09-30'),
-  (9, 'resource', 'service', 'pyRevit â€” corporate extension', 'Custom scripts for sheets, annotations and model checking.', 'Install via internal repo and run weekly updater.', 'https://pyrevitlabs.io', 'vdc-tool', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Design', 'VDC', false, '2026-10-19', '2026-10-19'),
-  (10, 'resource', 'service', 'Redmine â€” project tasks', 'Tracker of tasks and deadlines by project.', 'Log all model changes affecting issue.', 'https://www.redmine.org', 'gen-link', '22222222-2222-2222-2222-222222222204', 'Approved', 'Internal', 'Design', 'Architecture', false, '2026-08-30', '2026-08-30'),
-  (12, 'document', 'policy', 'CDE access policy', 'Who can see and edit what, and at which level.', 'Access is granted at the department, folder or individual document level.', '', 'gen-pol', '22222222-2222-2222-2222-222222222201', 'Draft', 'Restricted', 'Concept', 'VDC', false, '2026-10-21', '2026-10-21');
+  (9, 'resource', 'service', 'pyRevit — corporate extension', 'Custom scripts for sheets, annotations and model checking.', 'Install via internal repo and run weekly updater.', 'https://pyrevitlabs.io', 'vdc-tool', '22222222-2222-2222-2222-222222222201', 'Approved', 'Internal', 'Design', 'VDC', false, '2026-10-19', '2026-10-19'),
+  (10, 'resource', 'service', 'Redmine — project tasks', 'Tracker of tasks and deadlines by project.', 'Log all model changes affecting issue.', 'https://www.redmine.org', 'gen-link', '22222222-2222-2222-2222-222222222204', 'Approved', 'Internal', 'Design', 'Architecture', false, '2026-08-30', '2026-08-30'),
+  (12, 'document', 'policy', 'CDE access policy', 'Who can see and edit what, and at which level.', 'Access is granted at the department, folder or individual document level.', '', 'gen-pol', '22222222-2222-2222-2222-222222222201', 'Draft', 'Restricted', 'Concept', 'VDC', false, '2026-10-21', '2026-10-21')
+ON CONFLICT (id) DO NOTHING;
 
-SELECT setval(pg_get_serial_sequence('catalog_items', 'id'), (SELECT COALESCE(MAX(id), 1) FROM catalog_items));
+SELECT setval(pg_get_serial_sequence('public.catalog_items', 'id'), (SELECT COALESCE(MAX(id), 1) FROM public.catalog_items));
 
+-- 5) Refresh PostgREST schema cache immediately
+NOTIFY pgrst, 'reload schema';

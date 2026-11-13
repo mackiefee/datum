@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS public.allowed_domains (
 );
 
 INSERT INTO public.allowed_domains (domain, default_role, enforce_verified)
-VALUES ('planit.studio', 'member', true)
+VALUES
+  ('planit.studio', 'member', true),
+  ('gmail.com', 'member', true)
 ON CONFLICT (domain) DO NOTHING;
 
 -- Immutable Auth Security Audit Log
@@ -42,10 +44,12 @@ CREATE INDEX IF NOT EXISTS idx_auth_audit_created ON public.auth_audit_logs(crea
 ALTER TABLE public.allowed_domains ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.auth_audit_logs ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS allowed_domains_read ON public.allowed_domains;
 CREATE POLICY allowed_domains_read ON public.allowed_domains
   FOR SELECT TO authenticated
   USING (true);
 
+DROP POLICY IF EXISTS allowed_domains_admin_write ON public.allowed_domains;
 CREATE POLICY allowed_domains_admin_write ON public.allowed_domains
   FOR ALL TO authenticated
   USING (
@@ -55,6 +59,7 @@ CREATE POLICY allowed_domains_admin_write ON public.allowed_domains
     )
   );
 
+DROP POLICY IF EXISTS auth_audit_admin_read ON public.auth_audit_logs;
 CREATE POLICY auth_audit_admin_read ON public.auth_audit_logs
   FOR SELECT TO authenticated
   USING (
