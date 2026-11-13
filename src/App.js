@@ -36,7 +36,7 @@ import { CollectionsView } from './features/collections/CollectionsView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
 
-const DATASET_VER = "c10-interior-v2";
+const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
   "kb2-res", "kb2-tree", "kb2-cols", "kb2-acts", "kb2-notes",
   "kb2-pins", "kb2-fav", "kb2-watch", "kb2-req", "kb2-ack",

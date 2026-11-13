@@ -146,6 +146,35 @@ export const IMG0 = {
   c10_image893: "/c10-media/image893.jpg",
   c10_image897: "/c10-media/image897.jpg",
   c10_image898: "/c10-media/image898.png",
+  c1010_image3: "/c10-media/c1010_image3.jpg",
+  c1010_image4: "/c10-media/c1010_image4.png",
+  c1010_image6: "/c10-media/c1010_image6.png",
+  c1010_image7: "/c10-media/c1010_image7.png",
+  c1010_image11: "/c10-media/c1010_image11.png",
+  c1010_image12: "/c10-media/c1010_image12.png",
+  c1010_image15: "/c10-media/c1010_image15.png",
+  c1010_image16: "/c10-media/c1010_image16.png",
+  c1010_image21: "/c10-media/c1010_image21.png",
+  c1010_image24: "/c10-media/c1010_image24.png",
+  c1010_image25: "/c10-media/c1010_image25.png",
+  c1010_image27: "/c10-media/c1010_image27.png",
+  c1010_image28: "/c10-media/c1010_image28.jpg",
+  c1010_image34: "/c10-media/c1010_image34.png",
+  c1010_image42: "/c10-media/c1010_image42.png",
+  c1010_image47: "/c10-media/c1010_image47.png",
+  c1010_image62: "/c10-media/c1010_image62.png",
+  c1010_image63: "/c10-media/c1010_image63.png",
+  c1010_image64: "/c10-media/c1010_image64.png",
+  c1010_image66: "/c10-media/c1010_image66.png",
+  c1010_image67: "/c10-media/c1010_image67.png",
+  c1010_image70: "/c10-media/c1010_image70.png",
+  c1010_image73: "/c10-media/c1010_image73.png",
+  c1010_image75: "/c10-media/c1010_image75.png",
+  c1010_image78: "/c10-media/c1010_image78.png",
+  c1010_image82: "/c10-media/c1010_image82.png",
+  c1010_image83: "/c10-media/c1010_image83.png",
+  c1010_image89: "/c10-media/c1010_image89.png",
+  c1010_image90: "/c10-media/c1010_image90.png",
 };
 
 export const GUIDE = mk({
@@ -203,15 +232,17 @@ export const SEED = [
     upd: "2026-10-18",
     links: [[100, "hard"], [102, "hard"]],
     body: `## Document Governance
-**Standard Owner / Contact Person:** Elena Khlivetskaya  
+**C10_INTERIOR Owner:** Elena Khlivetskaya  
+**C1010 Interior Partition Contact Point:** Oleksii Hirdvoin (\`gia@uateam.com.ua\`) — Version #2 (UPD 05/21/2026: *CMU Wall Modeling Adjacent to Structural Elements*)  
 **Maintained by:** P&C PE Team & Interior PE Team
 
-> [!note] Before applying legacy slide procedures for Interior Walls, Chain-Link Partitions, Interior Doors, Parking Control, or Drawing Revisions, verify the linked Actual Google Doc in article #102.
+> [!note] Legacy wall slides in C10_INTERIOR.pptx are superseded by the **C1010 Interior Partition** specification (articles #111, #133–#136) and the live Google Docs hub (#102).
 
 ## Contributors Roster
 | Area | Contributors |
 |---|---|
 | General Standards, Codes & Appliances | Elena Khlivetskaya, Oksana Denysiuk, Svetlana Schmidt |
+| C1010 Interior Partitions Standard | Oleksii Hirdvoin (Aleksey Girdvoin), P&C Team |
 | Modeling (Walls, Ceilings, 3D Room Tags) | Dmytro Kryshchuk, Nikita Mishchenko |
 | Doors, Kitchens & Bathrooms | Maksim Borisov, Daria Levchenko, Artem Honchar |
 | Coordination & Concrete Tolerances | Anton Kolmykov, Anastasia Batechko |
@@ -233,27 +264,31 @@ export const SEED = [
     type: "link",
     vis: "Public",
     title: "Actual Interior Standards & P&C Google Docs Hub",
-    desc: "Direct portal to the superseding Google Docs for Interior Walls, Wire Mesh, Interior Doors, Parking Control & Revisions.",
+    desc: "Direct portal to live Google Docs: Interior Partitions, Wire Mesh, Interior Doors, Parking Control, NF Standard & Concrete Tolerances.",
     url: "https://docs.google.com/document/d/1vSa4jYwxz6ltsmDjm2AOhATwWZXIZaDNq6m_x9ZzdlM/edit",
     status: "Approved",
     stage: "Construction",
     disc: "Interior",
-    tags: ["google-docs", "actual-standard", "links"],
+    tags: ["google-docs", "actual-standard", "links", "NF-standard"],
     author: "Elena Khlivetskaya",
     upd: "2026-10-21",
-    links: [[100, "hard"], [111, "hard"], [115, "hard"], [129, "hard"]],
+    links: [[100, "hard"], [111, "hard"], [115, "hard"], [129, "hard"], [133, "hard"]],
     body: `## Active Google Docs Standards (Supersedes Legacy Slides)
 Whenever a slide displays the **OUTDATED / SUPERSEDED** badge, engineers must use these authoritative living documents:
 
 | Standard Document | Status | Direct URL |
 |---|---|---|
-| **Actual Interior Walls Standard** | Active | https://docs.google.com/document/d/1vSa4jYwxz6ltsmDjm2AOhATwWZXIZaDNq6m_x9ZzdlM/edit |
+| **C1010 Actual Interior Walls Standard** | Active (v2) | https://docs.google.com/document/d/1vSa4jYwxz6ltsmDjm2AOhATwWZXIZaDNq6m_x9ZzdlM/edit |
 | **Chain-Link & Wire Mesh Partitions Standard** | Active | https://docs.google.com/document/d/18vfb2HUIVXFYD00ell66yt-k6L04nnzxde0gn4yQWg0/edit |
 | **Interior Doors Standard** | Active | https://docs.google.com/document/d/1GY7rxmEqB6CbE9ruBXyMqFdJXMPsiQlD3oXHKheDTGI/edit |
 | **Parking Control Modeling & Detailing** | Active | https://docs.google.com/document/d/15ker8RuPV26e23PgLOLOFRI8mM5Y1-39Ypq7cwgqw4g/edit |
 | **P&C Planit Revision Standard** | Active | https://docs.google.com/document/d/1bHDuWqf-1rCZZhi4HcVbzyGfWUTd4tf8PHHWfYujRm0/edit |
+| **P&C Planit NF Standard** | Active | https://docs.google.com/document/d/1ExDYdsSxGcnO6bBdPGf7cbJvtFBjnAy0Tb3gy_swcgU/edit |
+| **CMU Wall Connections & Openings (Sec. 2.4.2)** | Active | https://docs.google.com/document/d/15AnMQalHUGOrwRCd0dHm0QyANd1miXBBoy7Sb3fuCww/edit |
+| **Concrete Walls Tolerance Standard (ACI 117-10)** | Active | https://docs.google.com/document/d/1xL9OJNSPJUGOYc7E2R0ZoYwu7BARFdgJyngoDwpPZWg/edit |
+| **NF Examples — Interior Spreadsheet** | Reference | https://docs.google.com/spreadsheets/d/1znnZsl-Nsueu1GUJImRvziOGAPkXm5TrAgAF3yO77_k/edit |
 
-> [!warn] Never issue CL-RFI revision clouds or markup PDFs using superseded title-block notes; follow the **P&C Planit Revision Standard** directly.
+> [!warn] Never issue CL-RFI revision clouds or markup PDFs using superseded title-block notes; follow the **P&C Planit Revision Standard** and **P&C Planit NF Standard** directly.
 `,
   }),
 
@@ -428,12 +463,23 @@ Every Revit family type, wall assembly, door type, and material in the **C10_INT
     tags: ["fire-rating", "CBC", "IBC", "shafts", "Chapter-7"],
     author: "Elena Khlivetskaya",
     upd: "2026-10-20",
-    links: [[109, "hard"], [110, "hard"], [111, "hard"]],
-    body: `## Fire-Resistance Requirements (IBC / CBC Chapter 7)
-- **Shaft Enclosures (Sec. 713.4)**: Minimum **2-hour** rating when connecting 4 or more stories; minimum **1-hour** when connecting fewer than 4 stories.
+    links: [[109, "hard"], [110, "hard"], [111, "hard"], [135, "hard"]],
+    body: `## Fire-Resistance Classification (IBC / CBC Chapter 7)
+| Classification | Code Section | Primary Use & Continuity Rule |
+|---|---|---|
+| **Fire Walls** | Sec. 706 | Building separations / fire areas; structurally stable; vertically aligned across levels; openings protected |
+| **Fire Barriers** | Sec. 707 | Shaft enclosures (Sec. 713), exit stairways/ramps, exit passageways, atriums; continuous floor-to-floor through concealed spaces |
+| **Fire Partitions** | Sec. 708 | Dwelling unit separations & corridors; openings protected; may terminate at rated floor/ceiling assemblies |
+| **Smoke Barriers** | Sec. 709 | Fire-resistant shell; continuous from floor through concealed space |
+| **Smoke Partitions** | Sec. 710 | Non-fire-resistant smoke control; may terminate at floor/ceiling/roof assembly |
+
+## Shaft & Corridor Rules
+- **Shaft Enclosures (Sec. 713.4)**: Modeled as Fire Barriers (Sec. 707) — minimum **2-hour** rating when connecting 4 or more stories; minimum **1-hour** when connecting fewer than 4 stories.
 - **Wood 2-HR Shaft Walls**: Type X 5/8" GWB provides 1-HR per layer (1/2" provides 3/4-HR) -> 2-HR wood shaft walls require **two Type X GWB layers on each side**.
-- **Rated Corridors & Exit Access**: Wall fire rating must match adjacent door fire rating (\`20 min\`, \`45 min\`, \`60 min\`, \`90 min\`).
+- **Rated Corridors & Exit Access**: Wall fire rating must match adjacent door fire rating (\`20 min\`, \`45 min\`, \`60 min\`, \`90 min\`). Issue NF for any discrepancy between wall and door fire ratings.
 - **Penetrations & Risers**: Piping shown outside a shaft assembly cannot penetrate rated floors/walls unprotected without an additional 2-HR chase enclosure.
+
+![Chapter 7 Wall Fire Rating Classification Chart](img:c1010_image24)
 
 ![Fire-Rated Wall and Shaft Assembly Diagram](img:c10_image176)
 
@@ -449,16 +495,27 @@ Every Revit family type, wall assembly, door type, and material in the **C10_INT
     type: "doc",
     vis: "Public",
     title: "Accessibility & Egress — ADA Doors, Clearances & Holds",
-    desc: "CBC Chapter 11A & 11B maneuvering clearances, pull/push door zones, 8-inch frame offset tolerance, 30x48 FEC & appliance zones.",
+    desc: "ADAAG 403.5 corridor pinch & 180-turn widths, 60-in / T-turn spaces, Ch. 10 Occupant Load formula & door maneuvering zones.",
     status: "Approved",
     stage: "Design",
     disc: "Architecture",
-    tags: ["ADA", "CBC-11B", "CBC-11A", "egress", "clearances"],
+    tags: ["ADA", "ADAAG-403", "CBC-11B", "egress", "clearances"],
     author: "Elena Khlivetskaya",
     upd: "2026-10-20",
     links: [[108, "soft"], [110, "hard"], [117, "hard"]],
-    body: `## Accessibility Standards (CBC 11A / 11B & ADA 2010)
-All public-access rooms, dwelling units governed by accessibility statutes, and egress paths require modeled **ADA Clear Zones** inside door, plumbing, kitchen, and equipment families.
+    body: `## Accessible Route Widths (ADAAG 403.5 / ADASAD 2010 / ICC A117.1)
+- **Standard Minimums**: Dwelling unit interior corridors > **36"**; public corridors > **44"**; corridors exceeding 200 ft often require **60"** (56") passing space depending on State code.
+- **Localized Reduction (403.5.1)**: Clear width may narrow to **32" min** for max **24" length**, provided segments are separated by sections at least **48" long × 36" wide**.
+- **180° Turn Around Element <48" Wide (403.5.2)**: Clear width must be **42" min** approaching turn, **48" min** at turn, and **42" min** leaving turn.
+- **Turning Spaces**: Minimum **60" diameter circle** OR **T-shaped space** within 60" square (36" arms/base, 12" arm clearance, 24" base clearance) required in accessible restrooms, corridors (every 200 ft), and dwelling units.
+
+## Egress Width Formula (BC Chapter 10)
+\`\`\`
+Corridor Width (inches) = Occupant Load × 0.2"  (must be ≥ minimum required corridor width)
+\`\`\`
+Concrete pouring tolerances must NEVER shrink an accessible route or Chapter 10 egress corridor width below code minimum (+NF required).
+
+![ADAAG 403.5.1 and 403.5.2 Corridor Turning Diagram](img:c1010_image27)
 
 ![ADA Pull and Push Maneuvering Clearances](img:c10_image167)
 
@@ -503,16 +560,34 @@ Always verify the **project jurisdiction & adoption year** in the Title Sheet Co
     node: "c10-mod-wall",
     type: "doc",
     vis: "Internal",
-    title: "GWB & Metal Stud Walls — Framing, Height Limits & Shafts",
-    desc: "Metal stud profiles (C, CH, U/Z furring), Sec. 05 40 00 height checks, wet-wall width analysis & vertical shaft alignment.",
+    title: "GWB & Metal Stud Walls — C1010 Framing, Boards & Height Limits",
+    desc: "GWB board varieties (Type X/C, Shaftliner, Moisture/Impact), 16/24 OC dead-space screw access, 1HR priority & Spec 05 40 00 height checks.",
     status: "Approved",
     stage: "Design",
     disc: "Interior",
-    tags: ["walls", "metal-stud", "GWB", "shaft", "furring"],
+    tags: ["walls", "metal-stud", "GWB", "shaft", "furring", "C1010"],
     author: "Iryna P.",
     upd: "2026-10-19",
-    links: [[102, "hard"], [108, "hard"], [119, "hard"]],
-    body: `## Metal Stud & Furring Profiles
+    links: [[102, "hard"], [108, "hard"], [133, "hard"], [134, "hard"], [135, "hard"]],
+    body: `## GWB Board Varieties (C1010.10.06)
+| Board Type | Standard Thickness | Field Application |
+|---|---|---|
+| **Regular / Type X / Type C** | 1/2", 5/8" (1/4", 3/8" rare) | Standard & fire-rated partition assemblies |
+| **Moisture-Resistant GWB** | 1/2", 5/8" | Bathrooms, wet zones, laundry closets |
+| **Impact-Resistant GWB** | 1/2", 5/8" | High-traffic public corridors & service rooms |
+| **Tile Backing Panels** | 1/2", 5/8" | Ceramic tile substrates around tubs/showers |
+| **Shaftliner** | 1" | Stairwells, elevator shafts & utility raceways |
+
+## Field Installation Sequence & Dead-Space Checks
+- **Rated Priority**: On site, **1-HR rated walls** have studs and GWB installed first; non-rated (NR) partitions follow afterward.
+- **Screw Access (16" / 24" OC)**: Every GWB panel (except shaftliner) must leave clear tool access to screw sheets into studs at 16" or 24" OC.
+- **Dead Spaces**: Narrow gaps near concrete columns, structural steel assemblies, or staircases that block GWB screwing require an **NF for record**.
+
+![GWB Installation Clear Space Near Structural Columns](img:c1010_image47)
+
+![GWB Dead Space in Staircase Framing Detail](img:c1010_image42)
+
+## Metal Stud & Furring Profiles
 Interior metal partitions are categorized into four primary frame geometries:
 - **C-Stud (S)**: Standard partition and structural stud framing.
 - **CH-Stud (CH)**: Cavity shaftwall framing.
@@ -1208,6 +1283,203 @@ Every partition tag in \`CL-RFI L##.1\` displays **ARCH** (original DD tag at to
 ![Final Combined CL-RFI PDF Deliverable Structure](img:c10_image315)
 `,
   }),
+
+  mk({
+    id: 133,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "C1010.10.06 — CMU Walls, Lintels, Reinforcing & Pre-Pour",
+    desc: "Actual vs nominal CMU sizes (GC NF rule), slab-to-slab & cutting rules, pit-wall scope, Pre-Pour penetrations, embeds/dowels & Sec. 2.4.2 reinforcing.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "Structure",
+    tags: ["CMU", "C1010", "pre-pour", "lintels", "embeds", "dowels"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-22",
+    links: [[102, "hard"], [111, "hard"], [115, "soft"], [135, "hard"]],
+    body: `## Actual vs Nominal CMU Sizes (GC NF Rule)
+Before starting CMU partition modeling, confirm whether Design Documents dimension **actual** or **nominal** block sizes.
+- **Standard Rule**: Always model CMU partitions using **actual unit dimensions** (e.g., \`7-5/8"\` for nominal \`8"\`) and issue a **Notification (NF)** for record assigned to the **General Contractor (GC)**.
+- Using nominal dimensions when DD uses actual sizes creates compounding layout clashes at doors, corridors, and slab edges.
+
+![CMU Actual vs Nominal Masonry Unit Dimensions](img:c1010_image73)
+
+![Top CMU Connection Slab-to-Slab and Steel Deck](img:c1010_image63)
+
+## Height, Cutting & Pit-Wall Scope Boundary
+- **Height**: CMU partitions extend **slab to slab** unless terminated by metal deck, structural steel beams, or modeled as half-height / bottom tier of a Stacked Wall.
+- **Cutting**: Concrete masonry blocks may be cut in any direction where geometry requires.
+- **Pit-Wall Exception**: Bearing CMU pit walls located below levels without CL-RFI drawings belong to the **Structural scope**, not Interior.
+
+![Bearing Pit Wall Structural Scope Exception](img:c1010_image70)
+
+## Workflow with Structural & MEP (Pre-Pour, Embeds, Dowels)
+- **Pre-Pour Drawings**: CMU walls appear on Pre-Pour drawings; MEP penetrations require CMU wall elevations showing **blockouts or sleeves**.
+- **Top & Bottom Restraints**: Top-of-wall slab-bottom **embeds** are modeled by Structural; bottom-of-wall **dowels** are cast during concrete pours — notify STR immediately before shifting any CMU wall!
+- **Lintels, Bond Beams & Reinforcing (UPD 05/21/2026)**: Clarify with Structural whether concrete shop drawings require CMU reinforcing and adjacent wall heights per **Section 2.4.2 — CMU Wall Connection Detailing Requirements** (#102).
+
+![Pre-Pour CMU Wall MEP Penetrations and Blockouts](img:c1010_image75)
+
+![CMU Top Embeds and Field Slab Dowels](img:c1010_image6)
+`,
+  }),
+
+  mk({
+    id: 134,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "C1010.10.02–05 — Furred, Shaft, Demising & Stacked Walls",
+    desc: "Resilient/Hat/Z-Furring channels, ACI 117.1R-14 NF options, CH-stud shafts, Elevator Utilities Exclusion Zone (R23), Demising, Staggered & Pony walls.",
+    status: "Approved",
+    stage: "Design",
+    disc: "Interior",
+    tags: ["furred-wall", "shaft-wall", "demising", "exclusion-zone", "pony-wall", "C1010"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-22",
+    links: [[111, "hard"], [108, "hard"], [122, "hard"], [135, "hard"]],
+    body: `## Pony Wall Scope Rule
+If Unit Kitchens are excluded from project scope or placed on long-term hold, **kitchen pony walls must still be modeled inside the Interior Partitions task**.
+
+## C1010.10.04 — Furred Walls (Resilient, Hat & Z-Furring)
+| Furring Type | Application & Modeling Rule |
+|---|---|
+| **Resilient Channel** | Acoustic decoupling mounted perpendicular to studs/joists; drywall screws must penetrate channel **only** (never underlying studs) |
+| **Hat Channel** | \`7/8"\` or \`1-1/2"\` leveling channel over concrete; create a 2-option NF citing **ACI 117.1R-14**: (1) place at tolerance zone, or (2) fasten direct to concrete ignoring tolerance |
+| **Z-Furring** | \`1"\`, \`1-1/2"\`, \`2"\`, \`2-1/2"\`, \`3"\` profiles over masonry/concrete at 16"–24" OC with rigid cavity insulation |
+
+![Resilient Channel Acoustic Decoupling Assembly](img:c1010_image28)
+
+![Hat Channel Concrete Surface Leveling Detail](img:c1010_image12)
+
+![Z-Furring Profile over Masonry and Concrete](img:c1010_image16)
+
+## C1010.10.03 — Shaft Walls & Elevator Utilities Exclusion Zone
+- **CH-Stud Framing**: Specialized cavity shaftliner assembly for stairwells, mechanical chases, and elevator shafts; verify edge-of-slab conditions and vertical stacking via overlays and sections.
+- **Utilities Exclusion Zone**: Hatch zone around elevator equipment/anchorage that must remain **completely free of concealed utilities** (plumbing, electrical conduit, sleeves, piping, ductwork, embeds).
+  - *Concrete core / shear walls around elevator*: **Structural** details exclusion zone and notifies Interior.
+  - *Framing shaft walls around elevator*: **Interior** is responsible using Generic Models from \`C Interiors - Warehouse Model - R23\`.
+
+![CH Stud Shaft Wall Framing Profile](img:c1010_image64)
+
+![Shaft Wall Interface at Concrete Slab Edge](img:c1010_image78)
+
+![Elevator Utilities Exclusion Zone Plan and Limits](img:c1010_image83)
+
+![Utilities Exclusion Zone Revit Generic Model Family](img:c1010_image4)
+
+## Demising, Double Stud, Staggered Stud & Stacked Walls
+- **C1010.10.02 Demising Wall**: Separates multi-tenant units/occupancies with continuous acoustic/fire separation.
+- **C1010.10.05 Double & Staggered Stud**: Dual stud rows or staggered 16"–24" OC framing for serpentine acoustic insulation.
+- **Stacked Walls**: Combined multi-material vertical assemblies (e.g., CMU masonry base below upper metal/wood GWB) or partial-height transitions.
+
+![Demising Wall Acoustic and Fire Separation](img:c1010_image89)
+
+![Double Stud Wall Assembly Diagram](img:c1010_image90)
+
+![Stacked Wall CMU and Framing Transition](img:c1010_image67)
+
+![Staggered Stud Acoustic Snaking Insulation](img:c1010_image11)
+`,
+  }),
+
+  mk({
+    id: 135,
+    node: "c10-mod-wall",
+    type: "doc",
+    vis: "Internal",
+    title: "C1010 Revit Guidelines — Layers [1–5], Joins & Filters",
+    desc: "LOD 300 layer colors, RGB 187/249/57 step-align NR GWB rule, Fire Rating \"-\"/\"1\"/\"2\", BI/AI/0I insulation, Layer functions & Disallow Join.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["Revit-guidelines", "layer-function", "fire-rating", "insulation", "LOD300"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-22",
+    links: [[107, "hard"], [108, "hard"], [133, "hard"], [134, "hard"]],
+    body: `## LOD 300 Material & Color Standards
+- Assign a distinct Revit material to every wall layer so wall types are visually unmistakable in Plan, Section, and 3D Coordination views.
+- Wall surface color must correspond to its **Fire Rating** (except CMU).
+- **Additional NR GWB for Flush Alignment**: Set **Cut Pattern** to unrated green (**RGB \`187 249 57\`**), while **Surface Pattern & 3D Generic Appearance** match the host wall's overall Fire Rating.
+
+![C1010 Standard Wall Assembly Layer Stack](img:c1010_image25)
+
+![Interior Partition Fire Rating Color Coding LOD300](img:c1010_image62)
+
+## Fire Rating Properties & Broken-Contour View Filters
+- Enter Fire Rating strictly as numeric strings **\`-\`**, **\`1\`**, **\`2\`**, etc. — **never** write \`"NR"\`, \`"1HR"\`, or \`"2HR"\`.
+- Run self-check **View Filters** before QA to verify every fire-rated perimeter contour is closed; log an NF for any wall-to-door fire-rating mismatch.
+
+![Fire Rating Contradiction Detection Example](img:c1010_image21)
+
+![Revit View Filters for Broken Fire-Rated Contours](img:c1010_image66)
+
+## Insulation Designations & Acoustic Thicknesses
+| Code | Meaning | Standard Cavities & Materials |
+|---|---|---|
+| **BI** | Batt Insulation | Fiberglass Batts (\`3.5"\` R-11..R-15 in 2x4; \`5.5"\` R-19..R-21 in 2x6) |
+| **AI** | Acoustical Insulation | Mineral Wool (\`3.5"\` / \`5.5"\`) — sound absorption + fire resistance |
+| **0I** | No Insulation | Uninsulated standard partition |
+| *Special* | Spray Foam | Open/closed-cell \`3.5"\` full or partial cavity per spec |
+
+![Insulated CMU and Partition Insulation Schedule](img:c1010_image82)
+
+## Wall Layer Functions & Joining Rules ([1] to [5])
+Configure layer priorities cleanly so intersecting GWB and framing join automatically without Wrap errors:
+1. **Structure \`[1]\`**: Main framing studs, plywood sheathing, core air gaps in load-bearing/demising walls.
+2. **Structure \`[2]\`**: Secondary framing studs and furring channels.
+3. **Thermal/Air Layer \`[3]\`**: Cavity gaps / thermal breaks.
+4. **Finish 1 \`[4]\`**: Fire-rated Type X / Type C GWB boards.
+5. **Finish 2 \`[5]\`**: Non-rated GWB layers and surface finishes.
+
+> [!warn] **Never use Revit "Wrap"** (creates duplicate wall types and broken joins). Use **Disallow Join** + separate grouped layer walls for complex rated corners, and issue **one global NF** up front if DD omits dimensions/wall tags (assumed tags will render Red on CL-RFI).
+
+![Corridor Hold Width and Concrete Tolerance Analysis](img:c1010_image15)
+`,
+  }),
+
+  mk({
+    id: 136,
+    node: "c10-crd-sys",
+    type: "doc",
+    vis: "Internal",
+    title: "C1010 3D Coordination Views (L## - A), Parts & QA",
+    desc: "Mandatory Create Parts on L## - A before Navis/3D export, Base Point Marker, 3D Room Tags, Door Clear Zones toggle & Redmine QA checklists.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["3D-coordination", "Create-Parts", "L##-A", "Redmine-QA", "C1010"],
+    author: "Aleksey Girdvoin",
+    upd: "2026-10-22",
+    links: [[114, "hard"], [123, "hard"], [125, "hard"], [135, "hard"]],
+    body: `## Mandatory Rules for \`L## - A\` Architecture Coordination Views
+Preparing \`L## - A\` coordination views is part of every modeling task's scope:
+- **Show**: **Base Point Marker** (set at project start), **3D Room Tags** (generated via Planit Tools on \`L## - A\`), and all wall/ceiling geometry **converted to Parts**.
+- **Hide**: Sections, Scope Boxes, Revit **Room** geometry volume, ADA maneuvering zones, plumbing/kitchen/appliance clearance solids.
+- **Door Zones Toggle**: Keep **\`Door Clear Zones\`** and **\`Door Clear Handle\`** **ENABLED** in \`L## - A\` (even though ADA zones stay off!).
+
+## Mandatory \`Create Parts\` Workflow Before Every Upload
+1. Switch to the target partition/ceiling workset in \`L## - A\`.
+2. Select all walls and ceilings in the view and execute **Create Parts**.
+3. Verify **every** wall has been divided into Parts prior to **each** Navisworks / coordination view upload.
+
+![L## - A 3D Coordination View with Base Point and 3D Room Tags](img:c1010_image3)
+
+![Revit Create Parts Execution Check on Partitions](img:c1010_image7)
+
+![Visible vs Hidden Elements on L## - A Coordination View](img:c1010_image34)
+
+## Elements Included in \`L## - A\`
+Interior partitions, doors (with \`Door Clear Zones\` & \`Door Clear Handle\`), interior windows, floorings & wall finishes, plumbing fixtures, kitchens & food-service equipment, caseworks & furniture, residential appliances, equipment work clearances (non-ADA), shades, parking lots & clearances, elevators, and headroom clearances.
+
+## C1010 Quality Assurance & Redmine Checklists
+- Follow the **Wood** or **Metal** Redmine QA checklist matching the building's primary partition stud type (both checklists also audit CMU and Glazed/Storefront walls).
+- Cross-check Input Checklist, Procore, Input Log, and Coordination Log dates against C1010 LOD, Model Naming, Project Browser Standards, and **P&C Planit NF Standard**.
+
+> [!important] Initial **model setup time is NOT included** inside the interior partitions modeling ET — log it under a dedicated setup task in Redmine.
+`,
+  }),
 ];
 
 export const NOTES = [
@@ -1229,9 +1501,10 @@ export const SEED_COLLECTIONS = [
     at: Date.now() - 86400000 * 3,
     items: [
       { id: 100, note: "Start here: 465-slide C10_INTERIOR division map." },
-      { id: 102, note: "Bookmark Actual Google Docs that supersede old slides." },
+      { id: 102, note: "Bookmark Actual Google Docs & C1010 NF Standard." },
       { id: 104, note: "Follow Project Start Intake & Input/Output Checklist." },
       { id: 108, note: "Verify IBC/CBC Chapter 7 fire & shaft ratings." },
+      { id: 135, note: "Learn Revit Layer Functions [1–5] & Fire Rating rules." },
       { id: 115, note: "Master interior door modeling & Hardware Set rules." },
     ],
     nodes: [],
@@ -1241,7 +1514,7 @@ export const SEED_COLLECTIONS = [
   {
     id: "col-clrfi-release",
     name: "CL-RFI Deliverable & QA Release Gate",
-    desc: "Pre-issue verification sequence before exporting CL-RFI PDFs or Dusty Robotics layout files.",
+    desc: "Pre-issue verification sequence before exporting CL-RFI PDFs, L## - A 3D Parts or Dusty Robotics layout files.",
     tier: "official",
     mode: "list",
     owner: "Maxim",
@@ -1249,6 +1522,7 @@ export const SEED_COLLECTIONS = [
     coEditors: ["Elena Khlivetskaya", "Andrii Lytvynov"],
     at: Date.now() - 86400000 * 2,
     items: [
+      { id: 136, note: "Run Create Parts & check L## - A coordination visibility." },
       { id: 124, note: "Verify Dusty Robotics Finish 1 / Core / Finish 2 order." },
       { id: 125, note: "Run QA check & toggle tolerance view templates." },
       { id: 126, note: "Check common shaft, stud & typical-unit mistakes." },
@@ -1283,9 +1557,9 @@ export const SEED_COLLECTIONS = [
 ];
 
 export const SEED_ACTIVITIES = [
-  { id: "act-1", actor: "Maxim", action: "Published", targetType: "document", targetId: "100", targetTitle: "C10_INTERIOR — Master Standard & Navigation Guide", note: "Migrated 465 slides and 98 diagrams into 5 structured divisions", at: "2026-10-22" },
-  { id: "act-2", actor: "Elena Khlivetskaya", action: "Verified", targetType: "document", targetId: "102", targetTitle: "Actual Interior Standards & P&C Google Docs Hub", note: "Confirmed live Google Doc links for Walls, Doors & Revisions", at: "2026-10-21" },
-  { id: "act-3", actor: "Andrii Lytvynov", action: "Published", targetType: "document", targetId: "114", targetTitle: "3D Room Tag Generation — pyPlanIt & Planit Tools", note: "Updated Planit Tools instructions for Revit 2022–2026", at: "2026-10-20" },
+  { id: "act-1", actor: "Maxim", action: "Published", targetType: "document", targetId: "133", targetTitle: "C1010.10.06 — CMU Walls, Lintels, Reinforcing & Pre-Pour", note: "Integrated C1010 Interior Partitions.docx (v2 UPD 05/21/2026) into Interior", at: "2026-10-22" },
+  { id: "act-2", actor: "Elena Khlivetskaya", action: "Verified", targetType: "document", targetId: "102", targetTitle: "Actual Interior Standards & P&C Google Docs Hub", note: "Added P&C NF Standard, CMU Sec. 2.4.2 & Concrete Tolerance links", at: "2026-10-21" },
+  { id: "act-3", actor: "Andrii Lytvynov", action: "Published", targetType: "document", targetId: "136", targetTitle: "C1010 3D Coordination Views (L## - A), Parts & QA", note: "Added mandatory Create Parts workflow & Wood/Metal Redmine QA checklists", at: "2026-10-20" },
   { id: "act-4", actor: "Iryna P.", action: "Published", targetType: "document", targetId: "131", targetTitle: "CL-RFI L##.4, Studs/Backing Layout & Parking Control", note: "Linked Parking Control Google Doc & RCP device sync rules", at: "2026-10-20" },
 ];
 
