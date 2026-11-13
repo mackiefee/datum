@@ -222,14 +222,14 @@ export function Select(p) {
 /**
  * Apple-style Sidebar Account & Role Switcher
  */
-export function UserSwitcher({ users = [], activeUserId, authClaims, onSelect, onLogout }) {
+export function UserSwitcher({ users = [], activeUserId, activeUser, authClaims, onLogout }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
   const activeUsers = users.filter((u) => u.status === "active");
-  const cur = activeUsers.find((u) => u.id === activeUserId) || activeUsers[0] || users[0];
+  const cur = activeUser || activeUsers.find((u) => u.id === activeUserId) || activeUsers[0] || users[0];
   const curRole = cur ? normRole(cur.role) : "Member";
 
   const toggle = () => {
@@ -239,7 +239,7 @@ export function UserSwitcher({ users = [], activeUserId, authClaims, onSelect, o
       return;
     }
     const r = btnRef.current.getBoundingClientRect();
-    setPos(computeMenuPos(r, Math.max(264, r.width), true, 320, 440));
+    setPos(computeMenuPos(r, Math.max(264, r.width), true, 130, 440));
     setOpen(true);
   };
 
@@ -310,30 +310,6 @@ export function UserSwitcher({ users = [], activeUserId, authClaims, onSelect, o
             </div>
             ${cur.emailVerified && html`<span className="tm-gbadge" title="Google OAuth Verified">G</span>`}
           </div>
-          <div className="ctx-div"></div>
-          <div className="asel-hdr">Switch Session Persona</div>
-          ${activeUsers.map((u) => {
-            const isSel = u.id === cur.id;
-            const rLabel = ROLES[normRole(u.role)];
-            return html`<button
-              key=${u.id}
-              type="button"
-              role="option"
-              aria-selected=${isSel}
-              className=${"asel-opt asel-usr-opt" + (isSel ? " on" : "")}
-              onClick=${() => {
-                setOpen(false);
-                onSelect && onSelect(u.id);
-              }}
-            >
-              <${Avatar} user=${u} size="sm" />
-              <span className="asel-tx">
-                <span>${u.name}</span>
-                <small>${rLabel} · ${u.dept}</small>
-              </span>
-              <span className="asel-ck-r">${isSel ? html`<${Ic} n="check" s=${13} />` : null}</span>
-            </button>`;
-          })}
           <div className="ctx-div"></div>
           <button
             type="button"

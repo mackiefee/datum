@@ -137,7 +137,30 @@ export function App() {
   useEffect(() => { db.save("kb2-chk", chk); }, [chk]);
   useEffect(() => { db.save("kb2-img", imgs); }, [imgs]);
 
-  const activeUser = users.find((u) => u.id === activeUserId) || users[0];
+  const sessionClaims = authSession && authSession.claims;
+  const sessionEmail = sessionClaims && sessionClaims.email ? sessionClaims.email.trim().toLowerCase() : "";
+  const matchedUser = sessionClaims
+    ? users.find(
+        (u) =>
+          (sessionClaims.sub && (u.id === sessionClaims.sub || u.googleSub === sessionClaims.sub)) ||
+          (sessionEmail && u.email && u.email.toLowerCase() === sessionEmail)
+      )
+    : null;
+  const activeUser =
+    matchedUser ||
+    (sessionClaims
+      ? {
+          id: sessionClaims.sub || activeUserId || "u-session",
+          name: sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User"),
+          email: sessionClaims.email || "",
+          role: sessionClaims.role || "Member",
+          avatar: sessionClaims.avatar || makeGooglePhotoFallback(sessionClaims.name || "Google User"),
+          provider: sessionClaims.provider || "google",
+          emailVerified: sessionClaims.emailVerified !== false,
+          teams: ["t-vdc"],
+          status: "active",
+        }
+      : users.find((u) => u.id === activeUserId) || users[0]);
   const userName = activeUser.name;
   const role = activeUser.status === "deactivated" ? "Guest" : normRole(activeUser.role);
   const userTeams = activeUser.teams || [];
@@ -856,19 +879,10 @@ export function App() {
 
       <${UserSwitcher}
         users=${users}
-        activeUserId=${activeUserId}
-        authClaims=${authSession && authSession.claims}
+        activeUserId=${activeUser.id}
+        activeUser=${activeUser}
+        authClaims=${sessionClaims}
         onLogout=${handleLogout}
-        onSelect=${(nextUid) => {
-          const nextU = users.find((x) => x.id === nextUid);
-          setActiveUserId(nextUid);
-          setRead(null);
-          setEdt(null);
-          setSel(null);
-          if (nextU && normRole(nextU.role) === "Guest") setView("kb");
-          else setView("home");
-          flash(`Switched session → ${nextU ? nextU.name + " (" + ROLES[normRole(nextU.role)] + ")" : ""}`);
-        }}
       />
     </aside>
 
