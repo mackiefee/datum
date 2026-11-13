@@ -136,8 +136,8 @@ export async function POST(req) {
     }
 
     if (action === 'verify_supabase_token') {
-      const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const supaAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://knxyslvecmjhvlgapoyl.supabase.co';
+      const supaAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_XQFm2PK27ZDiEMOz3BQe7A_7KuqHNnt';
       if (!supaUrl || !supaAnon || !token) {
         return new Response(JSON.stringify({ error: 'Supabase environment not configured' }), {
           status: 400,

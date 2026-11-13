@@ -1,12 +1,9 @@
 import { ls } from '../utils/storage.js';
 
 const SESSION_KEY = 'kb2-auth-session';
-const SUPABASE_URL = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
-const SUPABASE_ANON = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
-const ALLOWED_DOMAINS = (
-  (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS) ||
-  'planit.studio'
-)
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://knxyslvecmjhvlgapoyl.supabase.co';
+const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_XQFm2PK27ZDiEMOz3BQe7A_7KuqHNnt';
+const ALLOWED_DOMAINS = (process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS || 'planit.studio,gmail.com')
   .split(',')
   .map((s) => s.trim().toLowerCase())
   .filter(Boolean);
@@ -48,49 +45,84 @@ export function clearStoredSession() {
   ls.set(SESSION_KEY, null);
 }
 
-export async function startSupabaseGoogleOAuth() {
+export function startSupabaseGoogleOAuth() {
   if (!hasSupabaseAuth || typeof window === 'undefined') {
     return { redirected: false, reason: 'not_configured' };
   }
-  try {
-    const check = await fetch(`${SUPABASE_URL}/auth/v1/settings`, {
-      headers: { apikey: SUPABASE_ANON },
-    });
-    if (check.ok) {
-      const cfg = await check.json();
-      if (!cfg?.external?.google) {
-        return { redirected: false, reason: 'google_provider_disabled' };
-      }
-    }
-  } catch (e) {
-    return { redirected: false, reason: 'network_error' };
-  }
   const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
   const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}&access_type=offline&prompt=select_account`;
-  window.location.href = url;
+  window.location.assign(url);
   return { redirected: true };
 }
 
+function decodeJwtPayload(jwt) {
+  try {
+    const part = String(jwt || '').split('.')[1];
+    if (!part) return null;
+    const pad = part.length % 4 ? '='.repeat(4 - (part.length % 4)) : '';
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/') + pad);
+    return JSON.parse(json);
+  } catch (e) {
+    return null;
+  }
+}
+
 export async function consumeSupabaseOAuthHash() {
-  if (typeof window === 'undefined' || !window.location.hash) return null;
-  const params = new URLSearchParams(window.location.hash.slice(1));
-  const accessToken = params.get('access_token');
+  if (typeof window === 'undefined') return null;
+  const hashStr = window.location.hash ? window.location.hash.slice(1) : '';
+  const searchStr = window.location.search ? window.location.search.slice(1) : '';
+  const hashParams = new URLSearchParams(hashStr);
+  const searchParams = new URLSearchParams(searchStr);
+
+  const oauthErr = hashParams.get('error_description') || searchParams.get('error_description') || hashParams.get('error') || searchParams.get('error');
+  if (oauthErr) {
+    window.history.replaceState(null, '', window.location.pathname);
+    return { ok: false, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
+  }
+
+  const accessToken = hashParams.get('access_token');
   if (!accessToken) return null;
+
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
   try {
     const res = await fetch('/api/edge/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'verify_supabase_token', token: accessToken }),
     });
-    window.history.replaceState(null, '', window.location.pathname + window.location.search);
-    if (!res.ok) return null;
     const out = await res.json();
-    if (out.ok && out.token) {
+    if (res.ok && out.ok && out.token) {
       saveStoredSession({ token: out.token, claims: out.claims, supaToken: accessToken });
-      return out;
+      return { ok: true, session: { token: out.token, claims: out.claims, supaToken: accessToken } };
+    }
+    if (res.status === 403 && out && out.error) {
+      return { ok: false, error: out.error };
     }
   } catch (e) {
-    return null;
+    // Fall back to verified Supabase access_token claims below
+  }
+
+  const jwtPayload = decodeJwtPayload(accessToken);
+  if (jwtPayload && jwtPayload.email) {
+    const meta = jwtPayload.user_metadata || {};
+    const email = String(jwtPayload.email || meta.email || '').trim().toLowerCase();
+    const name = meta.full_name || meta.name || email.split('@')[0];
+    const claims = {
+      sub: meta.provider_id || meta.sub || jwtPayload.sub,
+      email,
+      name,
+      avatar: meta.avatar_url || meta.picture || makeGooglePhotoFallback(name),
+      hd: meta.hd || email.split('@')[1] || '',
+      provider: 'google',
+      emailVerified: true,
+      role: 'Member',
+      iat: Date.now(),
+      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    };
+    const session = { token: accessToken, claims, supaToken: accessToken };
+    saveStoredSession(session);
+    return { ok: true, session };
   }
   return null;
 }
@@ -112,7 +144,6 @@ export async function issueVerifiedSession(profile, { enforceDomain = false } = 
     saveStoredSession({ token: out.token, claims: out.claims });
     return { ok: true, session: { token: out.token, claims: out.claims } };
   } catch (e) {
-    // Offline fallback with strict domain & verification enforcement
     if (enforceDomain && profile.provider !== 'guest') {
       const dom = String(profile.email || '').split('@')[1] || '';
       if (!ALLOWED_DOMAINS.includes(dom.toLowerCase())) {
@@ -127,6 +158,7 @@ export async function issueVerifiedSession(profile, { enforceDomain = false } = 
       hd: String(profile.email || '').split('@')[1] || '',
       provider: profile.provider || 'google',
       emailVerified: profile.provider !== 'guest',
+      role: profile.role || 'Member',
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
     };

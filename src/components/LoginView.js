@@ -99,24 +99,21 @@ export function LoginView({ users = [], onSignedIn }) {
           type="button"
           className="gg-btn"
           disabled=${busy}
-          onClick=${async () => {
+          onClick=${() => {
             setErr("");
             setOauthNotice("");
             if (hasSupabaseAuth) {
               setBusy(true);
-              const out = await startSupabaseGoogleOAuth();
-              setBusy(false);
+              const out = startSupabaseGoogleOAuth();
               if (out && out.redirected) return;
-              if (out && out.reason === "google_provider_disabled") {
-                setOauthNotice("Supabase is connected. Enable Google Provider in Supabase Auth to use live OAuth redirect; using workspace chooser meanwhile.");
-              }
+              setBusy(false);
             }
             setChooser(true);
             setCustomMode(false);
           }}
         >
           <${GoogleMark} />
-          <span>${busy ? "Verifying Google Identity…" : "Continue with Google"}</span>
+          <span>${busy ? "Redirecting to Google…" : "Continue with Google"}</span>
         </button>
 
         ${hasSupabaseAuth &&
@@ -130,7 +127,7 @@ export function LoginView({ users = [], onSignedIn }) {
             setCustomMode(false);
           }}
         >
-          Choose Workspace Demo Account
+          Demo Accounts (Offline Preview)
         </button>`}
 
         <button

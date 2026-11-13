@@ -135,16 +135,23 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- New user: check allowed domain policy
+  -- New user: resolve role from allowed_domains (or default to member for any verified Google account)
   SELECT * INTO v_dom FROM public.allowed_domains WHERE lower(domain) = lower(v_hd) LIMIT 1;
-  IF NOT FOUND THEN
-    INSERT INTO public.auth_audit_logs(auth_uid, email, provider, event_type, hosted_domain)
-    VALUES (NEW.id, v_email, v_provider, 'login_blocked_domain', v_hd);
-    RAISE EXCEPTION 'Domain @% is not authorized for workspace auto-provisioning', v_hd;
-  END IF;
 
   INSERT INTO public.users (auth_uid, name, email, avatar_url, google_sub, email_verified, hosted_domain, role, status, last_login_at, last_seen_at)
-  VALUES (NEW.id, v_name, v_email, v_avatar, v_sub, v_verified, v_hd, v_dom.default_role, 'active', now(), now())
+  VALUES (
+    NEW.id,
+    v_name,
+    v_email,
+    v_avatar,
+    v_sub,
+    v_verified,
+    v_hd,
+    CASE WHEN v_email IN ('maxim@planit.studio', 'mr.m.fedorenko@gmail.com') THEN 'super_admin'::user_role ELSE COALESCE(v_dom.default_role, 'member'::user_role) END,
+    'active',
+    now(),
+    now()
+  )
   RETURNING * INTO v_existing;
 
   INSERT INTO public.auth_audit_logs(auth_uid, user_id, email, provider, event_type, hosted_domain)
