@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { html, useState } from '../../lib/react.js';
 import { ROLES, ST, VIS, TODAY, can, normRole } from '../../config/constants.js';
 import { buildFlat } from '../../data/spaces.js';
@@ -40,6 +41,7 @@ export function AdminView(p) {
   const [busyScan, setBusyScan] = useState(false);
 
   // Category creation state
+  const [creatingCat, setCreatingCat] = useState(false);
   const [newCat, setNewCat] = useState({ name: "", parentId: "", owner: userName, vis: "Internal", reqApproval: true, reviewDays: 90 });
 
   // Tag rename/merge state
@@ -137,16 +139,21 @@ export function AdminView(p) {
   const activeUsers = users.filter((u) => u.status === "active");
 
   return html`<div>
-    <p className="lead">Centralized governance: approvals, category & tag management, user lifecycle handover, external shares, and content health.</p>
-
-    <div className="tabs" style=${{ margin: "18px 0 0", maxWidth: 780 }}>
-      ${[
-        ["gov", `Governance (${inReview.length + staleItems.length})`],
-        ["cats", "Categories & Tags"],
-        ["users", "Users & Teams"],
-        ["pub", `External Shares (${publicItems.length + publicCols.length})`],
-        ["anl", "Analytics & Audit"],
-      ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
+    <div className="pdl-top">
+      <div className="pdl-top-l">
+        <h1>Administration</h1>
+      </div>
+      <div className="pdl-top-r">
+        <div className="seg">
+          ${[
+            ["gov", `Governance (${inReview.length + staleItems.length})`],
+            ["cats", "Categories & Tags"],
+            ["users", "Users & Teams"],
+            ["pub", `External (${publicItems.length + publicCols.length})`],
+            ["anl", "Analytics & Audit"],
+          ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
+        </div>
+      </div>
     </div>
 
     ${tab === "gov" &&
@@ -220,7 +227,13 @@ export function AdminView(p) {
     ${tab === "cats" &&
     html`<div className="pdl-grid2">
       <section className="hc">
-        <h3>Categories (Max 3 Levels)</h3>
+        <div style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <h3 style=${{ margin: 0 }}>Categories (Max 3 Levels)</h3>
+          ${(isAdmin || eligibleParents.length > 0) &&
+          html`<button className="btn p" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => setCreatingCat(true)}>
+            <${Ic} n="plus" s=${13} /> New
+          </button>`}
+        </div>
         ${flatCats.map(
           (c) => html`<div key=${c.id} className="li" style=${{ paddingLeft: (c.level - 1) * 14 }}>
             <div className="t">
@@ -244,63 +257,88 @@ export function AdminView(p) {
           </div>`
         )}
 
-        ${(isAdmin || eligibleParents.length > 0) &&
-        html`<div style=${{ marginTop: 18, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
-          <b style=${{ display: "block", marginBottom: 4 }}>Create Category</b>
-          <div className="pdl-form-grid">
-            <label className="pdl-field">
-              <span>Name</span>
-              <input
-                className="inp"
-                placeholder="e.g. BIM Automation"
-                value=${newCat.name}
-                onChange=${(e) => setNewCat({ ...newCat, name: e.target.value })}
-              />
-            </label>
-            <div className="pdl-field">
-              <span>Parent Space</span>
-              <${Select}
-                variant="field"
-                ariaLabel="Parent Space"
-                value=${newCat.parentId}
-                options=${[
-                  ...(isAdmin ? [["", "Root (Level 1)"]] : []),
-                  ...eligibleParents.map((c) => [c.id, c.path.join(" › ")]),
-                ]}
-                onChange=${(v) => setNewCat({ ...newCat, parentId: v })}
-                minMenuWidth=${220}
-              />
-            </div>
-            <div className="pdl-field">
-              <span>Category Owner</span>
-              <${Select}
-                variant="field"
-                ariaLabel="Category Owner"
-                value=${newCat.owner}
-                options=${activeUsers
-                  .filter((u) => normRole(u.role) !== "Guest" && normRole(u.role) !== "Member")
-                  .map((u) => [u.name, u.name, false, null, ROLES[normRole(u.role)]])}
-                onChange=${(v) => setNewCat({ ...newCat, owner: v })}
-              />
-            </div>
-            <div className="pdl-field">
-              <span>Default Visibility</span>
-              <${Select}
-                variant="field"
-                ariaLabel="Default Visibility"
-                value=${newCat.vis}
-                options=${[
-                  ["Internal", "Internal", false, VIS.Internal[1]],
-                  ["Restricted", "Restricted", false, VIS.Restricted[1]],
-                ]}
-                onChange=${(v) => setNewCat({ ...newCat, vis: v })}
-              />
-            </div>
-          </div>
-          <div className="btns" style=${{ marginBottom: 0 }}>
-            <button className="btn p" disabled=${!newCat.name.trim()} onClick=${addCategory}><${Ic} n="plus" s=${14} /> Create Category</button>
-          </div>
-        </div>`}
+        ${creatingCat &&
+        createPortal(
+          html`<div
+            className="pdl-composer-ov"
+            onMouseDown=${(e) => {
+              if (e.target === e.currentTarget) setCreatingCat(false);
+            }}
+            onKeyDown=${(e) => {
+              if (e.key === "Escape") setCreatingCat(false);
+            }}
+          >
+            <form
+              className="pdl-composer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Create Category"
+              onSubmit=${(e) => {
+                e.preventDefault();
+                if (!newCat.name.trim()) return;
+                addCategory();
+                setCreatingCat(false);
+              }}
+            >
+              <div className="pdl-comp-head">
+                <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Category</span>
+                <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setCreatingCat(false)}>
+                  <${Ic} n="x" s=${14} />
+                </button>
+              </div>
+              <div className="pdl-comp-body">
+                <input
+                  className="pdl-comp-title"
+                  placeholder="Category name (e.g. BIM Automation)"
+                  value=${newCat.name}
+                  onChange=${(e) => setNewCat({ ...newCat, name: e.target.value })}
+                  autoFocus
+                />
+              </div>
+              <div className="pdl-comp-foot">
+                <div className="pdl-comp-pills">
+                  <${Select}
+                    variant="field"
+                    ariaLabel="Parent Space"
+                    value=${newCat.parentId}
+                    minMenuWidth=${220}
+                    options=${[
+                      ...(isAdmin ? [["", "Root (Level 1)"]] : []),
+                      ...eligibleParents.map((c) => [c.id, c.path.join(" › ")]),
+                    ]}
+                    onChange=${(v) => setNewCat({ ...newCat, parentId: v })}
+                  />
+                  <${Select}
+                    variant="field"
+                    ariaLabel="Category Owner"
+                    value=${newCat.owner}
+                    minMenuWidth=${200}
+                    options=${activeUsers
+                      .filter((u) => normRole(u.role) !== "Guest" && normRole(u.role) !== "Member")
+                      .map((u) => [u.name, u.name, false, null, ROLES[normRole(u.role)]])}
+                    onChange=${(v) => setNewCat({ ...newCat, owner: v })}
+                  />
+                  <${Select}
+                    variant="field"
+                    ariaLabel="Default Visibility"
+                    value=${newCat.vis}
+                    minMenuWidth=${160}
+                    options=${[
+                      ["Internal", "Internal", false, VIS.Internal[1]],
+                      ["Restricted", "Restricted", false, VIS.Restricted[1]],
+                    ]}
+                    onChange=${(v) => setNewCat({ ...newCat, vis: v })}
+                  />
+                </div>
+                <div className="pdl-comp-acts">
+                  <button type="button" className="btn" onClick=${() => setCreatingCat(false)}>Cancel</button>
+                  <button type="submit" className="btn p" disabled=${!newCat.name.trim()}>Create</button>
+                </div>
+              </div>
+            </form>
+          </div>`,
+          document.body
+        )}
       </section>
 
       <section className="hc">

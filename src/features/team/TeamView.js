@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { html, useState } from '../../lib/react.js';
 import { ROLES, can, normRole } from '../../config/constants.js';
 import { buildFlat } from '../../data/spaces.js';
@@ -124,91 +125,28 @@ export function TeamView({
   };
 
   return html`<div>
-    <p className="lead">Company directory, Google Workspace verified identities, team ownership, and role governance.</p>
-
-    <div className="pdl-seg-row" style=${{ marginBottom: 16 }}>
-      <div className="seg">
-        ${[
-          ["people", `People (${activeUsers.length})`],
-          ["teams", `Teams (${teams.length})`],
-          ["roles", "Roles & Permissions"],
-        ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
+    <div className="pdl-top">
+      <div className="pdl-top-l">
+        <h1>People & Teams</h1>
+        <span className="pdl-cnt">${tab === "people" ? filteredUsers.length : teams.length}</span>
       </div>
-      ${isAdmin &&
-      tab === "people" &&
-      html`<div className="btns" style=${{ margin: "0 0 0 auto" }}>
-        <button type="button" className="btn p" onClick=${() => setInviting((v) => !v)}>
-          <${Ic} n="plus" s=${15} /> Invite Google Member
-        </button>
-      </div>`}
-      ${isAdmin &&
-      tab === "teams" &&
-      html`<div className="btns" style=${{ margin: "0 0 0 auto" }}>
-        <button type="button" className="btn p" onClick=${() => setCreatingTeam((v) => !v)}>
-          <${Ic} n="plus" s=${15} /> New Team
-        </button>
-      </div>`}
-    </div>
-
-    ${tab === "people" &&
-    html`<div>
-      ${inviting &&
-      html`<form className="hc" style=${{ marginBottom: 18 }} onSubmit=${handleInvite}>
-        <h3>Pre-Provision Google Workspace Member</h3>
-        <p className="lead sm">When this person signs in via Google OAuth, they automatically receive their assigned role and team access.</p>
-        <div className="pdl-form-grid">
-          <label className="pdl-field">
-            <span>Full Name</span>
-            <input className="inp" placeholder="e.g. Kateryna M." value=${invite.name} onChange=${(e) => setInvite({ ...invite, name: e.target.value })} required />
-          </label>
-          <label className="pdl-field">
-            <span>Google Email</span>
-            <input className="inp" type="email" placeholder="kateryna@planit.studio" value=${invite.email} onChange=${(e) => setInvite({ ...invite, email: e.target.value })} required />
-          </label>
-          <label className="pdl-field">
-            <span>Title / Position</span>
-            <input className="inp" placeholder="e.g. MEP Coordinator" value=${invite.title} onChange=${(e) => setInvite({ ...invite, title: e.target.value })} />
-          </label>
-          <div className="pdl-field">
-            <span>Department</span>
-            <${Select}
-              variant="field"
-              ariaLabel="Department"
-              value=${invite.dept}
-              options=${teams.map((t) => [t.name, t.name])}
-              onChange=${(v) => setInvite({ ...invite, dept: v })}
-            />
-          </div>
-          <div className="pdl-field">
-            <span>Role</span>
-            <${Select}
-              variant="field"
-              ariaLabel="Role"
-              value=${invite.role}
-              options=${Object.entries(ROLES).filter(([k]) => k !== "SuperAdmin" || can.superAdmin(role)).map(([k, v]) => [k, v])}
-              onChange=${(v) => setInvite({ ...invite, role: v })}
-            />
-          </div>
-          <label className="pdl-field">
-            <span>Photo URL (optional)</span>
-            <input className="inp" placeholder="https://lh3.googleusercontent.com/..." value=${invite.avatar} onChange=${(e) => setInvite({ ...invite, avatar: e.target.value })} />
-          </label>
+      <div className="pdl-top-r">
+        <div className="seg">
+          ${[
+            ["people", `People (${activeUsers.length})`],
+            ["teams", `Teams (${teams.length})`],
+            ["roles", "Roles"],
+          ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
         </div>
-        <div className="btns" style=${{ marginBottom: 0 }}>
-          <button type="submit" className="btn p">Send Invite & Enable SSO</button>
-          <button type="button" className="btn" onClick=${() => setInviting(false)}>Cancel</button>
-        </div>
-      </form>`}
-
-      <div className="fl" style=${{ marginBottom: 8 }}>
-        <input
+        ${tab === "people" &&
+        html`<input
           className="inp"
-          style=${{ maxWidth: 320, height: 34, minHeight: 0, padding: "0 12px" }}
-          placeholder="Search people, emails, titles…"
+          placeholder="Search people…"
           value=${search}
           onChange=${(e) => setSearch(e.target.value)}
-        />
-        <${Select}
+        />`}
+        ${tab === "people" &&
+        html`<${Select}
           variant="filter"
           placeholder="Team"
           ariaLabel="Filter by team"
@@ -216,10 +154,97 @@ export function TeamView({
           options=${[["", "All Teams"], ...teams.map((t) => [t.name, t.name])]}
           onChange=${setTeamFilter}
           minMenuWidth=${175}
-        />
-        ${(search || teamFilter) &&
+        />`}
+        ${tab === "people" &&
+        (search || teamFilter) &&
         html`<button type="button" className="clr" onClick=${() => { setSearch(""); setTeamFilter(""); }}>Reset</button>`}
+        ${isAdmin &&
+        tab === "people" &&
+        html`<button type="button" className="btn p" onClick=${() => setInviting((v) => !v)}>
+          <${Ic} n="plus" s=${14} /> Invite
+        </button>`}
+        ${isAdmin &&
+        tab === "teams" &&
+        html`<button type="button" className="btn p" onClick=${() => setCreatingTeam((v) => !v)}>
+          <${Ic} n="plus" s=${14} /> New Team
+        </button>`}
       </div>
+    </div>
+
+    ${tab === "people" &&
+    html`<div>
+      ${inviting &&
+      createPortal(
+        html`<div
+          className="pdl-composer-ov"
+          onMouseDown=${(e) => {
+            if (e.target === e.currentTarget) setInviting(false);
+          }}
+          onKeyDown=${(e) => {
+            if (e.key === "Escape") setInviting(false);
+          }}
+        >
+          <form className="pdl-composer" role="dialog" aria-modal="true" aria-label="Invite Member" onSubmit=${handleInvite}>
+            <div className="pdl-comp-head">
+              <span className="pdl-comp-tag"><${Ic} n="users" s=${13} /> Invite Member · Google Workspace</span>
+              <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setInviting(false)}>
+                <${Ic} n="x" s=${14} />
+              </button>
+            </div>
+            <div className="pdl-comp-body">
+              <input
+                className="pdl-comp-title"
+                type="email"
+                placeholder="Google email (e.g. kateryna@planit.studio)"
+                value=${invite.email}
+                onChange=${(e) => setInvite({ ...invite, email: e.target.value })}
+                required
+                autoFocus
+              />
+              <div className="pdl-comp-row">
+                <input
+                  className="pdl-comp-mini"
+                  placeholder="Full name (e.g. Kateryna M.)"
+                  value=${invite.name}
+                  onChange=${(e) => setInvite({ ...invite, name: e.target.value })}
+                  required
+                />
+                <input
+                  className="pdl-comp-mini"
+                  placeholder="Title / position (optional)"
+                  value=${invite.title}
+                  onChange=${(e) => setInvite({ ...invite, title: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="pdl-comp-foot">
+              <div className="pdl-comp-pills">
+                <${Select}
+                  variant="field"
+                  ariaLabel="Department"
+                  value=${invite.dept}
+                  minMenuWidth=${180}
+                  options=${teams.map((t) => [t.name, t.name])}
+                  onChange=${(v) => setInvite({ ...invite, dept: v })}
+                />
+                <${Select}
+                  variant="field"
+                  ariaLabel="Role"
+                  value=${invite.role}
+                  minMenuWidth=${170}
+                  options=${Object.entries(ROLES).filter(([k]) => k !== "SuperAdmin" || can.superAdmin(role)).map(([k, v]) => [k, v])}
+                  onChange=${(v) => setInvite({ ...invite, role: v })}
+                />
+              </div>
+              <div className="pdl-comp-acts">
+                <button type="button" className="btn" onClick=${() => setInviting(false)}>Cancel</button>
+                <button type="submit" className="btn p">Send Invite</button>
+              </div>
+            </div>
+          </form>
+        </div>`,
+        document.body
+      )}
 
       <div className="tm-grid">
         ${filteredUsers.map((u) => {
@@ -264,50 +289,80 @@ export function TeamView({
     ${tab === "teams" &&
     html`<div>
       ${creatingTeam &&
-      html`<form className="hc" style=${{ marginBottom: 18 }} onSubmit=${handleCreateTeam}>
-        <h3>Create Department / Team</h3>
-        <div className="pdl-form-grid">
-          <label className="pdl-field">
-            <span>Team Name</span>
-            <input className="inp" placeholder="e.g. MEP Coordination" value=${newTeam.name} onChange=${(e) => setNewTeam({ ...newTeam, name: e.target.value })} required />
-          </label>
-          <label className="pdl-field">
-            <span>Description</span>
-            <input className="inp" placeholder="Focus area and responsibilities" value=${newTeam.desc} onChange=${(e) => setNewTeam({ ...newTeam, desc: e.target.value })} />
-          </label>
-          <div className="pdl-field">
-            <span>Team Lead</span>
-            <${Select}
-              variant="field"
-              ariaLabel="Team Lead"
-              value=${newTeam.lead}
-              options=${activeUsers.filter((u) => normRole(u.role) !== "Guest").map((u) => [u.name, u.name])}
-              onChange=${(v) => setNewTeam({ ...newTeam, lead: v })}
-            />
-          </div>
-          <div className="pdl-field">
-            <span>Accent Color</span>
-            <${Select}
-              variant="field"
-              ariaLabel="Team color"
-              value=${newTeam.color}
-              options={[
-                ["#0071e3", "Blue", false, "#0071e3"],
-                ["#8e5cf7", "Purple", false, "#8e5cf7"],
-                ["#ff375f", "Pink / Red", false, "#ff375f"],
-                ["#34c759", "Green", false, "#34c759"],
-                ["#ff9f0a", "Orange", false, "#ff9f0a"],
-                ["#30b0c7", "Teal", false, "#30b0c7"],
-              ]}
-              onChange=${(v) => setNewTeam({ ...newTeam, color: v })}
-            />
-          </div>
-        </div>
-        <div className="btns" style=${{ marginBottom: 0 }}>
-          <button type="submit" className="btn p">Create Team</button>
-          <button type="button" className="btn" onClick=${() => setCreatingTeam(false)}>Cancel</button>
-        </div>
-      </form>`}
+      createPortal(
+        html`<div
+          className="pdl-composer-ov"
+          onMouseDown=${(e) => {
+            if (e.target === e.currentTarget) setCreatingTeam(false);
+          }}
+          onKeyDown=${(e) => {
+            if (e.key === "Escape") setCreatingTeam(false);
+          }}
+        >
+          <form className="pdl-composer" role="dialog" aria-modal="true" aria-label="New Team" onSubmit=${handleCreateTeam}>
+            <div className="pdl-comp-head">
+              <span className="pdl-comp-tag"><${Ic} n="users" s=${13} /> New Team</span>
+              <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setCreatingTeam(false)}>
+                <${Ic} n="x" s=${14} />
+              </button>
+            </div>
+            <div className="pdl-comp-body">
+              <input
+                className="pdl-comp-title"
+                placeholder="Team name (e.g. MEP Coordination)"
+                value=${newTeam.name}
+                onChange=${(e) => setNewTeam({ ...newTeam, name: e.target.value })}
+                required
+                autoFocus
+              />
+              <input
+                className="pdl-comp-sub"
+                placeholder="Focus area and responsibilities..."
+                value=${newTeam.desc}
+                onChange=${(e) => setNewTeam({ ...newTeam, desc: e.target.value })}
+              />
+              <div className="pdl-comp-sw" role="radiogroup" aria-label="Team color">
+                ${[
+                  ["#0071e3", "Blue"],
+                  ["#8e5cf7", "Purple"],
+                  ["#ff375f", "Pink / Red"],
+                  ["#34c759", "Green"],
+                  ["#ff9f0a", "Orange"],
+                  ["#30b0c7", "Teal"],
+                ].map(
+                  ([hex, label]) => html`<button
+                    key=${hex}
+                    type="button"
+                    className=${newTeam.color === hex ? "on" : ""}
+                    style=${{ background: hex }}
+                    title=${label}
+                    aria-label=${label}
+                    aria-checked=${newTeam.color === hex}
+                    onClick=${() => setNewTeam({ ...newTeam, color: hex })}
+                  ></button>`
+                )}
+              </div>
+            </div>
+            <div className="pdl-comp-foot">
+              <div className="pdl-comp-pills">
+                <${Select}
+                  variant="field"
+                  ariaLabel="Team Lead"
+                  value=${newTeam.lead}
+                  minMenuWidth=${200}
+                  options=${activeUsers.filter((u) => normRole(u.role) !== "Guest").map((u) => [u.name, u.name])}
+                  onChange=${(v) => setNewTeam({ ...newTeam, lead: v })}
+                />
+              </div>
+              <div className="pdl-comp-acts">
+                <button type="button" className="btn" onClick=${() => setCreatingTeam(false)}>Cancel</button>
+                <button type="submit" className="btn p" disabled=${!newTeam.name.trim()}>Create</button>
+              </div>
+            </div>
+          </form>
+        </div>`,
+        document.body
+      )}
 
       <div className="pdl-grid2">
         ${teams.map((tm) => {
@@ -403,7 +458,7 @@ export function TeamView({
               ["Read Public & External Portal", [1, 1, 1, 1, 1]],
               ["Read Internal & Restricted (if Permitted)", [1, 1, 1, 1, 0]],
               ["Comment, Bookmark & Ask Edge AI", [1, 1, 1, 1, 0]],
-              ["Create Drafts & Edit Owned Items", [1, 1, 1, 1, 0]],
+              ["Create Drafts & Edit Owned Items", [1, 1, 1, 0, 0]],
               ["Edit Category Content & Subcategories", [1, 1, 1, 0, 0]],
               ["Approve / Publish / Archive Content", [1, 1, 0, 0, 0]],
               ["Publish Externally (Public Portal)", [1, 1, 0, 0, 0]],

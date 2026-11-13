@@ -65,14 +65,24 @@ export const can = {
   },
   superAdmin: (r) => normRole(r) === "SuperAdmin",
   publicize: (r) => can.admin(r),
-  createDraft: (r) => normRole(r) !== "Guest",
-  catOwner: (cat, user) => Boolean(cat && user && cat.owner === user),
+  createDraft: (r) => {
+    const x = normRole(r);
+    return x === "SuperAdmin" || x === "Admin" || x === "Editor";
+  },
+  catOwner: (cat, user, role) => {
+    if (!cat || !user || cat.owner !== user) return false;
+    if (role !== undefined) {
+      const x = normRole(role);
+      if (x === "Member" || x === "Guest") return false;
+    }
+    return true;
+  },
   viewCat: (cat, role, user, userTeams = []) => {
     if (!cat) return false;
     const x = normRole(role);
     if (x === "SuperAdmin" || x === "Admin") return true;
     if (x === "Guest") return false;
-    if (cat.owner === user) return true;
+    if (x === "Editor" && cat.owner === user) return true;
     if (cat.vis === "Restricted") {
       return (cat.teams || []).some((t) => userTeams.includes(t)) || (cat.users || []).includes(user);
     }
@@ -81,8 +91,8 @@ export const can = {
   editCat: (cat, role, user, userTeams = []) => {
     const x = normRole(role);
     if (x === "SuperAdmin" || x === "Admin") return true;
-    if (cat && cat.owner === user) return true;
     if (x !== "Editor") return false;
+    if (cat && cat.owner === user) return true;
     if (cat && cat.editTeams && cat.editTeams.length) {
       return cat.editTeams.some((t) => userTeams.includes(t));
     }
@@ -96,7 +106,7 @@ export const can = {
       (s) => s.targetType === "item" && s.targetId === item.id && (s.grantee === user || userTeams.includes(s.grantee))
     );
     if (x === "Guest") return item.status === "Approved" && (item.vis === "Public" || direct);
-    if (item.author === user || can.catOwner(cat, user)) return true;
+    if (x === "Editor" && (item.author === user || can.catOwner(cat, user, x))) return true;
     if (item.status !== "Approved") {
       return x === "Editor" && can.editCat(cat, x, user, userTeams);
     }
@@ -107,22 +117,23 @@ export const can = {
   edit: (r, item, cat, user, userTeams = []) => {
     const x = normRole(r);
     if (x === "SuperAdmin" || x === "Admin") return true;
-    if (can.catOwner(cat, user)) return true;
-    if (item && item.author === user && (x === "Editor" || (x === "Member" && item.status === "Draft"))) return true;
-    if (x === "Editor") return cat ? can.editCat(cat, x, user, userTeams) : true;
-    return false;
+    if (x !== "Editor") return false;
+    if (can.catOwner(cat, user, x) || (item && item.author === user)) return true;
+    return cat ? can.editCat(cat, x, user, userTeams) : true;
   },
   status: (r, cat, user) => {
     const x = normRole(r);
     if (x === "SuperAdmin" || x === "Admin") return true;
-    if (can.catOwner(cat, user)) return true;
-    if (x === "Editor" && cat && !cat.reqApproval) return true;
-    return false;
+    if (x !== "Editor") return false;
+    if (can.catOwner(cat, user, x)) return true;
+    return Boolean(cat && !cat.reqApproval);
   },
   comment: (r) => normRole(r) !== "Guest",
   rollback: (r, item, cat, user) => {
     const x = normRole(r);
-    return x === "SuperAdmin" || x === "Admin" || can.catOwner(cat, user) || (Boolean(item && item.author === user) && x === "Editor");
+    if (x === "SuperAdmin" || x === "Admin") return true;
+    if (x !== "Editor") return false;
+    return can.catOwner(cat, user, x) || Boolean(item && item.author === user);
   },
 };
 

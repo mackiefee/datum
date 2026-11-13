@@ -1,14 +1,11 @@
 import { html, useState, useEffect, useRef } from '../../lib/react.js';
 import { DC, TODAY, can, CITE } from '../../config/constants.js';
-import { byId, buildFlat } from '../../data/spaces.js';
-import { fmt, days } from '../../utils/format.js';
+import { buildFlat } from '../../data/spaces.js';
 import { edgeClient } from '../../lib/edgeClient.js';
 import { Ic } from '../../components/Icon.js';
-import { NameGen } from './NameGen.js';
-import { PubList } from './PubList.js';
 
 export function Home(p) {
-  const { res, tree, role, userName, req, acks, hist, seen, pinned = [] } = p;
+  const { res, tree, role, userName, pinned = [] } = p;
   const [q, setQ] = useState("");
   const [ans, setAns] = useState(null);
   const ref = useRef(null);
@@ -54,50 +51,11 @@ export function Home(p) {
   const wd = nd.toLocaleDateString("en-US", { weekday: "long" });
   const dt = wd.charAt(0).toUpperCase() + wd.slice(1) + ", " + nd.toLocaleDateString("en-US", { day: "numeric", month: "long" });
 
-  const need = [];
-  req
-    .filter((id) => !acks[id])
-    .forEach((id) => {
-      const r = res.find((x) => x.id === id);
-      r && need.push({ r, tag: "Required", note: "Read and confirm", c: "#ff3b30" });
-    });
-
-  res
-    .filter((r) => {
-      if (r.status !== "Review") return false;
-      const cat = byId(r.node, tree);
-      return can.status(role, cat, userName);
-    })
-    .forEach((r) => need.push({ r, tag: "Approval", note: "Awaiting your decision", c: "#ff9f0a" }));
-
-  res
-    .filter((r) => {
-      const cat = byId(r.node, tree);
-      const cycle = (cat && cat.reviewDays) || 90;
-      return r.status === "Approved" && days(r.verified || r.upd) > cycle && (can.admin(role) || r.author === userName || can.catOwner(cat, userName));
-    })
-    .slice(0, 3)
-    .forEach((r) => need.push({ r, tag: "Revisit", note: "Not verified for " + days(r.verified || r.upd) + " d.", c: "#0a84ff" }));
-
-  const nw = res.filter((r) => r.status === "Approved" && r.upd > seen).sort((a, b) => b.upd.localeCompare(a.upd)).slice(0, 5);
-  const cont = hist
-    .filter((h) => h.pct > 0.02 && h.pct < 0.97)
-    .map((h) => ({ h, r: res.find((x) => x.id === h.id) }))
-    .filter((x) => x.r)
-    .slice(0, 3);
-
   const officialHighlights = res.filter((r) => r.status === "Approved" && (r.id === 100 || r.id === 9 || r.id === 1)).slice(0, 3);
   const pinnedItems = pinned
     .map((id) => res.find((r) => r.id === id))
     .filter((r) => r && !officialHighlights.some((o) => o.id === r.id))
     .slice(0, 6);
-
-  const Row = (r, tag, note, c) =>
-    html`<button key=${r.id + tag + note} className="hr" onClick=${() => p.read(r.id)}>
-      <span className="tile sm" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${14} /></span>
-      <span className="t"><b>${r.title}</b><small>${note}</small></span>
-      ${tag && html`<span className="pill" style=${{ "--c": c }}>${tag}</span>`}
-    </button>`;
 
   return html`<div className="home">
     <div className="crumb">${dt}</div>
@@ -112,7 +70,8 @@ export function Home(p) {
           <span>${r.title}</span>
         </button>`
       )}
-      ${pinnedItems.length > 0 && html`<span className="pdl-pin-lbl" style=${{ marginLeft: officialHighlights.length ? 6 : 0 }}>Pinned</span>`}
+      ${officialHighlights.length > 0 && pinnedItems.length > 0 && html`<span className="pdl-pin-sep" aria-hidden="true"></span>`}
+      ${pinnedItems.length > 0 && html`<span className="pdl-pin-lbl">Pinned</span>`}
       ${pinnedItems.map(
         (r) => html`<button key=${"pin-" + r.id} className="src" onClick=${() => p.read(r.id)}>
           <b style=${{ background: "#bf5af2" }}><${Ic} n="star" s=${12} f=${true} /></b>
@@ -167,50 +126,6 @@ export function Home(p) {
           )}
         </div>
       </div>`}
-    </div>
-
-    <div className="hg">
-      <section className="hc">
-        <h3>Needs attention${need.length > 0 && html`<span className="bdg">${need.length}</span>`}</h3>
-        ${need.length ? need.map((x) => Row(x.r, x.tag, x.note, x.c)) : html`<p className="lead sm">All caught up, no pending actions.</p>`}
-      </section>
-      <section className="hc">
-        <h3>What’s new${nw.length > 0 && html`<button className="mn" onClick=${p.markSeen}>Mark all as seen</button>`}</h3>
-        ${nw.length
-          ? nw.map((r) => {
-              const v = r.v[r.v.length - 1];
-              return Row(r, "", v.by + ": " + v.note + " · " + fmt(r.upd), DC[r.disc]);
-            })
-          : html`<p className="lead sm">No updates since your last visit.</p>`}
-      </section>
-    </div>
-
-    ${cont.length > 0 &&
-    html`<div>
-      <h2>Continue reading</h2>
-      <div className="hg3">
-        ${cont.map(
-          ({ h, r }) => html`<button key=${r.id} className="hc rc" onClick=${() => p.read(r.id)}>
-            <b>${r.title}</b>
-            <small>${(byId(r.node, tree) && byId(r.node, tree).path.join(" › ")) || "Library"}</small>
-            <span className="bar2"><i style=${{ width: Math.round(h.pct * 100) + "%" }}></i></span>
-          </button>`
-        )}
-      </div>
-    </div>`}
-
-    <h2>Working tools</h2>
-    <div className="hg">
-      <section className="hc">
-        <h3>Standard file name</h3>
-        <p className="lead sm">Project, originator, volume, level, type, number.</p>
-        <${NameGen} flash=${p.flash} />
-      </section>
-      <section className="hc">
-        <h3>Pre-publication checklist for the CDE</h3>
-        <p className="lead sm">Your ticks are saved.</p>
-        <${PubList} />
-      </section>
     </div>
   </div>`;
 }

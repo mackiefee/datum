@@ -324,7 +324,7 @@ export function Drawer(p) {
           <dl className="kv">
             <dt>Owner</dt>
             <dd>
-              ${can.admin(role) || can.catOwner(cat, userName)
+              ${can.admin(role) || can.catOwner(cat, userName, role)
                 ? html`<${Select}
                     variant="field"
                     ariaLabel="Owner"
@@ -358,7 +358,7 @@ export function Drawer(p) {
               />
             </dd>
             <dt>Your role</dt>
-            <dd><b>${ROLES[normRole(role)]}</b>${can.catOwner(cat, userName) ? " · Category Owner" : ""}</dd>
+            <dd><b>${ROLES[normRole(role)]}</b>${can.catOwner(cat, userName, role) ? " · Category Owner" : ""}</dd>
           </dl>
 
           ${preflight &&
@@ -388,7 +388,7 @@ export function Drawer(p) {
             </div>`}
           </div>`}
 
-          ${(can.admin(role) || can.catOwner(cat, userName) || r.author === userName) &&
+          ${(can.admin(role) || can.catOwner(cat, userName, role) || (can.createDraft(role) && r.author === userName)) &&
           html`<div className="box">
             <b>Direct Pinpoint Shares (${itemShares.length})</b>
             <div style=${{ color: "var(--sub)", fontSize: 12, marginBottom: 6 }}>

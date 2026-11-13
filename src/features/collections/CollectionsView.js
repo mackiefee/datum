@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { html, useState } from '../../lib/react.js';
 import { DC, VIS, can, normRole } from '../../config/constants.js';
 import { fmt } from '../../utils/format.js';
@@ -66,8 +67,9 @@ export function CollectionsView(p) {
   const canEditCol = (c) => {
     if (!c) return false;
     if (can.admin(role)) return true;
-    if (c.tier === "official") return can.admin(role);
-    return c.owner === userName || (c.coEditors || []).includes(userName);
+    if (c.tier === "official") return false;
+    if (c.tier === "shared") return can.createDraft(role) && (c.owner === userName || (c.coEditors || []).includes(userName));
+    return normRole(role) !== "Guest" && c.owner === userName;
   };
 
   const renderBoardThumb = (b) => {
@@ -99,29 +101,33 @@ export function CollectionsView(p) {
     const availableToAdd = res.filter((r) => !(activeCol.items || []).some((x) => x.id === r.id));
     const editable = canEditCol(activeCol);
     return html`<div>
-      <button className="back" onClick=${() => setOpenColId(null)}><${Ic} n="chev" s=${16} />All collections</button>
-      <div className="pdl-row" style=${{ marginTop: 12 }}>
-        <span className="pill" style=${{ "--c": TIER_COL[activeCol.tier] }}>${TIER_LABEL[activeCol.tier]} Collection</span>
-        <${VisPill} v=${activeCol.vis} />
-        <span className="crumb">Owner: ${activeCol.owner}</span>
+      <div className="pdl-top">
+        <div className="pdl-top-l">
+          <button className="btn" style=${{ height: 32, padding: "0 11px", fontSize: 13, borderRadius: 16 }} onClick=${() => setOpenColId(null)}>
+            <span style=${{ display: "inline-flex", transform: "rotate(180deg)" }}><${Ic} n="chev" s=${14} /></span>
+            <span>All</span>
+          </button>
+          <h1>${activeCol.name}</h1>
+          <span className="pill" style=${{ "--c": TIER_COL[activeCol.tier] }}>${TIER_LABEL[activeCol.tier]}</span>
+          <${VisPill} v=${activeCol.vis} />
+        </div>
+        <div className="pdl-top-r">
+          <button className="btn p" onClick=${() => onOpenBoard(activeCol.id)}><${Ic} n="boards" s=${14} /> Board</button>
+          ${activeCol.vis === "Public" && html`<button className="btn" onClick=${() => onOpenPublic({ kind: "collection", data: activeCol })}><${Ic} n="globe" s=${14} /> Public</button>`}
+          ${editable &&
+          can.publicize(role) &&
+          activeCol.tier === "official" &&
+          html`<button
+            className="btn"
+            onClick=${() =>
+              onSaveCol({ ...activeCol, vis: activeCol.vis === "Public" ? "Internal" : "Public" })
+            }
+          >
+            ${activeCol.vis === "Public" ? "Make Internal" : "Publish"}
+          </button>`}
+        </div>
       </div>
-      <h2 style=${{ marginTop: 10 }}>${activeCol.name}</h2>
-      <p className="lead" style=${{ marginBottom: 16 }}>${activeCol.desc}</p>
-      <div className="btns">
-        <button className="btn p" onClick=${() => onOpenBoard(activeCol.id)}><${Ic} n="boards" s=${15} /> Open as Visual Link Board</button>
-        ${activeCol.vis === "Public" && html`<button className="btn" onClick=${() => onOpenPublic({ kind: "collection", data: activeCol })}><${Ic} n="globe" s=${15} /> Preview Public Portal</button>`}
-        ${editable &&
-        can.publicize(role) &&
-        activeCol.tier === "official" &&
-        html`<button
-          className="btn"
-          onClick=${() =>
-            onSaveCol({ ...activeCol, vis: activeCol.vis === "Public" ? "Internal" : "Public" })
-          }
-        >
-          ${activeCol.vis === "Public" ? "Make Internal Only" : "Publish Externally"}
-        </button>`}
-      </div>
+      ${activeCol.desc && html`<p className="lead" style=${{ marginBottom: 14, fontSize: 14.5 }}>${activeCol.desc}</p>`}
 
       <div className="hc" style=${{ marginTop: 16 }}>
         <h3>Playbook Items (${colItems.length})</h3>
@@ -194,85 +200,117 @@ export function CollectionsView(p) {
   }
 
   return html`<div>
-    <p className="lead">Curated Personal, Team Shared, and Official Company kits — view as ordered playbooks or visual Link Boards.</p>
-    <div className="pdl-seg-row" style=${{ marginBottom: 16 }}>
-      <div className="seg">
-        ${[
-          ["all", "All"],
-          ["official", "Official"],
-          ["shared", "Shared"],
-          ["personal", "Personal"],
-          ["boards", "Visual Link Boards"],
-        ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
+    <div className="pdl-top">
+      <div className="pdl-top-l">
+        <h1>Collections & Boards</h1>
+        <span className="pdl-cnt">${filtered.length}</span>
       </div>
-      ${normRole(role) !== "Guest" &&
-      html`<div className="btns" style=${{ margin: "0 0 0 auto" }}>
-        <button className="btn p" onClick=${() => setCreating((v) => !v)}><${Ic} n="plus" s=${15} /> New collection</button>
-        <button className="btn" onClick=${p.onBuildLibBoard}><${Ic} n="graph" s=${15} /> Build from links</button>
-      </div>`}
+      <div className="pdl-top-r">
+        <div className="seg">
+          ${[
+            ["all", "All"],
+            ["official", "Official"],
+            ["shared", "Shared"],
+            ["personal", "Personal"],
+            ["boards", "Boards"],
+          ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
+        </div>
+        ${normRole(role) !== "Guest" &&
+        html`<button className="btn p" onClick=${() => setCreating((v) => !v)}><${Ic} n="plus" s=${14} /> New</button>`}
+        ${can.createDraft(role) &&
+        html`<button className="btn" onClick=${p.onBuildLibBoard}><${Ic} n="graph" s=${14} /> From links</button>`}
+      </div>
     </div>
 
     ${creating &&
-    html`<div className="hc" style=${{ marginBottom: 18 }}>
-      <h3>Create Collection</h3>
-      <div className="pdl-form-grid">
-        <label className="pdl-field">
-          <span>Title</span>
-          <input className="inp" placeholder="e.g. Revit Onboarding Kit" value=${draft.name} onChange=${(e) => setDraft({ ...draft, name: e.target.value })} />
-        </label>
-        <label className="pdl-field">
-          <span>Description</span>
-          <input className="inp" placeholder="Short purpose / overview" value=${draft.desc} onChange=${(e) => setDraft({ ...draft, desc: e.target.value })} />
-        </label>
-      </div>
-      <div className="pdl-form-grid" style=${{ marginTop: 12 }}>
-        <div className="pdl-field">
-          <span>Tier</span>
-          <${Select}
-            variant="field"
-            ariaLabel="Collection tier"
-            value=${draft.tier}
-            options=${[
-              ["personal", "Personal (Private)"],
-              ["shared", "Shared Team Kit"],
-              ...(can.admin(role) ? [["official", "Official Company Kit"]] : []),
-            ]}
-            onChange=${(v) => setDraft({ ...draft, tier: v })}
-          />
-        </div>
-        <div className="pdl-field">
-          <span>Default View</span>
-          <${Select}
-            variant="field"
-            ariaLabel="Collection mode"
-            value=${draft.mode}
-            options=${[
-              ["list", "Playbook List"],
-              ["board", "Visual Link Board"],
-            ]}
-            onChange=${(v) => setDraft({ ...draft, mode: v })}
-          />
-        </div>
-        ${draft.tier !== "personal" &&
-        html`<div className="pdl-field">
-          <span>Visibility</span>
-          <${Select}
-            variant="field"
-            ariaLabel="Collection visibility"
-            value=${draft.vis}
-            options=${[
-              ["Internal", "Internal (Company-wide)"],
-              ...(can.publicize(role) ? [["Public", "Public (External Portal)"]] : []),
-            ]}
-            onChange=${(v) => setDraft({ ...draft, vis: v })}
-          />
-        </div>`}
-      </div>
-      <div className="btns" style=${{ marginBottom: 0 }}>
-        <button className="btn p" disabled=${!draft.name.trim()} onClick=${handleCreate}>Create Collection</button>
-        <button className="btn" onClick=${() => setCreating(false)}>Cancel</button>
-      </div>
-    </div>`}
+    createPortal(
+      html`<div
+        className="pdl-composer-ov"
+        onMouseDown=${(e) => {
+          if (e.target === e.currentTarget) setCreating(false);
+        }}
+        onKeyDown=${(e) => {
+          if (e.key === "Escape") setCreating(false);
+        }}
+      >
+        <form
+          className="pdl-composer"
+          role="dialog"
+          aria-modal="true"
+          aria-label="New Collection"
+          onSubmit=${(e) => {
+            e.preventDefault();
+            if (draft.name.trim()) handleCreate();
+          }}
+        >
+          <div className="pdl-comp-head">
+            <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Collection</span>
+            <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setCreating(false)}>
+              <${Ic} n="x" s=${14} />
+            </button>
+          </div>
+          <div className="pdl-comp-body">
+            <input
+              className="pdl-comp-title"
+              placeholder="Collection title (e.g. Revit Onboarding Kit)"
+              value=${draft.name}
+              onChange=${(e) => setDraft({ ...draft, name: e.target.value })}
+              autoFocus
+            />
+            <input
+              className="pdl-comp-sub"
+              placeholder="Add short description or purpose..."
+              value=${draft.desc}
+              onChange=${(e) => setDraft({ ...draft, desc: e.target.value })}
+            />
+          </div>
+          <div className="pdl-comp-foot">
+            <div className="pdl-comp-pills">
+              <${Select}
+                variant="field"
+                ariaLabel="Collection tier"
+                value=${draft.tier}
+                minMenuWidth=${190}
+                options=${[
+                  ["personal", "Personal (Private)"],
+                  ...(can.createDraft(role) ? [["shared", "Shared Team Kit"]] : []),
+                  ...(can.admin(role) ? [["official", "Official Company Kit"]] : []),
+                ]}
+                onChange=${(v) => setDraft({ ...draft, tier: v })}
+              />
+              <${Select}
+                variant="field"
+                ariaLabel="Collection mode"
+                value=${draft.mode}
+                minMenuWidth=${170}
+                options=${[
+                  ["list", "Playbook List"],
+                  ["board", "Visual Link Board"],
+                ]}
+                onChange=${(v) => setDraft({ ...draft, mode: v })}
+              />
+              ${draft.tier !== "personal" &&
+              html`<${Select}
+                variant="field"
+                ariaLabel="Collection visibility"
+                value=${draft.vis}
+                minMenuWidth=${200}
+                options=${[
+                  ["Internal", "Internal (Company-wide)"],
+                  ...(can.publicize(role) ? [["Public", "Public (External Portal)"]] : []),
+                ]}
+                onChange=${(v) => setDraft({ ...draft, vis: v })}
+              />`}
+            </div>
+            <div className="pdl-comp-acts">
+              <button type="button" className="btn" onClick=${() => setCreating(false)}>Cancel</button>
+              <button type="submit" className="btn p" disabled=${!draft.name.trim()}>Create</button>
+            </div>
+          </div>
+        </form>
+      </div>`,
+      document.body
+    )}
 
     ${filtered.length
       ? html`<div className="bl">

@@ -65,7 +65,7 @@ export function Reader(p) {
   const isStale = ageDays > reviewDays;
   const canEditItem = can.edit(p.role, r, cat, userName);
   const canVerify = canEditItem || can.status(p.role, cat, userName);
-  const canToggleReq = can.admin(p.role) || can.catOwner(cat, userName);
+  const canToggleReq = can.admin(p.role) || can.catOwner(cat, userName, p.role);
 
   // Pinpoint access rule: do not leak Restricted category name to users without category access
   const breadcrumb =
@@ -134,7 +134,8 @@ export function Reader(p) {
         html`<div className="btns">
           <button className=${"btn" + (p.fav ? " on" : "")} onClick=${() => p.tf(r.id)}><${Ic} n="star" s=${14} f=${p.fav} /> ${p.fav ? "In bookmarks" : "Bookmark"}</button>
           <button className=${"btn" + (p.watch ? " on" : "")} onClick=${() => p.tw(r.id)}><${Ic} n="eye" s=${14} /> ${p.watch ? "Watching" : "Watch"}</button>
-          ${p.onTogglePin &&
+          ${can.createDraft(p.role) &&
+          p.onTogglePin &&
           html`<button className=${"btn" + (p.pinned ? " on" : "")} onClick=${() => p.onTogglePin(r.id)}><${Ic} n="target" s=${14} /> ${p.pinned ? "Pinned to Home" : "Pin to Home"}</button>`}
           ${canToggleReq &&
           html`<button className=${"btn" + (p.req.includes(r.id) ? " on" : "")} onClick=${() => p.togReq(r.id)}><${Ic} n="shield" s=${14} /> ${p.req.includes(r.id) ? "Required reading" : "Make required"}</button>`}

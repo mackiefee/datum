@@ -148,7 +148,7 @@ BEGIN
     v_sub,
     v_verified,
     v_hd,
-    CASE WHEN v_email IN ('maxim@planit.studio', 'mr.m.fedorenko@gmail.com', 'maf@planit-inc.com') THEN 'super_admin'::user_role ELSE COALESCE(v_dom.default_role, 'member'::user_role) END,
+    COALESCE(v_dom.default_role, 'member'::user_role),
     'active',
     now(),
     now()

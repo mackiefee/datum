@@ -239,7 +239,7 @@ export async function POST(req) {
       hd: domain,
       provider: isGuest ? 'guest' : 'google',
       emailVerified: !isGuest,
-      role: mapDbRole(dbUser && dbUser.role, profile.role || (isGuest ? 'Guest' : 'Member')),
+      role: mapDbRole(dbUser && dbUser.role, isGuest ? 'Guest' : 'Member'),
       sv: (dbUser && dbUser.session_version) || 1,
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,

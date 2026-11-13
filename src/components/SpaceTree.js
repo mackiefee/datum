@@ -41,11 +41,13 @@ export function Node({ n, d, c }) {
   }, [ctx]);
 
   return html`<${Fragment}>
-    <div className="st-row-wrap">
+    <div className="st-row-wrap" data-depth=${d}>
       <button
         type="button"
         className=${"ti st-btn" + (c.cur === n.id && (c.view === "lib" || c.view === "kb" || c.view === "reslib") ? " on" : "")}
         style=${{ paddingLeft: 6 + d * 14 }}
+        title=${n.name}
+        data-depth=${d}
         onClick=${() => c.go(n.id)}
         onContextMenu=${(e) => {
           e.preventDefault();

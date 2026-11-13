@@ -7,6 +7,7 @@ import { IMG0, GUIDE, SEED, NOTES, USERS, SEED_TEAMS, SEED_COLLECTIONS, SEED_ACT
 import { db } from './lib/db.js';
 import {
   loadStoredSession,
+  saveStoredSession,
   consumeSupabaseOAuthHash,
   signOutAuth,
   makeGooglePhotoFallback,
@@ -44,6 +45,9 @@ export function App() {
     const saved = db.load("kb2-users", null);
     if (!saved || !Array.isArray(saved)) return USERS;
     return saved.map((u) => {
+      if (u && u.id === "local-dev-superadmin") {
+        return { ...u, id: "local-dev-member", role: "Member", title: "Team Member" };
+      }
       const def = USERS.find((d) => d.id === u.id || (u.email && d.email === u.email));
       return def
         ? {
@@ -83,6 +87,7 @@ export function App() {
   const [ai, setAi] = useState(false);
   const [bell, setBell] = useState(false);
   const [nav, setNav] = useState(false);
+  const [sbCol, setSbCol] = useState(() => db.load("kb2-sb-col", false));
 
   const [bid, setBid] = useState(null);
   const [retB, setRetB] = useState(null);
@@ -110,11 +115,14 @@ export function App() {
   useEffect(() => {
     let alive = true;
     consumeSupabaseOAuthHash().then((out) => {
-      if (!alive || !out) return;
-      if (out.ok && out.session && signedInRef.current) {
+      if (!alive) return;
+      if (out && out.ok && out.session && signedInRef.current) {
         signedInRef.current(out.session);
-      } else if (out.error) {
+      } else if (out && out.error) {
         setToast(out.error);
+      } else {
+        const stored = loadStoredSession();
+        if (stored) setAuthSession(stored);
       }
     });
     return () => {
@@ -136,6 +144,7 @@ export function App() {
   useEffect(() => { db.save("kb2-seen", seen); }, [seen]);
   useEffect(() => { db.save("kb2-chk", chk); }, [chk]);
   useEffect(() => { db.save("kb2-img", imgs); }, [imgs]);
+  useEffect(() => { db.save("kb2-sb-col", sbCol); }, [sbCol]);
 
   const sessionClaims = authSession && authSession.claims;
   const sessionEmail = sessionClaims && sessionClaims.email ? sessionClaims.email.trim().toLowerCase() : "";
@@ -153,7 +162,7 @@ export function App() {
           id: sessionClaims.sub || activeUserId || "u-session",
           name: sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User"),
           email: sessionClaims.email || "",
-          role: sessionClaims.role || "Member",
+          role: normRole(sessionClaims.role) === "Guest" ? "Guest" : "Member",
           avatar: sessionClaims.avatar || makeGooglePhotoFallback(sessionClaims.name || "Google User"),
           provider: sessionClaims.provider || "google",
           emailVerified: sessionClaims.emailVerified !== false,
@@ -165,6 +174,40 @@ export function App() {
   const role = activeUser.status === "deactivated" ? "Guest" : normRole(activeUser.role);
   const userTeams = activeUser.teams || [];
   const isGuest = role === "Guest";
+
+  useEffect(() => {
+    if (!sessionClaims || matchedUser) return;
+    const sub = sessionClaims.sub || "";
+    const name = sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User");
+    const email = sessionClaims.email || "";
+    const roleVal = normRole(sessionClaims.role) === "Guest" ? "Guest" : "Member";
+    const avatar = sessionClaims.avatar || makeGooglePhotoFallback(name);
+    setUsers((prev) => {
+      const exists = prev.some(
+        (u) =>
+          (sub && (u.id === sub || u.googleSub === sub)) ||
+          (sessionEmail && u.email && u.email.toLowerCase() === sessionEmail)
+      );
+      if (exists) return prev;
+      return [
+        {
+          id: sub || activeUserId || "u-" + Date.now(),
+          googleSub: sub || undefined,
+          name,
+          email,
+          role: roleVal,
+          title: sessionClaims.title || "Team Member",
+          dept: "VDC",
+          teams: ["t-vdc"],
+          avatar,
+          provider: sessionClaims.provider || "google",
+          emailVerified: sessionClaims.emailVerified !== false,
+          status: "active",
+        },
+        ...prev,
+      ];
+    });
+  }, [sessionClaims, matchedUser, sessionEmail, activeUserId]);
 
   const inp = useRef(null);
   const dxr = useRef(null);
@@ -215,6 +258,10 @@ export function App() {
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setPal((x) => !x);
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
+        e.preventDefault();
+        setSbCol((v) => !v);
       }
     };
     document.addEventListener("keydown", k);
@@ -472,16 +519,14 @@ export function App() {
     const ids = catNode ? sub(catNode) : null;
 
     return visibleRes.filter((r) => {
-      if (view === "kb" && !isDocType(r.type)) return false;
-      if (view === "reslib" && !isResType(r.type)) return false;
+      if ((view === "kb" || isCategoryScope) && catFilter === "docs" && !isDocType(r.type)) return false;
+      if ((view === "kb" || isCategoryScope) && catFilter === "res" && !isResType(r.type)) return false;
       if (view === "lib") {
         if (cur === "fav" && !favs.includes(r.id)) return false;
         if (cur === "watch" && !watch.includes(r.id)) return false;
         if (cur === "drafts" && !(r.author === userName && r.status !== "Approved")) return false;
         if (cur === "recent" && !hist.some((h) => h.id === r.id)) return false;
         if (ids && !ids.includes(r.node)) return false;
-        if (isCategoryScope && catFilter === "docs" && !isDocType(r.type)) return false;
-        if (isCategoryScope && catFilter === "res" && !isResType(r.type)) return false;
       }
       if (f.status && r.status !== f.status) return false;
       if (f.type && r.type !== f.type) return false;
@@ -501,7 +546,13 @@ export function App() {
     const cat = byId(r.node, tree);
     return can.status(role, cat, userName);
   }).length;
-  const isGovCapable = can.admin(role) || flatCats.some((c) => c.owner === userName);
+  const isGovCapable = can.admin(role);
+
+  useEffect(() => {
+    if (edt && !can.createDraft(role)) setEdt(null);
+    if (view === "admin" && !isGovCapable) setView("home");
+    if (view === "lib" && cur === "drafts" && !can.createDraft(role)) setCur("all");
+  }, [role, edt, view, cur, isGovCapable]);
 
   const pick = (id) => {
     setSel(id);
@@ -522,7 +573,7 @@ export function App() {
     go,
     cnt,
     tg: (id) => tgl(setOpen, id),
-    canManageNode: (n) => can.admin(role) || n.owner === userName,
+    canManageNode: (n) => can.admin(role) || (normRole(role) === "Editor" && n.owner === userName),
     onColorCat: (catId, color) => {
       const updCol = (nodes) =>
         nodes.map((x) => (x.id === catId ? { ...x, color } : x.kids ? { ...x, kids: updCol(x.kids) } : x));
@@ -543,7 +594,7 @@ export function App() {
     onDeleteCat: (n) => setCatModal({ mode: "delete", cat: byId(n.id, tree) || n }),
   };
 
-  const curCat = !["all", "fav", "watch", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
+  const curCat = view === "lib" && !["all", "fav", "watch", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
   const pageTitle =
     view === "kb"
       ? "Knowledge Base"
@@ -582,7 +633,7 @@ export function App() {
       minMenuWidth=${190}
     />`;
 
-  const hasF = Object.values(f).some(Boolean);
+  const hasF = Object.values(f).some(Boolean) || catFilter !== "all";
   const showFeat = (view === "kb" || view === "reslib" || (view === "lib" && cur === "all")) && !q.trim() && !hasF && !isGuest;
   const rec = [...visibleRes].filter((r) => r.status === "Approved").sort((a, b) => b.upd.localeCompare(a.upd)).slice(0, 3);
   const shown = [...list].sort(sort === "az" ? (a, b) => a.title.localeCompare(b.title, "en") : (a, b) => b.upd.localeCompare(a.upd));
@@ -629,7 +680,7 @@ export function App() {
       return;
     }
     const targetId = existing ? existing.id : claims.sub || "u-g-" + Date.now().toString(36);
-    const targetRole = existing ? existing.role : isGuestAuth ? "Guest" : claims.role || "Member";
+    const targetRole = existing ? normRole(existing.role) : isGuestAuth ? "Guest" : "Member";
 
     setUsers((prev) => {
       const found = prev.find((u) => u.id === targetId || (email && u.email && u.email.toLowerCase() === email));
@@ -669,7 +720,9 @@ export function App() {
     });
 
     setActiveUserId(targetId);
-    setAuthSession(session);
+    const syncedSession = { ...session, claims: { ...claims, role: targetRole } };
+    saveStoredSession(syncedSession);
+    setAuthSession(syncedSession);
     setRead(null);
     setEdt(null);
     setSel(null);
@@ -779,46 +832,54 @@ export function App() {
     return html`<${LoginView} users=${users} onSignedIn=${handleSignedIn} />`;
   }
 
-  return html`<div className="app">
+  return html`<div className=${"app" + (sbCol ? " sb-col" : "")}>
     ${nav && html`<div className="ov" style=${{ zIndex: 57 }} onClick=${() => setNav(false)}></div>`}
 
     <aside className=${"side" + (nav ? " open" : "")}>
-      <div className="logo"><${DatumMark} s=${26} /><span>Datum</span></div>
+      <div className="logo">
+        <div className="logo-b" onClick=${() => sbCol && setSbCol(false)} title=${sbCol ? "Expand sidebar" : "Datum"}>
+          <${DatumMark} s=${26} />
+          <span>Datum</span>
+        </div>
+        <button
+          type="button"
+          className="sb-tgl"
+          title=${(sbCol ? "Expand" : "Collapse") + " sidebar (Ctrl+\\)"}
+          aria-label=${sbCol ? "Expand sidebar" : "Collapse sidebar"}
+          onClick=${() => setSbCol((v) => !v)}
+        >
+          <${Ic} n="sidebar" s=${16} />
+        </button>
+      </div>
 
       ${!isGuest &&
-      html`<button className=${"ti" + (view === "home" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("home")}>
+      html`<button className=${"ti" + (view === "home" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Dashboard" onClick=${() => goV("home")}>
         <span className="tile" style=${{ "--c": "#0a84ff" }}><${Ic} n="home" s=${14} /></span>
         <span className="tn">Dashboard</span>
         ${req.filter((id) => !acks[id]).length > 0 &&
         html`<span className="ct" style=${{ color: "#ff3b30", fontWeight: 600 }}>${req.filter((id) => !acks[id]).length}</span>`}
       </button>`}
 
-      <button className=${"ti" + (view === "kb" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("kb")}>
+      <button className=${"ti" + (view === "kb" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Knowledge Base" onClick=${() => { setCatFilter("all"); goV("kb"); }}>
         <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="doc" s=${14} /></span>
         <span className="tn">Knowledge Base</span>
-        <span className="ct">${visibleRes.filter((r) => isDocType(r.type)).length}</span>
+        <span className="ct">${visibleRes.length}</span>
       </button>
 
-      <button className=${"ti" + (view === "reslib" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("reslib")}>
-        <span className="tile" style=${{ "--c": "#30b0c7" }}><${Ic} n="service" s=${14} /></span>
-        <span className="tn">Resource Library</span>
-        <span className="ct">${visibleRes.filter((r) => isResType(r.type)).length}</span>
-      </button>
-
-      <button className=${"ti" + (view === "boards" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("boards")}>
+      <button className=${"ti" + (view === "boards" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Collections & Boards" onClick=${() => goV("boards")}>
         <span className="tile" style=${{ "--c": "#a2845e" }}><${Ic} n="boards" s=${14} /></span>
         <span className="tn">Collections & Boards</span>
         <span className="ct">${cols.filter((c) => (role === "SuperAdmin" || role === "Admin" ? true : role === "Guest" ? c.vis === "Public" : c.tier === "personal" ? c.owner === userName : c.vis === "Restricted" ? c.owner === userName || (c.coEditors || []).includes(userName) : true)).length}</span>
       </button>
 
       ${!isGuest &&
-      html`<button className=${"ti" + (view === "graph" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("graph")}>
+      html`<button className=${"ti" + (view === "graph" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Dependency Graph" onClick=${() => goV("graph")}>
         <span className="tile" style=${{ "--c": "#34c759" }}><${Ic} n="graph" s=${14} /></span>
         <span className="tn">Dependency Graph</span>
       </button>`}
 
       ${!isGuest &&
-      html`<button className=${"ti" + (view === "team" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("team")}>
+      html`<button className=${"ti" + (view === "team" ? " on" : "")} style=${{ paddingLeft: 10 }} title="People & Teams" onClick=${() => goV("team")}>
         <span className="tile" style=${{ "--c": "#ff9f0a" }}><${Ic} n="teams" s=${14} /></span>
         <span className="tn">People & Teams</span>
         <span className="ct">${users.filter((u) => u.status === "active").length}</span>
@@ -845,22 +906,23 @@ export function App() {
       ${!isGuest &&
       html`<div>
         <div className="sec">Personal Workspace</div>
-        <button className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
+        <button className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Bookmarks" onClick=${() => go("fav")}>
           <span className="tile" style=${{ "--c": "#ff9f0a" }}><${Ic} n="star" s=${14} f=${true} /></span>
           <span className="tn">Bookmarks</span>
           <span className="ct">${favs.length}</span>
         </button>
-        <button className=${"ti" + (view === "lib" && cur === "watch" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("watch")}>
+        <button className=${"ti" + (view === "lib" && cur === "watch" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Watching" onClick=${() => go("watch")}>
           <span className="tile" style=${{ "--c": "#bf5af2" }}><${Ic} n="eye" s=${14} /></span>
           <span className="tn">Watching</span>
           <span className="ct">${watch.length}</span>
         </button>
-        <button className=${"ti" + (view === "lib" && cur === "drafts" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("drafts")}>
+        ${can.createDraft(role) &&
+        html`<button className=${"ti" + (view === "lib" && cur === "drafts" ? " on" : "")} style=${{ paddingLeft: 10 }} title="My Drafts" onClick=${() => go("drafts")}>
           <span className="tile" style=${{ "--c": "#8e8e93" }}><${Ic} n="pencil" s=${14} /></span>
           <span className="tn">My Drafts</span>
           <span className="ct">${visibleRes.filter((r) => r.author === userName && r.status !== "Approved").length}</span>
-        </button>
-        <button className=${"ti" + (view === "lib" && cur === "recent" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("recent")}>
+        </button>`}
+        <button className=${"ti" + (view === "lib" && cur === "recent" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Recently Viewed" onClick=${() => go("recent")}>
           <span className="tile" style=${{ "--c": "#64d2ff" }}><${Ic} n="clock" s=${14} /></span>
           <span className="tn">Recently Viewed</span>
           <span className="ct">${hist.length}</span>
@@ -870,7 +932,7 @@ export function App() {
       ${isGovCapable &&
       html`<div>
         <div className="sec">Governance</div>
-        <button className=${"ti" + (view === "admin" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => goV("admin")}>
+        <button className=${"ti" + (view === "admin" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Administration" onClick=${() => goV("admin")}>
           <span className="tile" style=${{ "--c": "#ff6482" }}><${Ic} n="shield" s=${14} /></span>
           <span className="tn">Administration</span>
           ${pendingApprovalCount > 0 && html`<span className="ct" style=${{ color: "#ff9f0a", fontWeight: 600 }}>${pendingApprovalCount}</span>`}
@@ -913,10 +975,10 @@ export function App() {
           ${!foc && !q && html`<kbd>${KB}</kbd>`}
         </div>
 
-        <button
+        ${can.createDraft(role) &&
+        html`<button
           className="btn p cr"
-          disabled=${!can.createDraft(role)}
-          title=${can.createDraft(role) ? "Create Document or Resource" : "Internal users only"}
+          title="Create Document or Resource"
           onClick=${() => setEdt({})}
         >
           <${Ic} n="plus" s=${16} /><span>Create</span>
@@ -946,9 +1008,9 @@ export function App() {
             }
           }}
         />
-        <button className="ib" disabled=${!can.createDraft(role)} title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current.click()}>
+        <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current.click()}>
           ${html`<${Ic} n="doc" s=${18} />`}
-        </button>
+        </button>`}
         ${!isGuest &&
         html`<button className="ib" title="Edge AI assistant" aria-label="AI assistant" onClick=${() => setAi(true)}>
           ${html`<${Ic} n="spark" s=${18} />`}
@@ -960,6 +1022,7 @@ export function App() {
       </div>
 
       ${edt &&
+      can.createDraft(role) &&
       html`<${Editor}
         key=${edt.id || "new" + (edt.k || "")}
         init=${edt}
@@ -1017,11 +1080,6 @@ export function App() {
       />`}
 
       <div className=${"pad" + (view === "home" ? " ph" : "") + (view === "graph" ? " pgx" : "")} hidden=${!!rr || !!edt}>
-        <div className="crumb">
-          ${view === "lib" && curCat ? curCat.path.join(" › ") + ` · Owner: ${curCat.owner}` : "Datum"}
-        </div>
-        <h1>${pageTitle}</h1>
-
         ${view === "home" &&
         html`<${Home}
           res=${visibleRes}
@@ -1042,46 +1100,39 @@ export function App() {
 
         ${(view === "lib" || view === "kb" || view === "reslib") &&
         html`<div>
-          <p className="lead">${list.length} ${pl(list.length)}${q.trim() ? " for “" + q.trim() + "”" : ""}</p>
-
-          <div className="pdl-seg-row">
-            ${curCat &&
-            html`<div className="seg">
-              ${[
-                ["all", "All"],
-                ["docs", "Documents"],
-                ["res", "Resources"],
-              ].map(([k, lb]) => html`<button key=${k} className=${catFilter === k ? "on" : ""} onClick=${() => setCatFilter(k)}>${lb}</button>`)}
-            </div>`}
-
-            ${!isGuest &&
-            html`<div className="seg">
-              ${[["", "All"], ...Object.entries(ST).map(([k, v]) => [k, v[0]])].map(
-                ([k, n]) => html`<button key=${k} className=${(f.status || "") === k ? "on" : ""} onClick=${() => setF({ ...f, status: k || undefined })}>${n}</button>`
-              )}
-            </div>`}
-          </div>
-
-          <div className="fl">
-            <${SelF} k="type" ph="Type" opts=${Object.entries(TY)} />
-            <${SelF} k="stage" ph="Stage" opts=${STG.map((x) => [x, x])} />
-            <${SelF} k="disc" ph="Discipline" opts=${DISC.map((x) => [x, x])} />
-            <${SelF} k="tag" ph="Tag" opts=${tags.map((x) => [x, "#" + x])} />
-            <${Select}
-              variant="pill"
-              className="srt"
-              ariaLabel="Sorting"
-              placeholder="Sort"
-              displayLabel=${sort === "az" ? "Sort: By title" : "Sort: Newest"}
-              value=${sort}
-              options=${[
-                ["new", "Newest first"],
-                ["az", "By title (A–Z)"],
-              ]}
-              onChange=${setSort}
-              minMenuWidth=${175}
-            />
-            ${hasF && html`<button className="clr" onClick=${() => setF({})}>Reset</button>`}
+          <div className="pdl-top">
+            <div className="pdl-top-l">
+              <h1>${pageTitle}</h1>
+              <span className="pdl-cnt">${list.length}</span>
+            </div>
+            <div className="pdl-top-r">
+              ${(view === "kb" || curCat) &&
+              html`<div className="seg">
+                ${[
+                  ["all", "All"],
+                  ["docs", "Docs"],
+                  ["res", "Resources"],
+                ].map(([k, lb]) => html`<button key=${k} className=${catFilter === k ? "on" : ""} onClick=${() => setCatFilter(k)}>${lb}</button>`)}
+              </div>`}
+              ${can.createDraft(role) &&
+              html`<${SelF} k="status" ph="Status" opts=${Object.entries(ST).map(([k, v]) => [k, v[0]])} />`}
+              <${SelF} k="type" ph="Type" opts=${Object.entries(TY)} />
+              <${SelF} k="tag" ph="Tag" opts=${tags.map((x) => [x, "#" + x])} />
+              <${Select}
+                variant="pill"
+                ariaLabel="Sorting"
+                placeholder="Sort"
+                displayLabel=${sort === "az" ? "A–Z" : "Newest"}
+                value=${sort}
+                options=${[
+                  ["new", "Newest first"],
+                  ["az", "By title (A–Z)"],
+                ]}
+                onChange=${setSort}
+                minMenuWidth=${175}
+              />
+              ${hasF && html`<button className="clr" onClick=${() => { setF({}); setCatFilter("all"); }}>Reset</button>`}
+            </div>
           </div>
 
           ${showFeat &&
@@ -1096,7 +1147,7 @@ export function App() {
                 </button>`
               )}
             </div>
-            <h2>${view === "kb" ? "All documents" : view === "reslib" ? "All resources" : "Catalog items"}</h2>
+            <h2>All items</h2>
           </section>`}
 
           ${list.length

@@ -12,10 +12,9 @@ export function Pal(p) {
   const s = q.trim().toLowerCase();
 
   const A = [
-    ["Create article or resource", "plus", "new"],
+    ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
     ["Dashboard (Home)", "home", "home"],
-    ["Knowledge Base (Documents)", "doc", "view", "kb"],
-    ["Resource Library (Tools & Links)", "service", "view", "reslib"],
+    ["Knowledge Base", "doc", "view", "kb"],
     ["Collections & Link Boards", "boards", "view", "boards"],
     ["Dependency graph", "graph", "view", "graph"],
     ...(can.admin(p.role) ? [["Administration & Governance", "shield", "view", "admin"]] : []),

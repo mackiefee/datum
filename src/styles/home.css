@@ -1,5 +1,7 @@
 /* Home, palette */
 .ph>.crumb,.ph>h1{display:none}
+.ph{min-height:calc(100vh - 68px);display:flex;flex-direction:column;justify-content:center;padding-bottom:10vh}
+.home{width:100%;max-width:1120px;margin:0 auto}
 .home h1{margin-bottom:22px}
 .chip{height:32px;padding:0 14px;border-radius:16px;background:var(--fill);font-size:13px;transition:background .15s}.chip:hover{background:var(--fill2)}
 .askc{background:var(--surface);border-radius:26px;padding:18px;box-shadow:0 0 0 1px var(--line),0 12px 40px rgba(10,132,255,.10);position:relative}

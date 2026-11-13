@@ -1,6 +1,7 @@
 import { ls } from '../utils/storage.js';
 
 const SESSION_KEY = 'kb2-auth-session';
+const LOCAL_SIGNOUT_KEY = 'kb2-local-signed-out';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://knxyslvecmjhvlgapoyl.supabase.co';
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_XQFm2PK27ZDiEMOz3BQe7A_7KuqHNnt';
 const ALLOWED_DOMAINS = (process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS || 'planit.studio,planit-inc.com,gmail.com')
@@ -27,17 +28,53 @@ export function makeGooglePhotoFallback(name = 'User', color = '#0a84ff') {
   );
 }
 
+function isLocalhostEnv() {
+  return typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+}
+
 export function loadStoredSession() {
   const s = ls.get(SESSION_KEY);
-  if (!s || !s.token || !s.claims) return null;
-  if (s.claims.exp && Date.now() > s.claims.exp) {
-    ls.set(SESSION_KEY, null);
-    return null;
+  if (s && s.token && s.claims) {
+    if (s.claims.exp && Date.now() > s.claims.exp) {
+      ls.set(SESSION_KEY, null);
+    } else {
+      if (s.token === 'local-dev-session' && s.claims.role === 'SuperAdmin') {
+        s.claims.role = 'Member';
+        s.claims.sub = 'local-dev-member';
+        ls.set(SESSION_KEY, s);
+      }
+      return s;
+    }
   }
-  return s;
+  if (isLocalhostEnv()) {
+    try {
+      if (sessionStorage.getItem(LOCAL_SIGNOUT_KEY) === '1') return null;
+    } catch (e) {}
+    const claims = {
+      sub: 'local-dev-member',
+      email: 'maf@planit-inc.com',
+      name: 'Maksym Fedorenko',
+      avatar: makeGooglePhotoFallback('Maksym Fedorenko', '#0a84ff'),
+      hd: 'planit-inc.com',
+      provider: 'google',
+      emailVerified: true,
+      role: 'Member',
+      iat: Date.now(),
+      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    };
+    const devSession = { token: 'local-dev-session', claims };
+    saveStoredSession(devSession);
+    return devSession;
+  }
+  return null;
 }
 
 export function saveStoredSession(session) {
+  if (session && typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem(LOCAL_SIGNOUT_KEY);
+    } catch (e) {}
+  }
   ls.set(SESSION_KEY, session);
 }
 
@@ -67,64 +104,73 @@ function decodeJwtPayload(jwt) {
   }
 }
 
+let inflightOAuthPromise = null;
+
 export async function consumeSupabaseOAuthHash() {
   if (typeof window === 'undefined') return null;
+  if (inflightOAuthPromise) return inflightOAuthPromise;
+
   const hashStr = window.location.hash ? window.location.hash.slice(1) : '';
   const searchStr = window.location.search ? window.location.search.slice(1) : '';
   const hashParams = new URLSearchParams(hashStr);
   const searchParams = new URLSearchParams(searchStr);
 
   const oauthErr = hashParams.get('error_description') || searchParams.get('error_description') || hashParams.get('error') || searchParams.get('error');
-  if (oauthErr) {
-    window.history.replaceState(null, '', window.location.pathname);
-    return { ok: false, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
-  }
-
   const accessToken = hashParams.get('access_token');
-  if (!accessToken) return null;
+  if (!oauthErr && !accessToken) return null;
 
-  window.history.replaceState(null, '', window.location.pathname + window.location.search);
-
-  try {
-    const res = await fetch('/api/edge/auth', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'verify_supabase_token', token: accessToken }),
-    });
-    const out = await res.json();
-    if (res.ok && out.ok && out.token) {
-      saveStoredSession({ token: out.token, claims: out.claims, supaToken: accessToken });
-      return { ok: true, session: { token: out.token, claims: out.claims, supaToken: accessToken } };
+  inflightOAuthPromise = (async () => {
+    if (oauthErr) {
+      window.history.replaceState(null, '', window.location.pathname);
+      return { ok: false, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
     }
-    if (res.status === 403 && out && out.error) {
-      return { ok: false, error: out.error };
-    }
-  } catch (e) {
-    // Fall back to verified Supabase access_token claims below
-  }
 
-  const jwtPayload = decodeJwtPayload(accessToken);
-  if (jwtPayload && jwtPayload.email) {
-    const meta = jwtPayload.user_metadata || {};
-    const email = String(jwtPayload.email || meta.email || '').trim().toLowerCase();
-    const name = meta.full_name || meta.name || email.split('@')[0];
-    const claims = {
-      sub: meta.provider_id || meta.sub || jwtPayload.sub,
-      email,
-      name,
-      avatar: meta.avatar_url || meta.picture || makeGooglePhotoFallback(name),
-      hd: meta.hd || email.split('@')[1] || '',
-      provider: 'google',
-      emailVerified: true,
-      role: 'Member',
-      iat: Date.now(),
-      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
-    };
-    const session = { token: accessToken, claims, supaToken: accessToken };
-    saveStoredSession(session);
-    return { ok: true, session };
-  }
-  return null;
+    window.history.replaceState(null, '', window.location.pathname + window.location.search);
+
+    try {
+      const res = await fetch('/api/edge/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'verify_supabase_token', token: accessToken }),
+      });
+      const out = await res.json();
+      if (res.ok && out.ok && out.token) {
+        const session = { token: out.token, claims: out.claims, supaToken: accessToken };
+        saveStoredSession(session);
+        return { ok: true, session };
+      }
+      if (res.status === 403 && out && out.error) {
+        return { ok: false, error: out.error };
+      }
+    } catch (e) {
+      // Fall back to verified Supabase access_token claims below
+    }
+
+    const jwtPayload = decodeJwtPayload(accessToken);
+    if (jwtPayload && jwtPayload.email) {
+      const meta = jwtPayload.user_metadata || {};
+      const email = String(jwtPayload.email || meta.email || '').trim().toLowerCase();
+      const name = meta.full_name || meta.name || email.split('@')[0];
+      const claims = {
+        sub: meta.provider_id || meta.sub || jwtPayload.sub,
+        email,
+        name,
+        avatar: meta.avatar_url || meta.picture || makeGooglePhotoFallback(name),
+        hd: meta.hd || email.split('@')[1] || '',
+        provider: 'google',
+        emailVerified: true,
+        role: 'Member',
+        iat: Date.now(),
+        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+      };
+      const session = { token: accessToken, claims, supaToken: accessToken };
+      saveStoredSession(session);
+      return { ok: true, session };
+    }
+    return null;
+  })();
+
+  return inflightOAuthPromise;
 }
 
 export async function issueVerifiedSession(profile, { enforceDomain = false } = {}) {
@@ -158,7 +204,7 @@ export async function issueVerifiedSession(profile, { enforceDomain = false } = 
       hd: String(profile.email || '').split('@')[1] || '',
       provider: profile.provider || 'google',
       emailVerified: profile.provider !== 'guest',
-      role: profile.role || 'Member',
+      role: profile.provider === 'guest' ? 'Guest' : 'Member',
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
     };
@@ -169,6 +215,12 @@ export async function issueVerifiedSession(profile, { enforceDomain = false } = 
 }
 
 export async function signOutAuth() {
+  inflightOAuthPromise = null;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.setItem(LOCAL_SIGNOUT_KEY, '1');
+    } catch (e) {}
+  }
   const cur = loadStoredSession();
   if (hasSupabaseAuth && cur && cur.supaToken) {
     try {
