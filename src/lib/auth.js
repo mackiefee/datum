@@ -34,31 +34,33 @@ function isLocalhostEnv() {
 
 export function loadStoredSession() {
   const s = ls.get(SESSION_KEY);
+  if (isLocalhostEnv()) {
+    try {
+      sessionStorage.removeItem(LOCAL_SIGNOUT_KEY);
+    } catch (e) {}
+  }
   if (s && s.token && s.claims) {
     if (s.claims.exp && Date.now() > s.claims.exp) {
       ls.set(SESSION_KEY, null);
     } else {
-      if (s.token === 'local-dev-session' && s.claims.role === 'SuperAdmin') {
-        s.claims.role = 'Member';
-        s.claims.sub = 'local-dev-member';
+      if (isLocalhostEnv() && (s.token === 'local-dev-session' || s.claims.email === 'maf@planit-inc.com')) {
+        s.claims.role = 'SuperAdmin';
+        s.claims.sub = 'local-dev-superadmin';
         ls.set(SESSION_KEY, s);
       }
       return s;
     }
   }
   if (isLocalhostEnv()) {
-    try {
-      if (sessionStorage.getItem(LOCAL_SIGNOUT_KEY) === '1') return null;
-    } catch (e) {}
     const claims = {
-      sub: 'local-dev-member',
+      sub: 'local-dev-superadmin',
       email: 'maf@planit-inc.com',
       name: 'Maksym Fedorenko',
       avatar: makeGooglePhotoFallback('Maksym Fedorenko', '#0a84ff'),
       hd: 'planit-inc.com',
       provider: 'google',
       emailVerified: true,
-      role: 'Member',
+      role: 'SuperAdmin',
       iat: Date.now(),
       exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
     };

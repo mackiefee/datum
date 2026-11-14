@@ -15,8 +15,8 @@ export function Pal(p) {
     ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
     ["Dashboard (Home)", "home", "home"],
     ["Knowledge Base", "doc", "view", "kb"],
-    ["Collections & Link Boards", "boards", "view", "boards"],
-    ["Dependency graph", "graph", "view", "graph"],
+    ["Playbooks & Kits (Knowledge Base)", "folder", "kits"],
+    ["Dependency Graph (Knowledge Base)", "graph", "kb-graph"],
     ...(can.admin(p.role) ? [["Administration & Governance", "shield", "view", "admin"]] : []),
     ["Change theme", "spark", "theme"],
   ];

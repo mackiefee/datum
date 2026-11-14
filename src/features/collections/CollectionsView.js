@@ -1,24 +1,61 @@
 import { createPortal } from 'react-dom';
-import { html, useState } from '../../lib/react.js';
-import { DC, VIS, can, normRole } from '../../config/constants.js';
+import { html, useState, useEffect } from '../../lib/react.js';
+import { DC, can, normRole } from '../../config/constants.js';
 import { fmt } from '../../utils/format.js';
 import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { Select } from '../../components/Select.js';
-import { BC, bbox, anc, bez } from '../boards/boardUtils.js';
 
 const TIER_LABEL = { official: "Official", shared: "Shared", personal: "Personal" };
 const TIER_COL = { official: "#0a84ff", shared: "#34c759", personal: "#bf5af2" };
 
 export function CollectionsView(p) {
-  const { cols, res, role, userName, onOpenBoard, onAddCol, onSaveCol, onDelCol, onRead, onOpenPublic } = p;
+  const {
+    cols,
+    res,
+    role,
+    userName,
+    embedded = false,
+    hideSubbar = false,
+    externalTab,
+    onExternalTabChange,
+    externalCreating,
+    onExternalCreatingChange,
+    initialColId = null,
+    onClearInitialCol,
+    onAddCol,
+    onSaveCol,
+    onDelCol,
+    onRead,
+    onOpenPublic,
+  } = p;
   const [tab, setTab] = useState("all");
-  const [openColId, setOpenColId] = useState(null);
+  const [openColId, setOpenColId] = useState(initialColId || null);
   const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState({ name: "", desc: "", tier: "personal", mode: "list", vis: "Restricted" });
+  const curTab = externalTab !== undefined ? externalTab : tab;
+  const setCurTab = (v) => {
+    setTab(v);
+    onExternalTabChange && onExternalTabChange(v);
+  };
+  const isCreating = externalCreating !== undefined ? externalCreating : creating;
+  const setIsCreating = (v) => {
+    const next = typeof v === "function" ? v(isCreating) : v;
+    setCreating(next);
+    onExternalCreatingChange && onExternalCreatingChange(next);
+  };
+  const [draft, setDraft] = useState({ name: "", desc: "", tier: "personal", vis: "Restricted" });
   const [addItemId, setAddItemId] = useState("");
   const [addNote, setAddNote] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
+
+  useEffect(() => {
+    setOpenColId(initialColId || null);
+  }, [initialColId]);
+
+  const closeActiveCol = () => {
+    setOpenColId(null);
+    onClearInitialCol && onClearInitialCol();
+  };
 
   const visibleCols = cols.filter((c) => {
     const r = normRole(role);
@@ -30,8 +67,7 @@ export function CollectionsView(p) {
   });
 
   const filtered = visibleCols.filter((c) => {
-    if (tab === "boards") return c.mode === "board" || (c.nodes && c.nodes.length > 0);
-    if (tab !== "all") return c.tier === tab;
+    if (curTab !== "all") return c.tier === curTab;
     return true;
   });
 
@@ -47,7 +83,7 @@ export function CollectionsView(p) {
       name: draft.name.trim(),
       desc: draft.desc.trim() || "Curated resource and document kit.",
       tier: finalTier,
-      mode: draft.mode,
+      mode: "list",
       owner: userName,
       vis: finalTier === "personal" ? "Restricted" : draft.vis === "Public" && can.publicize(role) ? "Public" : "Internal",
       coEditors: [],
@@ -58,10 +94,9 @@ export function CollectionsView(p) {
       vp: null,
     };
     onAddCol(col);
-    setCreating(false);
-    setDraft({ name: "", desc: "", tier: "personal", mode: "list", vis: "Restricted" });
-    if (col.mode === "board") onOpenBoard(col.id);
-    else setOpenColId(col.id);
+    setIsCreating(false);
+    setDraft({ name: "", desc: "", tier: "personal", vis: "Restricted" });
+    setOpenColId(col.id);
   };
 
   const canEditCol = (c) => {
@@ -72,28 +107,23 @@ export function CollectionsView(p) {
     return normRole(role) !== "Guest" && c.owner === userName;
   };
 
-  const renderBoardThumb = (b) => {
-    if (!b.nodes || !b.nodes.length) {
-      return html`<span className="bpe"><${Ic} n="layers" s=${28} /><small>${(b.items || []).length} items</small></span>`;
+  const renderKitPreview = (c) => {
+    const entries = (c.items || [])
+      .map((entry) => ({ ...entry, res: resMap[entry.id] }))
+      .filter((x) => x.res);
+    if (!entries.length) {
+      return html`<span className="bpe"><${Ic} n="layers" s=${28} /><small>Empty kit · Add documents inside</small></span>`;
     }
-    const P = {};
-    b.nodes.forEach((n) => (P[n.id] = n));
-    const B = bbox(b.nodes);
-    const m = 50;
-    return html`<svg className="pv" viewBox=${[B.x0 - m, B.y0 - m, B.w + 2 * m, B.h + 2 * m].join(" ")} preserveAspectRatio="xMidYMid meet">
-      ${(b.edges || []).map((e) => {
-        const a = P[e.a],
-          c = P[e.b];
-        if (!a || !c) return null;
-        const [st, t, d] = anc(a, c);
-        return html`<path key=${e.id} d=${bez(st, t, d)} fill="none" style=${{ stroke: "var(--sub)", strokeOpacity: 0.5 }} strokeWidth="4" strokeLinecap="round" />`;
-      })}
-      ${b.nodes.map((n) => {
-        const r = n.t === "res" ? resMap[n.rid] : null;
-        const col = r ? DC[r.disc] : BC[n.c || 0];
-        return html`<rect key=${n.id} x=${n.x} y=${n.y} width=${n.w} height=${n.h} rx="18" fill=${col} fillOpacity=".24" stroke=${col} strokeWidth="2.5" />`;
-      })}
-    </svg>`;
+    return html`<div className="kit-prev">
+      ${entries.slice(0, 3).map(
+        (entry, i) => html`<div key=${entry.id} className="kit-prev-row">
+          <span className="kit-prev-idx">${i + 1}</span>
+          <i className="kit-prev-dot" style=${{ background: DC[entry.res.disc] || "#8e8e93" }}></i>
+          <span>${entry.res.title}</span>
+        </div>`
+      )}
+      ${entries.length > 3 && html`<span className="kit-prev-more">+${entries.length - 3} more items</span>`}
+    </div>`;
   };
 
   if (activeCol) {
@@ -103,16 +133,15 @@ export function CollectionsView(p) {
     return html`<div>
       <div className="pdl-top">
         <div className="pdl-top-l">
-          <button className="btn" style=${{ height: 32, padding: "0 11px", fontSize: 13, borderRadius: 16 }} onClick=${() => setOpenColId(null)}>
+          <button className="btn sm" onClick=${closeActiveCol}>
             <span style=${{ display: "inline-flex", transform: "rotate(180deg)" }}><${Ic} n="chev" s=${14} /></span>
-            <span>All</span>
+            <span>All Kits</span>
           </button>
           <h1>${activeCol.name}</h1>
           <span className="pill" style=${{ "--c": TIER_COL[activeCol.tier] }}>${TIER_LABEL[activeCol.tier]}</span>
           <${VisPill} v=${activeCol.vis} />
         </div>
         <div className="pdl-top-r">
-          <button className="btn p" onClick=${() => onOpenBoard(activeCol.id)}><${Ic} n="boards" s=${14} /> Board</button>
           ${activeCol.vis === "Public" && html`<button className="btn" onClick=${() => onOpenPublic({ kind: "collection", data: activeCol })}><${Ic} n="globe" s=${14} /> Public</button>`}
           ${editable &&
           can.publicize(role) &&
@@ -174,7 +203,7 @@ export function CollectionsView(p) {
           />
           <input
             className="inp"
-            style=${{ flex: 1, minWidth: 180, height: 38, minHeight: 0, padding: "0 12px" }}
+            style=${{ flex: 1, minWidth: 180 }}
             placeholder="Curator note (optional)"
             value=${addNote}
             onChange=${(e) => setAddNote(e.target.value)}
@@ -200,59 +229,73 @@ export function CollectionsView(p) {
   }
 
   return html`<div>
-    <div className="pdl-top">
-      <div className="pdl-top-l">
-        <h1>Collections & Boards</h1>
-        <span className="pdl-cnt">${filtered.length}</span>
-      </div>
-      <div className="pdl-top-r">
-        <div className="seg">
-          ${[
-            ["all", "All"],
-            ["official", "Official"],
-            ["shared", "Shared"],
-            ["personal", "Personal"],
-            ["boards", "Boards"],
-          ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
-        </div>
-        ${normRole(role) !== "Guest" &&
-        html`<button className="btn p" onClick=${() => setCreating((v) => !v)}><${Ic} n="plus" s=${14} /> New</button>`}
-        ${can.createDraft(role) &&
-        html`<button className="btn" onClick=${p.onBuildLibBoard}><${Ic} n="graph" s=${14} /> From links</button>`}
-      </div>
-    </div>
+    ${embedded
+      ? !hideSubbar &&
+        html`<div className="pdl-subbar">
+          <div className="seg">
+            ${[
+              ["all", "All"],
+              ["official", "Official"],
+              ["shared", "Shared"],
+              ["personal", "Personal"],
+            ].map(([k, lb]) => html`<button key=${k} className=${curTab === k ? "on" : ""} onClick=${() => setCurTab(k)}>${lb}</button>`)}
+          </div>
+          <div className="pdl-subbar-r">
+            <span className="pdl-cnt">${filtered.length} ${filtered.length === 1 ? "kit" : "kits"}</span>
+            ${normRole(role) !== "Guest" &&
+            html`<button className="btn p" onClick=${() => setIsCreating((v) => !v)}><${Ic} n="plus" s=${14} /> New Kit</button>`}
+          </div>
+        </div>`
+      : html`<div className="pdl-top">
+          <div className="pdl-top-l">
+            <h1>Playbooks & Kits</h1>
+            <span className="pdl-cnt">${filtered.length}</span>
+          </div>
+          <div className="pdl-top-r">
+            <div className="seg">
+              ${[
+                ["all", "All"],
+                ["official", "Official"],
+                ["shared", "Shared"],
+                ["personal", "Personal"],
+              ].map(([k, lb]) => html`<button key=${k} className=${curTab === k ? "on" : ""} onClick=${() => setCurTab(k)}>${lb}</button>`)}
+            </div>
+            ${normRole(role) !== "Guest" &&
+            html`<button className="btn p" onClick=${() => setIsCreating((v) => !v)}><${Ic} n="plus" s=${14} /> New Kit</button>`}
+          </div>
+        </div>`}
 
-    ${creating &&
+    ${isCreating &&
     createPortal(
       html`<div
         className="pdl-composer-ov"
         onMouseDown=${(e) => {
-          if (e.target === e.currentTarget) setCreating(false);
+          if (e.target === e.currentTarget) setIsCreating(false);
         }}
         onKeyDown=${(e) => {
-          if (e.key === "Escape") setCreating(false);
+          if (e.key === "Escape") setIsCreating(false);
         }}
       >
         <form
           className="pdl-composer"
           role="dialog"
           aria-modal="true"
-          aria-label="New Collection"
+          aria-label="New Kit"
           onSubmit=${(e) => {
             e.preventDefault();
             if (draft.name.trim()) handleCreate();
           }}
         >
           <div className="pdl-comp-head">
-            <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Collection</span>
-            <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setCreating(false)}>
+            <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Kit / Playbook</span>
+            <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setIsCreating(false)}>
               <${Ic} n="x" s=${14} />
             </button>
           </div>
           <div className="pdl-comp-body">
             <input
               className="pdl-comp-title"
-              placeholder="Collection title (e.g. Revit Onboarding Kit)"
+              placeholder="Kit title (e.g. Revit Onboarding Kit)"
               value=${draft.name}
               onChange=${(e) => setDraft({ ...draft, name: e.target.value })}
               autoFocus
@@ -268,7 +311,7 @@ export function CollectionsView(p) {
             <div className="pdl-comp-pills">
               <${Select}
                 variant="field"
-                ariaLabel="Collection tier"
+                ariaLabel="Kit tier"
                 value=${draft.tier}
                 minMenuWidth=${190}
                 options=${[
@@ -278,21 +321,10 @@ export function CollectionsView(p) {
                 ]}
                 onChange=${(v) => setDraft({ ...draft, tier: v })}
               />
-              <${Select}
-                variant="field"
-                ariaLabel="Collection mode"
-                value=${draft.mode}
-                minMenuWidth=${170}
-                options=${[
-                  ["list", "Playbook List"],
-                  ["board", "Visual Link Board"],
-                ]}
-                onChange=${(v) => setDraft({ ...draft, mode: v })}
-              />
               ${draft.tier !== "personal" &&
               html`<${Select}
                 variant="field"
-                ariaLabel="Collection visibility"
+                ariaLabel="Kit visibility"
                 value=${draft.vis}
                 minMenuWidth=${200}
                 options=${[
@@ -303,7 +335,7 @@ export function CollectionsView(p) {
               />`}
             </div>
             <div className="pdl-comp-acts">
-              <button type="button" className="btn" onClick=${() => setCreating(false)}>Cancel</button>
+              <button type="button" className="btn" onClick=${() => setIsCreating(false)}>Cancel</button>
               <button type="submit" className="btn p" disabled=${!draft.name.trim()}>Create</button>
             </div>
           </div>
@@ -315,39 +347,29 @@ export function CollectionsView(p) {
     ${filtered.length
       ? html`<div className="bl">
           ${filtered.map((c) => {
-            const count = c.mode === "board" || (c.nodes && c.nodes.length) ? c.nodes.length : (c.items || []).length;
+            const count = (c.items || []).length;
             return html`<div
               key=${c.id}
               className="bcard"
               role="button"
               tabIndex="0"
-              onClick=${() => (c.mode === "board" ? onOpenBoard(c.id) : setOpenColId(c.id))}
-              onKeyDown=${(e) => e.key === "Enter" && (c.mode === "board" ? onOpenBoard(c.id) : setOpenColId(c.id))}
+              onClick=${() => setOpenColId(c.id)}
+              onKeyDown=${(e) => e.key === "Enter" && setOpenColId(c.id)}
             >
-              <div className="bprev">${renderBoardThumb(c)}</div>
+              <div className="bprev">${renderKitPreview(c)}</div>
               <div className="bmeta">
                 <div className="row" style=${{ marginBottom: 4 }}>
                   <span className="pill" style=${{ "--c": TIER_COL[c.tier] || "#8e8e93" }}>${TIER_LABEL[c.tier] || "Shared"}</span>
                   <${VisPill} v=${c.vis} />
                 </div>
                 <b>${c.name}</b>
-                <small>${c.owner} · ${count} items · ${fmt(new Date(c.at || Date.now()).toISOString().slice(0, 10))}</small>
+                <small>${c.owner} · ${count} ${count === 1 ? "item" : "items"} · ${fmt(new Date(c.at || Date.now()).toISOString().slice(0, 10))}</small>
               </div>
               <div className="pdl-bcard-acts">
-                ${c.mode !== "board" &&
-                html`<button
-                  title="Open as Visual Board"
-                  onClick=${(e) => {
-                    e.stopPropagation();
-                    onOpenBoard(c.id);
-                  }}
-                >
-                  <${Ic} n="boards" s=${14} />
-                </button>`}
                 ${canEditCol(c) &&
                 html`<button
                   className=${confirmDel === c.id ? "dng" : ""}
-                  title="Delete collection"
+                  title="Delete kit"
                   onClick=${(e) => {
                     e.stopPropagation();
                     if (confirmDel === c.id) {
@@ -362,6 +384,6 @@ export function CollectionsView(p) {
             </div>`;
           })}
         </div>`
-      : html`<div className="empty"><${Ic} n="layers" s=${34} /><b>No collections in this view</b><span>Create a personal kit, shared team board, or official onboarding guide.</span></div>`}
+      : html`<div className="empty"><${Ic} n="layers" s=${34} /><b>No kits in this view</b><span>Create a personal kit, shared team playbook, or official onboarding guide.</span></div>`}
   </div>`;
 }

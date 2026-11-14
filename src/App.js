@@ -10,6 +10,7 @@ import {
   loadStoredSession,
   saveStoredSession,
   consumeSupabaseOAuthHash,
+  startSupabaseGoogleOAuth,
   signOutAuth,
   makeGooglePhotoFallback,
 } from './lib/auth.js';
@@ -18,7 +19,7 @@ import { hay } from './utils/search.js';
 import { docxImport } from './utils/docx.js';
 import { Ic, DatumMark } from './components/Icon.js';
 import { Pill, VisPill } from './components/Badge.js';
-import { Select, UserSwitcher } from './components/Select.js';
+import { FilterPopover, SortPopover, UserSwitcher } from './components/Select.js';
 import { Node } from './components/SpaceTree.js';
 import { Pal } from './components/CommandPalette.js';
 import { Drawer } from './components/ResourceDrawer.js';
@@ -28,11 +29,9 @@ import { LoginView } from './components/LoginView.js';
 import { CategoryModal } from './components/CategoryModal.js';
 import { Home } from './features/home/Home.js';
 import { Reader } from './features/reader/Reader.js';
-import { Editor } from './features/editor/Editor.js';
 import { Graph } from './features/graph/GraphView.js';
-import { fromLib } from './features/boards/boardUtils.js';
-import { BoardEd } from './features/boards/BoardEditor.js';
 import { CollectionsView } from './features/collections/CollectionsView.js';
+import { RevitTypeView } from './features/revitType/RevitTypeView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
 
@@ -65,8 +64,8 @@ export function App() {
     const saved = db.load("kb2-users", null);
     if (!saved || !Array.isArray(saved)) return USERS;
     return saved.map((u) => {
-      if (u && u.id === "local-dev-superadmin") {
-        return { ...u, id: "local-dev-member", role: "Member", title: "Team Member" };
+      if (u && (u.id === "local-dev-superadmin" || u.id === "local-dev-member" || (u.email && u.email.toLowerCase() === "maf@planit-inc.com"))) {
+        return { ...u, id: "local-dev-superadmin", role: "SuperAdmin", title: "Head of VDC & SuperAdmin" };
       }
       const def = USERS.find((d) => d.id === u.id || (u.email && d.email === u.email));
       return def
@@ -97,8 +96,14 @@ export function App() {
   const [notes, setNotes] = useState(() => db.load("kb2-notes", null) || NOTES);
 
   const [view, setView] = useState("home");
+  const [assemblyId, setAssemblyId] = useState(null);
+  const [revitTypeCtx, setRevitTypeCtx] = useState(null);
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
+  const [kbDisplay, setKbDisplay] = useState("grid");
+  const [activeKitId, setActiveKitId] = useState(null);
+  const [kitTier, setKitTier] = useState("all");
+  const [creatingKit, setCreatingKit] = useState(false);
   const [open, setOpen] = useState([]);
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
@@ -108,8 +113,6 @@ export function App() {
   const [nav, setNav] = useState(false);
   const [sbCol, setSbCol] = useState(() => db.load("kb2-sb-col", false));
 
-  const [bid, setBid] = useState(null);
-  const [retB, setRetB] = useState(null);
   const [pubTarget, setPubTarget] = useState(null);
   const [acks, setAcks] = useState(() => db.load("kb2-ack", null) || {});
   const [req, setReq] = useState(() => db.load("kb2-req", null) || [100, 112, 127]);
@@ -120,7 +123,6 @@ export function App() {
   const [aq, setAq] = useState(null);
   const [hf, setHf] = useState(0);
   const [read, setRead] = useState(null);
-  const [edt, setEdt] = useState(null);
   const [imgs, setImgs] = useState(() => ({ ...IMG0, ...(db.load("kb2-img", null) || {}) }));
   const [sort, setSort] = useState("new");
   const PAGE_SIZE = 24;
@@ -133,6 +135,7 @@ export function App() {
   useEffect(() => { db.save("kb2-teams", teams); }, [teams]);
   useEffect(() => { db.save("kb2-uid", activeUserId); }, [activeUserId]);
   const signedInRef = useRef(null);
+  const readerBridgeRef = useRef(null);
   useEffect(() => {
     let alive = true;
     consumeSupabaseOAuthHash().then((out) => {
@@ -150,6 +153,54 @@ export function App() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const sp = new URLSearchParams(window.location.search || "");
+      const qCb = sp.get("revit_auth_cb") || "";
+      if (qCb && /^http:\/\/(127\.0\.0\.1|localhost):\d+\/cb$/i.test(qCb)) {
+        window.sessionStorage.setItem("datum-revit-auth-cb", qCb);
+        window.sessionStorage.removeItem("datum-revit-oauth-started");
+        sp.delete("revit_auth_cb");
+        const cleanQs = sp.toString();
+        window.history.replaceState(null, "", window.location.pathname + (cleanQs ? "?" + cleanQs : "") + (window.location.hash || ""));
+      }
+      const cbUrl = window.sessionStorage.getItem("datum-revit-auth-cb");
+      if (!cbUrl) return;
+      if (authSession && authSession.claims && authSession.claims.email) {
+        window.sessionStorage.removeItem("datum-revit-auth-cb");
+        window.sessionStorage.removeItem("datum-revit-oauth-started");
+        const email = authSession.claims.email;
+        const name = authSession.claims.name || email.split("@")[0];
+        const role = authSession.claims.role || "Member";
+        fetch("/api/revit/auth", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        })
+          .then((r) => r.json())
+          .catch(() => null)
+          .then((res) => {
+            const tok = (res && res.token) || authSession.token || "";
+            const u = (res && res.user) || {};
+            const qs = new URLSearchParams({
+              token: tok,
+              email: u.email || email,
+              name: u.name || name,
+              role: u.role || role,
+            });
+            window.location.replace(`${cbUrl}?${qs.toString()}`);
+          });
+      } else if (
+        !(window.location.hash || "").includes("access_token=") &&
+        !window.sessionStorage.getItem("datum-revit-oauth-started")
+      ) {
+        window.sessionStorage.setItem("datum-revit-oauth-started", "1");
+        startSupabaseGoogleOAuth();
+      }
+    } catch (e) {}
+  }, [authSession]);
   useEffect(() => { db.save("kb2-cols", cols); }, [cols]);
   useEffect(() => { db.save("kb2-shares", shares); }, [shares]);
   useEffect(() => { db.save("kb2-acts", activities); }, [activities]);
@@ -176,6 +227,46 @@ export function App() {
   }, []);
   useEffect(() => { db.save("kb2-sb-col", sbCol); }, [sbCol]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const qView = sp.get("view");
+    const qAsm = sp.get("assembly");
+    const qRead = sp.get("read");
+    if (qView === "3d") {
+      if (qAsm) setAssemblyId(qAsm);
+      setRevitTypeCtx({ category: "Walls", family: "Basic Wall", typeName: "3D Assembly & Wall Standards" });
+      setView("type");
+    } else if (qView === "wall") {
+      setRevitTypeCtx({ category: "Walls", family: "Basic Wall", typeName: "Architectural Detail Reference" });
+      setView("type");
+    } else if (qView === "type") {
+      let parsedLayers = [];
+      const rawLayers = sp.get("layers");
+      if (rawLayers) {
+        try {
+          const arr = JSON.parse(rawLayers);
+          if (Array.isArray(arr)) parsedLayers = arr;
+        } catch (e) {}
+      }
+      setRevitTypeCtx({
+        category: sp.get("category") || "",
+        family: sp.get("family") || "",
+        typeName: sp.get("type") || "",
+        fire: sp.get("fire") || "",
+        func: sp.get("func") || "",
+        width: sp.get("width") || "",
+        acoustic: sp.get("acoustic") || "",
+        layers: parsedLayers,
+      });
+      setView("type");
+    }
+    if (qRead) {
+      const docId = Number(qRead);
+      if (!Number.isNaN(docId)) setRead(docId);
+    }
+  }, []);
+
   const sessionClaims = authSession && authSession.claims;
   const sessionEmail = sessionClaims && sessionClaims.email ? sessionClaims.email.trim().toLowerCase() : "";
   const matchedUser = sessionClaims
@@ -192,7 +283,7 @@ export function App() {
           id: sessionClaims.sub || activeUserId || "u-session",
           name: sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User"),
           email: sessionClaims.email || "",
-          role: normRole(sessionClaims.role) === "Guest" ? "Guest" : "Member",
+          role: normRole(sessionClaims.role),
           avatar: sessionClaims.avatar || makeGooglePhotoFallback(sessionClaims.name || "Google User"),
           provider: sessionClaims.provider || "google",
           emailVerified: sessionClaims.emailVerified !== false,
@@ -210,7 +301,7 @@ export function App() {
     const sub = sessionClaims.sub || "";
     const name = sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User");
     const email = sessionClaims.email || "";
-    const roleVal = normRole(sessionClaims.role) === "Guest" ? "Guest" : "Member";
+    const roleVal = normRole(sessionClaims.role);
     const avatar = sessionClaims.avatar || makeGooglePhotoFallback(name);
     setUsers((prev) => {
       const exists = prev.some(
@@ -397,7 +488,6 @@ export function App() {
   };
 
   const rd = (id) => {
-    setRetB(null);
     setRead(id);
     setSel(null);
     setAi(false);
@@ -405,41 +495,69 @@ export function App() {
     window.scrollTo({ top: 0 });
   };
 
-  const saveItem = (d) => {
-    if (res.find((x) => x.id === d.id)) {
-      upd(d.id, (r) => ({
-        ...r,
-        ...d,
+  const createNewDoc = (initial = {}) => {
+    if (!can.createDraft(role)) return;
+    const id = Date.now();
+    const node = initial.node || (byId(cur, tree) ? cur : "c10-ovw-std");
+    const catObj = byId(node, tree);
+    const title = initial.title || "";
+    const body = initial.body || "";
+    db.invalidateArticle(id);
+    edgeClient.clearAiCache();
+    setRes((rs) => [
+      {
+        id,
+        node,
+        title,
+        desc: initial.desc || "",
+        url: initial.url || "",
+        body,
+        type: initial.type || "doc",
+        status: "Draft",
+        vis: (catObj && catObj.vis) || "Internal",
+        stage: STG[0],
+        disc: (catObj && RD[catObj.path[0]]) || "VDC",
+        tags: initial.tags || [],
+        links: [],
+        c: [],
+        publicAttachments: [],
+        author: userName,
         upd: TODAY,
-        verified: d.status === "Approved" ? TODAY : r.verified,
-        v: d.body !== r.body ? [...r.v, { n: r.v.length + 1, by: userName, d: TODAY, note: "Edit", body: d.body }] : r.v,
-      }));
-      push(`Saved “${d.title}”`, d.id);
-      logAct("Updated", "item", d.id, d.title);
-      setEdt(null);
-    } else {
-      const id = Date.now();
-      db.invalidateArticle(id);
-      edgeClient.clearAiCache();
-      setRes((rs) => [
-        {
-          links: [],
-          c: [],
-          publicAttachments: [],
-          ...d,
-          id,
-          author: userName,
-          upd: TODAY,
-          verified: TODAY,
-          v: [{ n: 1, by: userName, d: TODAY, note: "Created", body: d.body }],
-        },
-        ...rs,
-      ]);
-      push(`Created “${d.title}”`, id);
-      logAct("Created", "item", id, d.title, d.status);
-      setEdt(null);
-      rd(id);
+        verified: TODAY,
+        v: [{ n: 1, by: userName, d: TODAY, note: "Created", body }],
+      },
+      ...rs,
+    ]);
+    logAct("Created", "item", id, title || "Untitled", "Draft");
+    push(title ? `Created “${title}”` : "Created new live draft", id);
+    rd(id);
+  };
+
+  const autoSaveItem = (id, patch, options = {}) => {
+    if (!id || !patch) return;
+    const prev = res.find((x) => x.id === id);
+    upd(id, (r) => ({
+      ...r,
+      ...patch,
+      upd: TODAY,
+      verified: patch.status === "Approved" ? TODAY : r.verified,
+    }));
+    if (!options.silent && patch.status && prev && prev.status !== patch.status) {
+      push(`Status of “${prev.title || "Untitled"}” → ${(ST[patch.status] && ST[patch.status][0]) || patch.status}`, id);
+      logAct("Status Changed", "item", id, prev.title || "Untitled", patch.status);
     }
+  };
+
+  const saveSnapshot = (id, bodyStr) => {
+    upd(id, (r) => ({
+      ...r,
+      body: bodyStr,
+      upd: TODAY,
+      verified: TODAY,
+      v: [...(r.v || []), { n: (r.v || []).length + 1, by: userName, d: TODAY, note: "Snapshot", body: bodyStr }],
+    }));
+    push(`Saved snapshot of “${titleOf(id) || "Untitled"}”`, id);
+    logAct("Updated", "item", id, titleOf(id) || "Untitled", "Snapshot");
   };
 
   const delItem = (id) => {
@@ -450,7 +568,6 @@ export function App() {
     setFavs((a) => a.filter((x) => x !== id));
     setWatch((a) => a.filter((x) => x !== id));
     setPinned((a) => a.filter((x) => x !== id));
-    setEdt(null);
     setRead(null);
     flash("Item deleted");
     logAct("Deleted", "item", id, t);
@@ -491,6 +608,7 @@ export function App() {
     setRead(null);
     setCur(id);
     setCatFilter("all");
+    setActiveKitId(null);
     setView("lib");
     setNav(false);
     setQ("");
@@ -507,9 +625,17 @@ export function App() {
   const pa = (k, a) => {
     setPal(false);
     if (k === "read") rd(a);
-    else if (k === "new") can.createDraft(role) && setEdt({});
+    else if (k === "new") createNewDoc();
     else if (k === "home") goHome();
-    else if (k === "view") goV(a);
+    else if (k === "kits") {
+      setActiveKitId(null);
+      setCatFilter("kits");
+      goV("kb");
+    } else if (k === "kb-graph") {
+      setCatFilter("all");
+      setKbDisplay("graph");
+      goV("kb");
+    } else if (k === "view") goV(a);
     else if (k === "go") go(a);
     else if (k === "theme") theme();
     else if (k === "ask") {
@@ -518,6 +644,8 @@ export function App() {
     } else if (k === "all") {
       setQ(a);
       setRead(null);
+      setCatFilter("all");
+      setKbDisplay("grid");
       setView("lib");
       setCur("all");
     }
@@ -535,6 +663,19 @@ export function App() {
   const visibleRes = useMemo(
     () => res.filter((r) => can.view(r, role, userName, byId(r.node, tree), shares, userTeams)),
     [res, role, userName, tree, shares, userTeams]
+  );
+
+  const visibleCols = useMemo(
+    () =>
+      cols.filter((c) => {
+        const r = normRole(role);
+        if (r === "SuperAdmin" || r === "Admin") return true;
+        if (r === "Guest") return c.vis === "Public";
+        if (c.tier === "personal") return c.owner === userName;
+        if (c.vis === "Restricted") return c.owner === userName || (c.coEditors || []).includes(userName);
+        return true;
+      }),
+    [cols, role, userName]
   );
 
   const visibleTree = useMemo(() => {
@@ -592,10 +733,9 @@ export function App() {
   const isGovCapable = can.admin(role);
 
   useEffect(() => {
-    if (edt && !can.createDraft(role)) setEdt(null);
     if (view === "admin" && !isGovCapable) setView("home");
     if (view === "lib" && cur === "drafts" && !can.createDraft(role)) setCur("all");
-  }, [role, edt, view, cur, isGovCapable]);
+  }, [role, view, cur, isGovCapable]);
 
   const pick = (id) => {
     setSel(id);
@@ -641,6 +781,12 @@ export function App() {
   const pageTitle =
     view === "kb"
       ? "Knowledge Base"
+      : view === "wall"
+      ? "Detail Wall"
+      : view === "3d"
+      ? "3D Assemblies"
+      : view === "type"
+      ? (revitTypeCtx && revitTypeCtx.typeName) || "Revit Type"
       : view === "reslib"
       ? "Resource Library"
       : view === "boards"
@@ -665,31 +811,20 @@ export function App() {
         : (curCat && curCat.name) || "Category"
       : "Dashboard";
 
-  const SelF = ({ k, ph, opts }) =>
-    html`<${Select}
-      variant="filter"
-      placeholder=${ph}
-      ariaLabel=${ph}
-      value=${f[k] || ""}
-      options=${[["", `All (${ph})`], ...opts]}
-      onChange=${(v) => setF({ ...f, [k]: v || undefined })}
-      minMenuWidth=${190}
-    />`;
-
   const hasF = Object.values(f).some(Boolean) || catFilter !== "all";
   const showFeat = (view === "kb" || view === "reslib" || (view === "lib" && cur === "all")) && !q.trim() && !hasF && !isGuest;
   const rec = [...visibleRes].filter((r) => r.status === "Approved").sort((a, b) => b.upd.localeCompare(a.upd)).slice(0, 3);
-  const shown = [...list].sort(sort === "az" ? (a, b) => a.title.localeCompare(b.title, "en") : (a, b) => b.upd.localeCompare(a.upd));
+  const shown = [...list].sort(
+    sort === "az"
+      ? (a, b) => a.title.localeCompare(b.title, "en")
+      : sort === "links"
+      ? (a, b) => ((b.links && b.links.length) || 0) - ((a.links && a.links.length) || 0)
+      : (a, b) => b.upd.localeCompare(a.upd)
+  );
 
   const addCol = (c) => setCols((prev) => [c, ...prev]);
   const saveCol = (c) => setCols((prev) => prev.map((x) => (x.id === c.id ? c : x)));
   const delCol = (id) => setCols((prev) => prev.filter((x) => x.id !== id));
-  const fromBoard = (id) => {
-    const cur0 = bid;
-    setBid(null);
-    rd(id);
-    setRetB(cur0);
-  };
 
   // Deactivate User + Transfer Ownership
   const handleDeactivateUser = (uid, oldName, targetName) => {
@@ -767,7 +902,6 @@ export function App() {
     saveStoredSession(syncedSession);
     setAuthSession(syncedSession);
     setRead(null);
-    setEdt(null);
     setSel(null);
     setView(normRole(targetRole) === "Guest" ? "kb" : "home");
     setActivities((prev) => [
@@ -791,7 +925,6 @@ export function App() {
     await signOutAuth();
     setAuthSession(null);
     setRead(null);
-    setEdt(null);
     setSel(null);
     setPal(false);
     setBell(false);
@@ -903,23 +1036,11 @@ export function App() {
         html`<span className="ct" style=${{ color: "#ff3b30", fontWeight: 600 }}>${req.filter((id) => !acks[id]).length}</span>`}
       </button>`}
 
-      <button className=${"ti" + (view === "kb" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Knowledge Base" onClick=${() => { setCatFilter("all"); goV("kb"); }}>
+      <button className=${"ti" + (view === "kb" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Knowledge Base" onClick=${() => { setActiveKitId(null); setCatFilter("all"); goV("kb"); }}>
         <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="doc" s=${14} /></span>
         <span className="tn">Knowledge Base</span>
         <span className="ct">${visibleRes.length}</span>
       </button>
-
-      <button className=${"ti" + (view === "boards" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Collections & Boards" onClick=${() => goV("boards")}>
-        <span className="tile" style=${{ "--c": "#a2845e" }}><${Ic} n="boards" s=${14} /></span>
-        <span className="tn">Collections & Boards</span>
-        <span className="ct">${cols.filter((c) => (role === "SuperAdmin" || role === "Admin" ? true : role === "Guest" ? c.vis === "Public" : c.tier === "personal" ? c.owner === userName : c.vis === "Restricted" ? c.owner === userName || (c.coEditors || []).includes(userName) : true)).length}</span>
-      </button>
-
-      ${!isGuest &&
-      html`<button className=${"ti" + (view === "graph" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Dependency Graph" onClick=${() => goV("graph")}>
-        <span className="tile" style=${{ "--c": "#34c759" }}><${Ic} n="graph" s=${14} /></span>
-        <span className="tn">Dependency Graph</span>
-      </button>`}
 
       ${!isGuest &&
       html`<button className=${"ti" + (view === "team" ? " on" : "")} style=${{ paddingLeft: 10 }} title="People & Teams" onClick=${() => goV("team")}>
@@ -1000,21 +1121,13 @@ export function App() {
               type="button"
               className="bar-crumb-btn"
               onClick=${() => {
-                if (edt) setEdt(null);
-                else if (rr) setRead(null);
+                if (rr) setRead(null);
                 else goHome();
               }}
             >
               Datum
             </button>
-            ${edt
-              ? html`<span className="bar-crumb-sep">/</span>
-                  <button type="button" className="bar-crumb-btn" onClick=${() => setEdt(null)}>
-                    ${edt.id ? "Edit Document" : "New Draft"}
-                  </button>
-                  <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${edt.title || "Untitled"}</span>`
-              : rr
+            ${rr
               ? html`<span className="bar-crumb-sep">/</span>
                   <button
                     type="button"
@@ -1054,11 +1167,12 @@ export function App() {
         />
 
         <div className="bar-r">
-          ${can.createDraft(role) &&
+          ${!rr &&
+          can.createDraft(role) &&
           html`<button
             className="btn p cr"
             title="Create Document or Resource"
-            onClick=${() => setEdt({})}
+            onClick=${() => createNewDoc()}
           >
             <${Ic} n="plus" s=${16} /><span>Create</span>
           </button>
@@ -1080,8 +1194,8 @@ export function App() {
               try {
                 const r = await docxImport(file);
                 setImgs((o) => ({ ...o, ...r.imgs }));
-                setEdt({ title: r.title, desc: r.desc, body: r.body, k: Date.now() });
-                flash("Document imported — review and save");
+                createNewDoc({ title: r.title, desc: r.desc, body: r.body });
+                flash("Document imported into live editor");
                 db.uploadImagesMap(r.imgs).then((uploaded) => {
                   if (uploaded && Object.keys(uploaded).length) {
                     setImgs((o) => ({ ...o, ...uploaded }));
@@ -1106,48 +1220,27 @@ export function App() {
         </div>
       </div>
 
-      ${edt &&
-      can.createDraft(role) &&
-      html`<${Editor}
-        key=${edt.id || "new" + (edt.k || "")}
-        init=${edt}
-        res=${res}
+      ${rr &&
+      html`<${Reader}
+        key=${rr.id}
+        r=${rr}
+        bridgeRef=${readerBridgeRef}
+        res=${visibleRes}
         tree=${tree}
         imgs=${imgs}
         setImgs=${setImgs}
         role=${role}
         userName=${userName}
-        cur=${cur}
-        save=${saveItem}
-        del=${delItem}
-        close=${() => setEdt(null)}
-      />`}
-
-      ${rr &&
-      !edt &&
-      html`<${Reader}
-        r=${rr}
-        res=${visibleRes}
-        tree=${tree}
-        imgs=${imgs}
-        role=${role}
-        userName=${userName}
+        userAvatar=${activeUser.avatar || ""}
         fav=${favs.includes(rr.id)}
         watch=${watch.includes(rr.id)}
         pinned=${pinned.includes(rr.id)}
         tf=${(id) => tgl(setFavs, id)}
         tw=${(id) => tgl(setWatch, id)}
         onTogglePin=${(id) => tgl(setPinned, id)}
-        back=${() => {
-          setRead(null);
-          if (retB) {
-            setBid(retB);
-            setRetB(null);
-          }
-        }}
+        back=${() => setRead(null)}
         go=${rd}
         info=${pick}
-        edit=${() => setEdt(rr)}
         rec=${recRead}
         chk=${chk}
         togChk=${togChk}
@@ -1156,6 +1249,10 @@ export function App() {
         req=${req}
         togReq=${togReq}
         onVerify=${act.onVerify}
+        onInlineUpdate=${autoSaveItem}
+        onSaveSnapshot=${saveSnapshot}
+        onDelete=${delItem}
+        flash=${flash}
         onFlagOutdated=${(id) => {
           if (!flaggedIds.includes(id)) setFlaggedIds((fl) => [...fl, id]);
           flash("Flagged for Category Owner review");
@@ -1164,7 +1261,7 @@ export function App() {
         onOpenPublic=${(t) => setPubTarget(t)}
       />`}
 
-      <div className=${"pad" + (view === "home" ? " ph" : "") + (view === "graph" ? " pgx" : "")} hidden=${!!rr || !!edt}>
+      <div className=${"pad" + (view === "home" ? " ph" : "")} hidden=${!!rr}>
         ${view === "home" &&
         html`<${Home}
           res=${visibleRes}
@@ -1176,11 +1273,22 @@ export function App() {
           hist=${hist}
           seen=${seen}
           pinned=${pinned}
+          cols=${cols}
           aq=${aq}
           focus=${hf}
           read=${rd}
           flash=${flash}
           markSeen=${() => setSeen(TODAY)}
+          onOpenKit=${(kitId) => {
+            setActiveKitId(kitId);
+            setCatFilter("kits");
+            goV("kb");
+          }}
+          onOpenAllKits=${() => {
+            setActiveKitId(null);
+            setCatFilter("kits");
+            goV("kb");
+          }}
         />`}
 
         ${(view === "lib" || view === "kb" || view === "reslib") &&
@@ -1188,156 +1296,184 @@ export function App() {
           <div className="pdl-top">
             <div className="pdl-top-l">
               <h1>${pageTitle}</h1>
-              <span className="pdl-cnt">${list.length}</span>
+              <span className="pdl-cnt">
+                ${view === "kb" && catFilter === "kits"
+                  ? visibleCols.filter((c) => kitTier === "all" || c.tier === kitTier).length
+                  : list.length}
+              </span>
             </div>
             <div className="pdl-top-r">
-              ${(view === "kb" || curCat) &&
-              html`<div className="seg">
-                ${[
-                  ["all", "All"],
-                  ["docs", "Docs"],
-                  ["res", "Resources"],
-                ].map(([k, lb]) => html`<button key=${k} className=${catFilter === k ? "on" : ""} onClick=${() => setCatFilter(k)}>${lb}</button>`)}
-              </div>`}
-              ${can.createDraft(role) &&
-              html`<${SelF} k="status" ph="Status" opts=${Object.entries(ST).map(([k, v]) => [k, v[0]])} />`}
-              <${SelF} k="type" ph="Type" opts=${Object.entries(TY)} />
-              <${SelF} k="tag" ph="Tag" opts=${tags.map((x) => [x, "#" + x])} />
-              <${Select}
-                variant="pill"
-                ariaLabel="Sorting"
-                placeholder="Sort"
-                displayLabel=${sort === "az" ? "A–Z" : "Newest"}
-                value=${sort}
-                options=${[
-                  ["new", "Newest first"],
-                  ["az", "By title (A–Z)"],
-                ]}
-                onChange=${setSort}
-                minMenuWidth=${175}
+              <${FilterPopover}
+                view=${view}
+                curCat=${curCat}
+                catFilter=${catFilter}
+                setCatFilter=${setCatFilter}
+                setActiveKitId=${setActiveKitId}
+                visibleColsCount=${visibleCols.length}
+                kitTier=${kitTier}
+                setKitTier=${setKitTier}
+                f=${f}
+                setF=${setF}
+                canFilterStatus=${can.createDraft(role)}
+                statuses=${Object.entries(ST).map(([k, v]) => [k, v[0]])}
+                types=${Object.entries(TY)}
+                tags=${tags}
               />
-              ${hasF && html`<button className="clr" onClick=${() => { setF({}); setCatFilter("all"); }}>Reset</button>`}
+              <${SortPopover}
+                view=${view}
+                catFilter=${catFilter}
+                setCatFilter=${setCatFilter}
+                setActiveKitId=${setActiveKitId}
+                kbDisplay=${kbDisplay}
+                setKbDisplay=${setKbDisplay}
+                sort=${sort}
+                setSort=${setSort}
+                visibleColsCount=${visibleCols.length}
+              />
+              ${view === "kb" &&
+              catFilter === "kits" &&
+              !isGuest &&
+              html`<button className="btn p" onClick=${() => setCreatingKit(true)}>
+                <${Ic} n="plus" s=${14} /><span>New Kit</span>
+              </button>`}
             </div>
           </div>
 
-          ${showFeat &&
-          rec.length > 0 &&
-          html`<section>
-            <h2>Recently published</h2>
-            <div className="feat">
-              ${rec.map(
-                (r) => html`<button key=${r.id} className="big" style=${{ "--c": DC[r.disc] }} onClick=${() => rd(r.id)}>
-                  <span className="bt"><${Ic} n=${r.type} s=${20} /></span>
-                  <span className="bm"><small>${r.disc}, ${fmt(r.upd)}</small><b>${r.title}</b><span>${r.desc}</span></span>
-                </button>`
-              )}
-            </div>
-            <h2>All items</h2>
-          </section>`}
-
-          ${(() => {
-            const gridItems = showFeat ? shown.filter((r) => !rec.includes(r)) : shown;
-            const pageItems = gridItems.slice(0, visibleCount);
-            const remaining = gridItems.length - pageItems.length;
-            return list.length
-              ? html`<div>
-                  <div className="grid">
-                    ${pageItems.map(
-                      (r) => html`<div
-                        key=${r.id}
-                        className="card"
-                        role="button"
-                        tabIndex="0"
-                        onClick=${() => rd(r.id)}
-                        onKeyDown=${(e) => e.key === "Enter" && rd(r.id)}
-                      >
-                        ${!isGuest &&
-                        html`<div className="acts">
-                          <button
-                            className=${watch.includes(r.id) ? "on" : ""}
-                            aria-label="Watch"
-                            onClick=${(e) => {
-                              e.stopPropagation();
-                              tgl(setWatch, r.id);
-                            }}
-                          >
-                            ${html`<${Ic} n="eye" s=${16} />`}
-                          </button>
-                          <button
-                            className=${favs.includes(r.id) ? "on" : ""}
-                            aria-label="Bookmark"
-                            onClick=${(e) => {
-                              e.stopPropagation();
-                              tgl(setFavs, r.id);
-                            }}
-                          >
-                            ${html`<${Ic} n="star" s=${16} f=${favs.includes(r.id)} />`}
-                          </button>
-                        </div>`}
-                        <div className="ch2">
-                          <span className="tl" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${18} /></span>
-                          <span className="who"><b>${r.disc}</b><small>${TY[r.type] || "Document"}</small></span>
-                        </div>
-                        <h3>${r.title}</h3>
-                        <p>${r.desc}</p>
-                        <div className="row">
-                          <${Pill} s=${r.status} />
-                          ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
-                          <span>v${r.v.length}</span>
-                          ${r.url &&
-                          isResType(r.type) &&
-                          html`<a
-                            className="mn"
-                            style=${{ marginLeft: "auto" }}
-                            href=${r.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick=${(e) => e.stopPropagation()}
-                          >
-                            Open ↗
-                          </a>`}
-                          ${(!r.url || !isResType(r.type)) && html`<span style=${{ marginLeft: "auto" }}>${fmt(r.upd)}</span>`}
-                        </div>
-                      </div>`
+          ${view === "kb" && catFilter === "kits"
+            ? html`<${CollectionsView}
+                embedded=${true}
+                hideSubbar=${true}
+                externalTab=${kitTier}
+                onExternalTabChange=${setKitTier}
+                externalCreating=${creatingKit}
+                onExternalCreatingChange=${setCreatingKit}
+                initialColId=${activeKitId}
+                onClearInitialCol=${() => setActiveKitId(null)}
+                cols=${cols}
+                res=${visibleRes}
+                role=${role}
+                userName=${userName}
+                onAddCol=${addCol}
+                onSaveCol=${saveCol}
+                onDelCol=${delCol}
+                onRead=${rd}
+                onOpenPublic=${(t) => setPubTarget(t)}
+              />`
+            : kbDisplay === "graph"
+            ? html`<div className="gxw kb-gxw">
+                <${Graph} res=${shown.length ? shown : visibleRes} selId=${sel} pick=${pick} />
+              </div>`
+            : html`<div>
+                ${showFeat &&
+                rec.length > 0 &&
+                html`<section>
+                  <h2>Recently published</h2>
+                  <div className="feat">
+                    ${rec.map(
+                      (r) => html`<button key=${r.id} className="big" style=${{ "--c": DC[r.disc] }} onClick=${() => rd(r.id)}>
+                        <span className="bt"><${Ic} n=${r.type} s=${20} /></span>
+                        <span className="bm"><small>${r.disc}, ${fmt(r.upd)}</small><b>${r.title}</b><span>${r.desc}</span></span>
+                      </button>`
                     )}
                   </div>
-                  ${remaining > 0 &&
-                  html`<div style=${{ display: "flex", justifyContent: "center", marginTop: 22 }}>
-                    <button className="btn" onClick=${() => setVisibleCount((c) => c + PAGE_SIZE)}>
-                      Show more (${remaining} remaining)
-                    </button>
-                  </div>`}
-                </div>`
-              : html`<div className="empty">
-                  <${Ic} n="search" s=${34} />
-                  <b>Nothing found</b>
-                  <span>Try adjusting your query or filters.</span>
-                  ${hasF && html`<button className="btn" onClick=${() => setF({})}>Reset filters</button>`}
-                </div>`;
-          })()}
+                  <h2>All items</h2>
+                </section>`}
+
+                ${(() => {
+                  const gridItems = showFeat ? shown.filter((r) => !rec.includes(r)) : shown;
+                  const pageItems = gridItems.slice(0, visibleCount);
+                  const remaining = gridItems.length - pageItems.length;
+                  return list.length
+                    ? html`<div>
+                        <div className="grid">
+                          ${pageItems.map(
+                            (r) => html`<div
+                              key=${r.id}
+                              className="card"
+                              role="button"
+                              tabIndex="0"
+                              onClick=${() => rd(r.id)}
+                              onKeyDown=${(e) => e.key === "Enter" && rd(r.id)}
+                            >
+                              ${!isGuest &&
+                              html`<div className="acts">
+                                <button
+                                  className=${watch.includes(r.id) ? "on" : ""}
+                                  aria-label="Watch"
+                                  onClick=${(e) => {
+                                    e.stopPropagation();
+                                    tgl(setWatch, r.id);
+                                  }}
+                                >
+                                  ${html`<${Ic} n="eye" s=${16} />`}
+                                </button>
+                                <button
+                                  className=${favs.includes(r.id) ? "on" : ""}
+                                  aria-label="Bookmark"
+                                  onClick=${(e) => {
+                                    e.stopPropagation();
+                                    tgl(setFavs, r.id);
+                                  }}
+                                >
+                                  ${html`<${Ic} n="star" s=${16} f=${favs.includes(r.id)} />`}
+                                </button>
+                              </div>`}
+                              <div className="ch2">
+                                <span className="tl" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${18} /></span>
+                                <span className="who"><b>${r.disc}</b><small>${TY[r.type] || "Document"}</small></span>
+                              </div>
+                              <h3>${r.title}</h3>
+                              <p>${r.desc}</p>
+                              <div className="row">
+                                <${Pill} s=${r.status} />
+                                ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
+                                <span>v${r.v.length}</span>
+                                ${r.url &&
+                                isResType(r.type) &&
+                                html`<a
+                                  className="mn"
+                                  style=${{ marginLeft: "auto" }}
+                                  href=${r.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  onClick=${(e) => e.stopPropagation()}
+                                >
+                                  Open ↗
+                                </a>`}
+                                ${(!r.url || !isResType(r.type)) && html`<span style=${{ marginLeft: "auto" }}>${fmt(r.upd)}</span>`}
+                              </div>
+                            </div>`
+                          )}
+                        </div>
+                        ${remaining > 0 &&
+                        html`<div style=${{ display: "flex", justifyContent: "center", marginTop: 22 }}>
+                          <button className="btn" onClick=${() => setVisibleCount((c) => c + PAGE_SIZE)}>
+                            Show more (${remaining} remaining)
+                          </button>
+                        </div>`}
+                      </div>`
+                    : html`<div className="empty">
+                        <${Ic} n="search" s=${34} />
+                        <b>Nothing found</b>
+                        <span>Try adjusting your query or filters.</span>
+                        ${hasF && html`<button className="btn" onClick=${() => setF({})}>Reset filters</button>`}
+                      </div>`;
+                })()}
+              </div>`}
         </div>`}
 
-        ${view === "boards" &&
-        html`<${CollectionsView}
-          cols=${cols}
+        ${view === "type" &&
+        html`<${RevitTypeView}
+          ctx=${revitTypeCtx}
+          initialAssemblyId=${assemblyId}
           res=${visibleRes}
-          role=${role}
-          userName=${userName}
-          onOpenBoard=${setBid}
-          onAddCol=${addCol}
-          onSaveCol=${saveCol}
-          onDelCol=${delCol}
+          imgs=${imgs}
+          tree=${tree}
+          favs=${favs}
+          onToggleFav=${(id) => tgl(setFavs, id)}
           onRead=${rd}
-          onOpenPublic=${(t) => setPubTarget(t)}
-          onBuildLibBoard=${() => {
-            const b = fromLib(visibleRes);
-            const col = { ...b, tier: "shared", mode: "board", owner: userName, vis: "Internal", desc: "Generated from dependency links." };
-            addCol(col);
-            setBid(col.id);
-          }}
+          onToast=${setToast}
         />`}
-
-        ${view === "graph" && html`<div className="gxw"><${Graph} res=${visibleRes} selId=${sel} pick=${pick} /></div>`}
 
         ${view === "team" &&
         !isGuest &&
@@ -1403,7 +1539,7 @@ export function App() {
             flash(`Removed #${t}`);
           }}
           onDeactivateUser=${handleDeactivateUser}
-          onCreateForTopic=${(topic) => setEdt({ title: topic, k: Date.now() })}
+          onCreateForTopic=${(topic) => createNewDoc({ title: topic })}
           flash=${flash}
         />`}
       </div>
@@ -1445,30 +1581,30 @@ export function App() {
       shares=${shares}
       fav=${favs.includes(sr.id)}
       watch=${watch.includes(sr.id)}
+      pinned=${pinned.includes(sr.id)}
+      isReq=${req.includes(sr.id)}
+      isCurrentDoc=${Boolean(rr && rr.id === sr.id)}
+      bridgeRef=${readerBridgeRef}
       tf=${(id) => tgl(setFavs, id)}
       tw=${(id) => tgl(setWatch, id)}
+      onTogglePin=${(id) => tgl(setPinned, id)}
+      onToggleReq=${togReq}
+      onInlineUpdate=${autoSaveItem}
+      onSaveSnapshot=${saveSnapshot}
+      onDelete=${(id) => {
+        setSel(null);
+        delItem(id);
+      }}
+      onFlagOutdated=${(id) => {
+        if (!flaggedIds.includes(id)) setFlaggedIds((fl) => [...fl, id]);
+        flash("Flagged for Category Owner review");
+        logAct("Flagged Outdated", "item", id, titleOf(id));
+      }}
       close=${() => setSel(null)}
       pick=${pick}
       read=${rd}
-      edit=${(id) => {
-        setSel(null);
-        setEdt(res.find((x) => x.id === id));
-      }}
       onOpenPublic=${(t) => setPubTarget(t)}
       ...${act}
-    />`}
-
-    ${bid &&
-    cols.find((b) => b.id === bid) &&
-    html`<${BoardEd}
-      key=${bid}
-      b=${cols.find((b) => b.id === bid)}
-      res=${visibleRes}
-      tree=${tree}
-      save=${saveCol}
-      close=${() => setBid(null)}
-      openRes=${fromBoard}
-      flash=${flash}
     />`}
 
     ${pubTarget &&

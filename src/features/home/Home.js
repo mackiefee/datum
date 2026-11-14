@@ -1,17 +1,26 @@
 import { html, useState, useEffect, useRef } from '../../lib/react.js';
-import { DC, TODAY, can, CITE } from '../../config/constants.js';
+import { DC, TODAY, can, normRole, CITE } from '../../config/constants.js';
 import { buildFlat } from '../../data/spaces.js';
 import { edgeClient } from '../../lib/edgeClient.js';
 import { Ic } from '../../components/Icon.js';
 
 export function Home(p) {
-  const { res, tree, role, userName, pinned = [] } = p;
+  const { res, tree, role, userName, pinned = [], cols = [], onOpenKit, onOpenAllKits } = p;
   const [q, setQ] = useState("");
   const [ans, setAns] = useState(null);
   const ref = useRef(null);
 
   const flatCats = buildFlat(tree);
   const allowedCats = flatCats.filter((c) => can.viewCat(c, role, userName)).map((c) => c.id);
+
+  const visibleKits = cols.filter((c) => {
+    if (c.tier !== "official" && c.tier !== "shared") return false;
+    const r = normRole(role);
+    if (r === "SuperAdmin" || r === "Admin") return true;
+    if (r === "Guest") return c.vis === "Public";
+    if (c.vis === "Restricted") return c.owner === userName || (c.coEditors || []).includes(userName);
+    return true;
+  });
 
   const run = async (question) => {
     const t = question.trim();
@@ -127,5 +136,40 @@ export function Home(p) {
         </div>
       </div>`}
     </div>
+
+    ${visibleKits.length > 0 &&
+    html`<section className="home-kits-sec">
+      <div className="home-kits-head">
+        <div>
+          <h2>Starter Kits & Playbooks</h2>
+          <p>Curated standard sets for onboarding, project kickoff, and QA gates.</p>
+        </div>
+        ${onOpenAllKits &&
+        html`<button type="button" className="btn sm" onClick=${onOpenAllKits}>
+          All Kits (${visibleKits.length})
+        </button>`}
+      </div>
+      <div className="home-kits-grid">
+        ${visibleKits.slice(0, 3).map((c) => {
+          const isOfficial = c.tier === "official";
+          const count = (c.items || []).length;
+          return html`<button
+            key=${c.id}
+            type="button"
+            className="home-kit-card"
+            onClick=${() => onOpenKit && onOpenKit(c.id)}
+          >
+            <div className="home-kit-top">
+              <span className="pill" style=${{ "--c": isOfficial ? "#0a84ff" : "#34c759" }}>
+                ${isOfficial ? "Official" : "Shared"}
+              </span>
+              <span className="pdl-cnt">${count} ${count === 1 ? "item" : "items"}</span>
+            </div>
+            <h3>${c.name}</h3>
+            <p>${c.desc || "Curated resource and standard kit."}</p>
+          </button>`;
+        })}
+      </div>
+    </section>`}
   </div>`;
 }

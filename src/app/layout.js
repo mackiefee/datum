@@ -4,6 +4,9 @@ import '../styles/reader.css';
 import '../styles/home.css';
 import '../styles/graph.css';
 import '../styles/boards.css';
+import '../styles/wall.css';
+import '../styles/assembly3d.css';
+import '../styles/revitType.css';
 import '../styles/polish.css';
 import '../styles/editor.css';
 

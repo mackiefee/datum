@@ -186,8 +186,8 @@ export function AdminView(p) {
                     <button onClick=${() => onRead(r.id)}>${r.title}</button>
                     <small>${r.author} · Updated ${r.upd}</small>
                   </div>
-                  <button className="btn p" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onApprove(r.id)}>Publish</button>
-                  <button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onReject(r.id)}>Draft</button>
+                  <button className="btn sm p" onClick=${() => onApprove(r.id)}>Publish</button>
+                  <button className="btn sm" onClick=${() => onReject(r.id)}>Draft</button>
                 </div>`
               )
             : html`<p className="lead sm">No items pending review.</p>`}
@@ -202,7 +202,7 @@ export function AdminView(p) {
                     <button onClick=${() => onRead(r.id)}>${r.title}</button>
                     <small>${r.author} · ${days(r.verified || r.upd)} days since verification</small>
                   </div>
-                  <button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onVerify(r.id)}>Verify Up to Date</button>
+                  <button className="btn sm" onClick=${() => onVerify(r.id)}>Verify Up to Date</button>
                 </div>`
               )
             : html`<p className="lead sm">All published items are within their review cycle.</p>`}
@@ -230,7 +230,7 @@ export function AdminView(p) {
         <div style=${{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <h3 style=${{ margin: 0 }}>Categories (Max 3 Levels)</h3>
           ${(isAdmin || eligibleParents.length > 0) &&
-          html`<button className="btn p" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => setCreatingCat(true)}>
+          html`<button className="btn sm p" onClick=${() => setCreatingCat(true)}>
             <${Ic} n="plus" s=${13} /> New
           </button>`}
         </div>
@@ -354,13 +354,12 @@ export function AdminView(p) {
               ? html`<div className="pdl-row">
                   <input
                     className="inp"
-                    style=${{ width: 130, minHeight: 30, padding: "4px 10px" }}
+                    style=${{ width: 130, height: 32, minHeight: 0, padding: "0 12px" }}
                     value=${tagTarget}
                     onChange=${(e) => setTagTarget(e.target.value)}
                   />
                   <button
-                    className="btn p"
-                    style=${{ height: 30, padding: "0 10px", fontSize: 12 }}
+                    className="btn sm p"
                     onClick=${() => {
                       onRenameTag(t, tagTarget.trim());
                       setEditTag(null);
@@ -368,12 +367,11 @@ export function AdminView(p) {
                   >
                     Merge
                   </button>
-                  <button className="btn" style=${{ height: 30, padding: "0 10px", fontSize: 12 }} onClick=${() => setEditTag(null)}>Cancel</button>
+                  <button className="btn sm" onClick=${() => setEditTag(null)}>Cancel</button>
                 </div>`
               : html`<div className="pdl-row">
                   <button
-                    className="btn"
-                    style=${{ height: 28, padding: "0 10px", fontSize: 12 }}
+                    className="btn sm"
                     onClick=${() => {
                       setEditTag(t);
                       setTagTarget(t);
@@ -383,8 +381,8 @@ export function AdminView(p) {
                   </button>
                   ${isAdmin &&
                   html`<button
-                    className="btn"
-                    style=${{ height: 28, padding: "0 10px", fontSize: 12, color: "#ff3b30" }}
+                    className="btn sm"
+                    style=${{ color: "#ff3b30" }}
                     onClick=${() => onDeleteTag(t)}
                   >
                     Remove
@@ -423,13 +421,13 @@ export function AdminView(p) {
                       setUsers(users.map((x) => (x.id === u.id ? { ...x, role: nextRole } : x)));
                       flash(`Updated ${u.name} role to ${ROLES[nextRole]}`);
                     }}
-                    style=${{ width: 170, height: 34 }}
+                    style=${{ width: 170 }}
                     minMenuWidth=${180}
                   />
                   ${u.name !== userName &&
                   html`<button
                     className="btn"
-                    style=${{ color: "#ff3b30", height: 34 }}
+                    style=${{ color: "#ff3b30" }}
                     onClick=${() => {
                       const cand = activeUsers.find((x) => x.name !== u.name && normRole(x.role) !== "Guest");
                       setFallbackOwner(cand ? cand.name : userName);
@@ -456,9 +454,9 @@ export function AdminView(p) {
                   <button onClick=${() => onRead(r.id)}>${r.title}</button>
                   <small>Cleared attachments: ${(r.publicAttachments || []).length} · Owner: ${r.author}</small>
                 </div>
-                <button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onOpenPublic({ kind: "item", data: r })}>Preview</button>
+                <button className="btn sm" onClick=${() => onOpenPublic({ kind: "item", data: r })}>Preview</button>
                 ${isAdmin &&
-                html`<button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13, color: "#ff3b30" }} onClick=${() => onRevokePublic("item", r.id)}>Revoke</button>`}
+                html`<button className="btn sm" style=${{ color: "#ff3b30" }} onClick=${() => onRevokePublic("item", r.id)}>Revoke</button>`}
               </div>`
             )
           : html`<p className="lead sm">No items currently published externally.</p>`}
@@ -473,9 +471,9 @@ export function AdminView(p) {
                   <b>${c.name}</b>
                   <small>${(c.items || []).length} items · Owner: ${c.owner}</small>
                 </div>
-                <button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onOpenPublic({ kind: "collection", data: c })}>Preview Portal</button>
+                <button className="btn sm" onClick=${() => onOpenPublic({ kind: "collection", data: c })}>Preview Portal</button>
                 ${isAdmin &&
-                html`<button className="btn" style=${{ height: 30, padding: "0 12px", fontSize: 13, color: "#ff3b30" }} onClick=${() => onRevokePublic("collection", c.id)}>Revoke</button>`}
+                html`<button className="btn sm" style=${{ color: "#ff3b30" }} onClick=${() => onRevokePublic("collection", c.id)}>Revoke</button>`}
               </div>`
             )
           : html`<p className="lead sm">No public collections active.</p>`}
@@ -499,7 +497,7 @@ export function AdminView(p) {
             ? zeroSearches.map(
                 (l, idx) => html`<div key=${idx} className="li">
                   <div className="t"><b>“${l.query}”</b><small>${l.at}</small></div>
-                  <button className="btn p" style=${{ height: 30, padding: "0 12px", fontSize: 13 }} onClick=${() => onCreateForTopic(l.query)}>+ Create Article</button>
+                  <button className="btn sm p" onClick=${() => onCreateForTopic(l.query)}>+ Create Article</button>
                 </div>`
               )
             : html`<p className="lead sm">No zero-result search gaps recorded yet. Try searching for a missing term to log a gap.</p>`}
