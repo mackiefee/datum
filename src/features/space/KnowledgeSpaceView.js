@@ -1,4 +1,4 @@
-import { html, useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../lib/react.js';
+import { html, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../lib/react.js';
 import { TODAY, DC, DISC, TY, CITE, can, normRole, isResType } from '../../config/constants.js';
 import { byId, buildFlat } from '../../data/spaces.js';
 import { fmt } from '../../utils/format.js';
@@ -7,6 +7,50 @@ import { plain } from '../../utils/markdown.js';
 import { edgeClient } from '../../lib/edgeClient.js';
 import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
+
+const MOB_CHAT_STORAGE_KEY = 'datum_mob_chats_v1';
+const MOB_ACTIVE_CHAT_KEY = 'datum_mob_active_chat_v1';
+
+const loadMobChats = () => {
+  try {
+    const raw = typeof window !== 'undefined' && window.localStorage.getItem(MOB_CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.slice(0, 24).map((c) => ({
+          ...c,
+          messages: Array.isArray(c.messages)
+            ? c.messages.map((m) => (m && m.busy ? { ...m, busy: false } : m))
+            : [],
+        }))
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveMobChats = (chats) => {
+  try {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(MOB_CHAT_STORAGE_KEY, JSON.stringify((chats || []).slice(0, 24)));
+  } catch {}
+};
+
+const loadActiveMobChatId = () => {
+  try {
+    return (typeof window !== 'undefined' && window.localStorage.getItem(MOB_ACTIVE_CHAT_KEY)) || null;
+  } catch {
+    return null;
+  }
+};
+
+const saveActiveMobChatId = (id) => {
+  try {
+    if (typeof window === 'undefined') return;
+    if (id) window.localStorage.setItem(MOB_ACTIVE_CHAT_KEY, id);
+    else window.localStorage.removeItem(MOB_ACTIVE_CHAT_KEY);
+  } catch {}
+};
 
 const PITCH_MAX = 4.5;
 const ZOOM_MIN = -220;
@@ -156,6 +200,7 @@ export function KnowledgeSpaceView({
   );
   const vpWidth = vpSize.w;
   const vpHeight = vpSize.h;
+  const isMobile = vpWidth <= 768;
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const [spaceQuery, setSpaceQuery] = useState(() => catalogQ || '');
@@ -163,9 +208,46 @@ export function KnowledgeSpaceView({
   const [spaceFilterMode, setSpaceFilterMode] = useState('all'); // 'all' | 'pinned'
   const [showAllAfterAi, setShowAllAfterAi] = useState(false);
   const [kitsOpen, setKitsOpen] = useState(false);
+  const [mobBrowseOpen, setMobBrowseOpen] = useState(false);
+  const [mobMenuOpen, setMobMenuOpen] = useState(false);
+  const [mobChats, setMobChats] = useState(() => loadMobChats());
+  const [activeMobChatId, setActiveMobChatId] = useState(() => loadActiveMobChatId());
+  const [mobHistoryOpen, setMobHistoryOpen] = useState(false);
+  const [mobExpandedTurnId, setMobExpandedTurnId] = useState(null);
+  const mobChatEndRef = useRef(null);
   const [hoveredSourceId, setHoveredSourceId] = useState(null);
   const [openingId, setOpeningId] = useState(null);
   const [cmdIdx, setCmdIdx] = useState(0);
+
+  const activeMobChat = useMemo(
+    () => mobChats.find((c) => c.id === activeMobChatId) || null,
+    [mobChats, activeMobChatId]
+  );
+
+  useEffect(() => {
+    saveMobChats(mobChats);
+  }, [mobChats]);
+
+  useEffect(() => {
+    saveActiveMobChatId(activeMobChatId);
+  }, [activeMobChatId]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobMenuOpen(false);
+      setMobBrowseOpen(false);
+      setMobHistoryOpen(false);
+    }
+  }, [isMobile]);
+
+  const lastMobMsg = activeMobChat && activeMobChat.messages ? activeMobChat.messages[activeMobChat.messages.length - 1] : null;
+  useEffect(() => {
+    if (!isMobile || !activeMobChat || !mobChatEndRef.current) return;
+    mobChatEndRef.current.scrollIntoView({
+      behavior: reducedMotion ? 'auto' : 'smooth',
+      block: 'end',
+    });
+  }, [isMobile, activeMobChat?.id, activeMobChat?.messages?.length, lastMobMsg?.busy, reducedMotion]);
 
   const suppressClickUntilRef = useRef(0);
   const snapTimerRef = useRef(null);
@@ -197,6 +279,11 @@ export function KnowledgeSpaceView({
   }, []);
 
   const poolAll = allItems && allItems.length ? allItems : items;
+  const poolById = useMemo(() => {
+    const map = new Map();
+    (poolAll || []).forEach((r) => map.set(r.id, r));
+    return map;
+  }, [poolAll]);
 
   const flatCats = useMemo(() => buildFlat(tree), [tree]);
   const allowedCats = useMemo(
@@ -354,7 +441,95 @@ export function KnowledgeSpaceView({
     if (!t) return;
     setSpaceFilterMode('all');
     setKitsOpen(false);
+    setMobMenuOpen(false);
+    setMobBrowseOpen(false);
+    setMobHistoryOpen(false);
     setShowAllAfterAi(false);
+
+    if (isMobile) {
+      const tokens = tokenizeQuery(t);
+      const searchSource = poolAll && poolAll.length ? poolAll : items;
+      const matchedIds = searchSource
+        .map((r) => ({ id: r.id, ...scoreItemForQuery(r, t, tokens) }))
+        .filter((x) => x.score > 0)
+        .sort((a, b) => b.matched - a.matched || b.score - a.score)
+        .slice(0, 8)
+        .map((x) => x.id);
+
+      const now = Date.now();
+      const userMsgId = 'u-' + now + '-' + Math.random().toString(36).slice(2, 5);
+      const botMsgId = 'a-' + (now + 1) + '-' + Math.random().toString(36).slice(2, 5);
+      const existingChat = activeMobChatId ? mobChats.find((c) => c.id === activeMobChatId) : null;
+      const targetChatId = existingChat
+        ? existingChat.id
+        : 'chat-' + now + '-' + Math.random().toString(36).slice(2, 5);
+      const shortTitle = t.length > 44 ? t.slice(0, 43) + '…' : t;
+
+      const userMsg = { id: userMsgId, role: 'user', text: t, at: now };
+      const botStub = {
+        id: botMsgId,
+        role: 'assistant',
+        query: t,
+        text: '',
+        src: [],
+        matchIds: matchedIds,
+        busy: true,
+        at: now + 1,
+      };
+
+      setActiveMobChatId(targetChatId);
+      setMobChats((prev) => {
+        const idx = prev.findIndex((c) => c.id === targetChatId);
+        if (idx === -1) {
+          return [
+            { id: targetChatId, title: shortTitle, updatedAt: now, messages: [userMsg, botStub] },
+            ...prev,
+          ].slice(0, 24);
+        }
+        const cur = prev[idx];
+        const updated = {
+          ...cur,
+          updatedAt: now,
+          messages: [...(cur.messages || []), userMsg, botStub].slice(-40),
+        };
+        return [updated, ...prev.filter((c) => c.id !== targetChatId)].slice(0, 24);
+      });
+      setSpaceQuery('');
+      if (catalogQ && onCatalogQChange) onCatalogQChange('');
+
+      const out = await edgeClient.ai({
+        action: 'qa',
+        query: t,
+        userRole: role,
+        userName,
+        allowedCategories: allowedCats,
+        items: poolAll,
+        today: TODAY,
+      });
+
+      setMobChats((prev) =>
+        prev.map((c) =>
+          c.id !== targetChatId
+            ? c
+            : {
+                ...c,
+                updatedAt: Date.now(),
+                messages: (c.messages || []).map((m) =>
+                  m.id === botMsgId
+                    ? {
+                        ...m,
+                        src: out.sources || [],
+                        text: out.answer || '',
+                        busy: false,
+                      }
+                    : m
+                ),
+              }
+        )
+      );
+      return;
+    }
+
     setAiAns({ q: t, src: [], text: '', busy: true });
 
     const out = await edgeClient.ai({
@@ -674,6 +849,7 @@ export function KnowledgeSpaceView({
 
   // High-frequency 60fps 3D spatial transform loop (imperative DOM writes, zero React re-renders)
   useEffect(() => {
+    if (isMobile) return undefined;
     let rafId = 0;
     let alive = true;
 
@@ -864,7 +1040,7 @@ export function KnowledgeSpaceView({
       clearTimeout(snapTimerRef.current);
       clearTimeout(openTimerRef.current);
     };
-  }, [layout, reducedMotion, isCompact]);
+  }, [layout, reducedMotion, isCompact, isMobile]);
 
   // Wheel navigation: vertical/horizontal scroll rotates 360° carousel; Ctrl/Meta/Alt + scroll zooms
   useEffect(() => {
@@ -943,7 +1119,7 @@ export function KnowledgeSpaceView({
     if (!onRead) return;
     recordAskBarRect();
     if (onSetCmdOpen) onSetCmdOpen(false);
-    if (reducedMotion || idx < 0) {
+    if (reducedMotion || isMobile || idx < 0) {
       onRead(itemId);
       return;
     }
@@ -966,9 +1142,33 @@ export function KnowledgeSpaceView({
     setAiAns(null);
     setSpaceFilterMode('all');
     setShowAllAfterAi(false);
+    setMobBrowseOpen(false);
+    setMobMenuOpen(false);
+    setMobHistoryOpen(false);
     setHoveredSourceId(null);
     if (catalogQ && onCatalogQChange) onCatalogQChange('');
     resetCamera();
+  };
+
+  const startNewMobChat = () => {
+    setActiveMobChatId(null);
+    setMobExpandedTurnId(null);
+    setMobHistoryOpen(false);
+    setMobBrowseOpen(false);
+    setMobMenuOpen(false);
+    setKitsOpen(false);
+    setSpaceFilterMode('all');
+    setSpaceQuery('');
+    setAiAns(null);
+    if (catalogQ && onCatalogQChange) onCatalogQChange('');
+  };
+
+  const deleteMobChat = (chatId) => {
+    setMobChats((prev) => prev.filter((c) => c.id !== chatId));
+    if (activeMobChatId === chatId) {
+      setActiveMobChatId(null);
+      setMobExpandedTurnId(null);
+    }
   };
 
   const onPointerDown = (e) => {
@@ -1596,10 +1796,547 @@ export function KnowledgeSpaceView({
         </div>`}
       </div>`}
 
-      <div ref=${askBarRef} className=${'kspace-ask-bar' + (aiAns && aiAns.busy ? ' is-busy' : '')}>
-        <span className="kspace-ask-ico" aria-hidden="true">
-          <${Ic} n="spark" s=${17} />
-        </span>
+      ${isMobile &&
+      (activeMobChat || mobHistoryOpen || mobBrowseOpen || spaceFilterMode === 'pinned' || Boolean(f && f.disc)) &&
+      html`<div className="kspace-mob-toprow">
+        ${mobChats.length > 0 &&
+        html`<button
+          type="button"
+          className=${'kspace-mob-top-pill' + (mobHistoryOpen ? ' on' : '')}
+          onClick=${() => {
+            setMobHistoryOpen((v) => !v);
+            setMobBrowseOpen(false);
+            setMobMenuOpen(false);
+            setKitsOpen(false);
+          }}
+        >
+          <${Ic} n="clock" s=${14} />
+          <span>Chats (${mobChats.length})</span>
+        </button>`}
+        <button
+          type="button"
+          className="kspace-mob-top-pill is-accent"
+          aria-label="New chat"
+          onClick=${startNewMobChat}
+        >
+          <${Ic} n="plus" s=${14} />
+          <span>New</span>
+        </button>
+      </div>`}
+
+      ${isMobile &&
+      mobMenuOpen &&
+      html`<${Fragment}>
+        <div
+          className="kspace-mob-scrim"
+          aria-hidden="true"
+          onClick=${() => setMobMenuOpen(false)}
+        />
+        <div className="kspace-mob-sheet" role="dialog" aria-label="Quick menu">
+          <div className="kspace-pop-head">
+            <div>
+              <b>Quick Menu</b>
+              <small>Chats, Standards, Naming Studio & Filters</small>
+            </div>
+            <button
+              type="button"
+              className="kspace-pop-x"
+              aria-label="Close menu"
+              onClick=${() => setMobMenuOpen(false)}
+            >
+              <${Ic} n="x" s=${14} />
+            </button>
+          </div>
+
+          <div className="kspace-mob-discs" role="group" aria-label="Filter by discipline">
+            <button
+              type="button"
+              className=${'kspace-disc-btn' + (!f || !f.disc ? ' on' : '')}
+              onClick=${() => {
+                if (setF) setF((prev) => ({ ...prev, disc: undefined }));
+                setMobMenuOpen(false);
+              }}
+            >
+              All
+            </button>
+            ${DISC.map(
+              (d) => html`<button
+                key=${d}
+                type="button"
+                className=${'kspace-disc-btn' + (f && f.disc === d ? ' on' : '')}
+                style=${{ '--dc': DC[d] }}
+                onClick=${() => {
+                  const next = f && f.disc === d ? undefined : d;
+                  if (setF) setF((prev) => ({ ...prev, disc: next }));
+                  setAiAns(null);
+                  setSpaceFilterMode('all');
+                  setMobHistoryOpen(false);
+                  setMobBrowseOpen(Boolean(next));
+                  setMobMenuOpen(false);
+                }}
+              >
+                <span className="kspace-disc-dot" />
+                <span>${d}</span>
+              </button>`
+            )}
+          </div>
+
+          <div className="kspace-mob-sheet-list">
+            ${(activeMobChat || mobBrowseOpen || mobHistoryOpen) &&
+            html`<button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${startNewMobChat}
+            >
+              <${Ic} n="plus" s=${16} />
+              <span>New Search Chat</span>
+            </button>`}
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                setKitsOpen(false);
+                setMobBrowseOpen(false);
+                setMobHistoryOpen(true);
+              }}
+            >
+              <${Ic} n="clock" s=${16} />
+              <span>Saved Searches & Chats (${mobChats.length})</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                setAiAns(null);
+                setMobHistoryOpen(false);
+                setMobBrowseOpen(false);
+                setSpaceFilterMode((m) => (m === 'pinned' ? 'all' : 'pinned'));
+              }}
+            >
+              <${Ic} n="star" s=${16} />
+              <span>Pinned & Highlights (${pinnedData.combined.length})</span>
+              ${spaceFilterMode === 'pinned' && html`<span className="kspace-mob-sheet-tag">Active</span>`}
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                setKitsOpen(true);
+              }}
+            >
+              <${Ic} n="folder" s=${16} />
+              <span>Starter Kits (${visibleKits.length})</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                setMobHistoryOpen(false);
+                setMobBrowseOpen(true);
+              }}
+            >
+              <${Ic} n="book" s=${16} />
+              <span>Browse Standards (${items.length})</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                onCommand && onCommand('view', 'naming');
+              }}
+            >
+              <${Ic} n="sliders" s=${16} />
+              <span>Wall Naming Studio</span>
+            </button>
+            ${can.createDraft(role) &&
+            html`<button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                onCommand && onCommand('new');
+              }}
+            >
+              <${Ic} n="plus" s=${16} />
+              <span>New Document / Standard</span>
+            </button>`}
+            <button
+              type="button"
+              className="kspace-mob-sheet-row"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                onCommand && onCommand('theme');
+              }}
+            >
+              <${Ic} n="spark" s=${16} />
+              <span>Switch Light / Dark Theme</span>
+            </button>
+          </div>
+
+          <div className="kspace-mob-prompts">
+            ${AI_PROMPTS.map(
+              (prompt) => html`<button
+                key=${prompt.label}
+                type="button"
+                className="kspace-pchip kspace-pchip-acc"
+                onClick=${() => {
+                  if (onLogSearch) onLogSearch(prompt.query, displayItems.length);
+                  runAi(prompt.query);
+                }}
+              >
+                <${Ic} n="spark" s=${12} />
+                <span>${prompt.label}</span>
+              </button>`
+            )}
+          </div>
+        </div>
+      </${Fragment}>`}
+
+      ${isMobile &&
+      mobHistoryOpen &&
+      !kitsOpen &&
+      !cmdOpen &&
+      html`<div className="kspace-mob-results">
+        <div className="kspace-mob-res-head">
+          <div className="kspace-mob-res-title">
+            <b>Saved Searches</b>
+            <span>${mobChats.length}</span>
+          </div>
+          <div className="kspace-mob-res-acts">
+            ${mobChats.length > 0 &&
+            html`<button
+              type="button"
+              className="kspace-mini-btn"
+              onClick=${() => {
+                setMobChats([]);
+                setActiveMobChatId(null);
+              }}
+            >
+              Clear all
+            </button>`}
+            <button
+              type="button"
+              className="kspace-mini-btn"
+              onClick=${() => setMobHistoryOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+
+        <div className="kspace-mob-list">
+          ${mobChats.length === 0
+            ? html`<div className="kspace-mob-empty">
+                <p>Your search conversations will be saved here automatically.</p>
+                <button
+                  type="button"
+                  className="btn p"
+                  onClick=${() => {
+                    setMobHistoryOpen(false);
+                    askInputRef.current && askInputRef.current.focus();
+                  }}
+                >
+                  <${Ic} n="spark" s=${14} />
+                  <span>Start a search</span>
+                </button>
+              </div>`
+            : mobChats.map((c) => {
+                const lastBot = [...(c.messages || [])].reverse().find((m) => m.role === 'assistant');
+                const preview = lastBot && lastBot.text ? plain(lastBot.text).slice(0, 110) : '';
+                const turnCount = (c.messages || []).filter((m) => m.role === 'user').length;
+                const isCur = c.id === activeMobChatId;
+                return html`<div
+                  key=${c.id}
+                  className=${'kspace-mob-hist-item' + (isCur ? ' on' : '')}
+                >
+                  <button
+                    type="button"
+                    className="kspace-mob-hist-main"
+                    onClick=${() => {
+                      setActiveMobChatId(c.id);
+                      setMobHistoryOpen(false);
+                      setMobBrowseOpen(false);
+                      setSpaceFilterMode('all');
+                    }}
+                  >
+                    <div className="kspace-mob-card-top">
+                      <span className="kspace-mob-disc">
+                        <${Ic} n="clock" s=${12} />
+                        <span>${turnCount} ${turnCount === 1 ? 'query' : 'queries'}</span>
+                      </span>
+                      <span className="kspace-mob-meta">
+                        ${c.updatedAt ? new Date(c.updatedAt).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                      </span>
+                    </div>
+                    <div className="kspace-mob-card-title">${c.title}</div>
+                    ${preview && html`<div className="kspace-mob-card-desc">${preview}</div>`}
+                  </button>
+                  <button
+                    type="button"
+                    className="kspace-mob-hist-del"
+                    aria-label="Delete saved search"
+                    onClick=${() => deleteMobChat(c.id)}
+                  >
+                    <${Ic} n="trash" s=${14} />
+                  </button>
+                </div>`;
+              })}
+        </div>
+      </div>`}
+
+      ${isMobile &&
+      !mobHistoryOpen &&
+      !kitsOpen &&
+      !cmdOpen &&
+      (() => {
+        const showResults =
+          mobBrowseOpen ||
+          spaceFilterMode === 'pinned' ||
+          Boolean(f && f.disc) ||
+          (!activeMobChat && Boolean(spaceQuery.trim()));
+
+        if (showResults) {
+          const mobHeading =
+            spaceFilterMode === 'pinned'
+              ? 'Pinned & Highlights'
+              : f && f.disc
+              ? f.disc
+              : spaceQuery.trim()
+              ? 'Matching Standards'
+              : 'All Standards';
+          return html`<div className="kspace-mob-results">
+            <div className="kspace-mob-res-head">
+              <div className="kspace-mob-res-title">
+                <b>${mobHeading}</b>
+                <span>${displayItems.length}</span>
+              </div>
+              <div className="kspace-mob-res-acts">
+                ${spaceQuery.trim() &&
+                html`<button
+                  type="button"
+                  className="kspace-mini-btn"
+                  onClick=${() => {
+                    if (onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
+                    runAi(spaceQuery);
+                  }}
+                >
+                  Ask AI
+                </button>`}
+                <button
+                  type="button"
+                  className="kspace-mini-btn"
+                  onClick=${() => {
+                    clearSpaceSearch();
+                    if (setF && f && f.disc) setF((prev) => ({ ...prev, disc: undefined }));
+                  }}
+                >
+                  ${activeMobChat ? 'Back to chat' : 'Close'}
+                </button>
+              </div>
+            </div>
+
+            <div className="kspace-mob-list">
+              ${displayItems.length === 0
+                ? html`<div className="kspace-mob-empty">
+                    <p>No matching standards for “${spaceQuery.trim() || mobHeading}”.</p>
+                    ${spaceQuery.trim() &&
+                    html`<button
+                      type="button"
+                      className="btn p"
+                      onClick=${() => runAi(spaceQuery)}
+                    >
+                      <${Ic} n="spark" s=${14} />
+                      <span>Ask Library AI</span>
+                    </button>`}
+                  </div>`
+                : displayItems.map(
+                    (r) => html`<button
+                      key=${r.id}
+                      type="button"
+                      className="kspace-mob-card"
+                      style=${{ '--c': DC[r.disc] || '#0a84ff' }}
+                      onClick=${() => {
+                        if (spaceQuery.trim() && onLogSearch) {
+                          onLogSearch(spaceQuery.trim(), displayItems.length);
+                        }
+                        triggerOpenCard(r.id);
+                      }}
+                    >
+                      <div className="kspace-mob-card-top">
+                        <span className="kspace-mob-disc">
+                          <i className="kspace-mob-dot" />
+                          <span>${r.disc || 'General'}</span>
+                        </span>
+                        <span className="kspace-mob-meta">
+                          ${TY[r.type] || 'Document'}${r.upd ? ` · ${fmt(r.upd)}` : ''}
+                        </span>
+                      </div>
+                      <div className="kspace-mob-card-title">${r.title}</div>
+                      ${r.desc && html`<div className="kspace-mob-card-desc">${r.desc}</div>`}
+                    </button>`
+                  )}
+            </div>
+          </div>`;
+        }
+
+        if (activeMobChat && activeMobChat.messages && activeMobChat.messages.length > 0) {
+          return html`<div className="kspace-mob-chat" role="log" aria-label="Search conversation">
+            ${activeMobChat.messages.map((msg) => {
+              if (msg.role === 'user') {
+                return html`<div key=${msg.id} className="kspace-mob-msg is-user">
+                  <div className="kspace-mob-bubble">${msg.text}</div>
+                </div>`;
+              }
+              const matchedDocs = (msg.matchIds || []).map((id) => poolById.get(id)).filter(Boolean);
+              const isMatchesOpen = mobExpandedTurnId === msg.id;
+              return html`<div key=${msg.id} className="kspace-mob-msg is-assistant">
+                <div className="kspace-mob-msg-head">
+                  <span className="kspace-ai-badge">
+                    <${Ic} n="spark" s=${11} /> Datum AI
+                  </span>
+                </div>
+                <div className="kspace-mob-msg-body">
+                  ${msg.busy && !msg.text
+                    ? html`<div className="dots"><i></i><i></i><i></i></div>`
+                    : html`<p>
+                        ${(msg.text || '').split(CITE).map((x, i) =>
+                          i % 2
+                            ? html`<sup
+                                key=${i}
+                                className="kspace-cite-sup"
+                                onClick=${() => {
+                                  const s = msg.src && msg.src[Number(x) - 1];
+                                  if (s) triggerOpenCard(s.id);
+                                }}
+                              >[${x}]</sup>`
+                            : x
+                        )}
+                      </p>`}
+                </div>
+
+                ${msg.src &&
+                msg.src.length > 0 &&
+                html`<div className="kspace-ai-srcs">
+                  ${msg.src.map(
+                    (s) => html`<button
+                      key=${s.id}
+                      type="button"
+                      className="kspace-src-pill"
+                      onClick=${() => triggerOpenCard(s.id)}
+                    >
+                      <b>${s.index}</b>
+                      <span>${s.title}${s.stale ? ' (Review)' : ''}</span>
+                      <span className="kspace-src-go">↗</span>
+                    </button>`
+                  )}
+                </div>`}
+
+                ${matchedDocs.length > 0 &&
+                !msg.busy &&
+                html`<div className="kspace-mob-turn-matches">
+                  <button
+                    type="button"
+                    className=${'kspace-mini-btn' + (isMatchesOpen ? ' on' : '')}
+                    onClick=${() => setMobExpandedTurnId((cur) => (cur === msg.id ? null : msg.id))}
+                  >
+                    ${isMatchesOpen
+                      ? `Hide matched standards (${matchedDocs.length})`
+                      : `${matchedDocs.length} matching ${matchedDocs.length === 1 ? 'standard' : 'standards'} ▾`}
+                  </button>
+                  ${isMatchesOpen &&
+                  html`<div className="kspace-mob-turn-cards">
+                    ${matchedDocs.map(
+                      (r) => html`<button
+                        key=${r.id}
+                        type="button"
+                        className="kspace-mob-card"
+                        style=${{ '--c': DC[r.disc] || '#0a84ff' }}
+                        onClick=${() => triggerOpenCard(r.id)}
+                      >
+                        <div className="kspace-mob-card-top">
+                          <span className="kspace-mob-disc">
+                            <i className="kspace-mob-dot" />
+                            <span>${r.disc || 'General'}</span>
+                          </span>
+                          <span className="kspace-mob-meta">${TY[r.type] || 'Document'}</span>
+                        </div>
+                        <div className="kspace-mob-card-title">${r.title}</div>
+                      </button>`
+                    )}
+                  </div>`}
+                </div>`}
+              </div>`;
+            })}
+            <div ref=${mobChatEndRef} />
+          </div>`;
+        }
+
+        return html`<div className="kspace-mob-actions" role="group" aria-label="Quick actions">
+          ${mobChats.length > 0 &&
+          html`<button
+            type="button"
+            className="kspace-mob-act"
+            onClick=${() => {
+              setMobHistoryOpen(true);
+              setMobMenuOpen(false);
+            }}
+          >
+            <span className="kspace-mob-act-ico"><${Ic} n="clock" s=${19} /></span>
+            <span>Saved searches (${mobChats.length})</span>
+          </button>`}
+          <button
+            type="button"
+            className="kspace-mob-act"
+            onClick=${() => onCommand && onCommand('view', 'naming')}
+          >
+            <span className="kspace-mob-act-ico"><${Ic} n="sliders" s=${19} /></span>
+            <span>Wall Naming Studio</span>
+          </button>
+          <button
+            type="button"
+            className="kspace-mob-act"
+            onClick=${() => {
+              setKitsOpen(true);
+              setMobMenuOpen(false);
+            }}
+          >
+            <span className="kspace-mob-act-ico"><${Ic} n="folder" s=${19} /></span>
+            <span>Starter Kits (${visibleKits.length})</span>
+          </button>
+          <button
+            type="button"
+            className="kspace-mob-act"
+            onClick=${() => setMobBrowseOpen(true)}
+          >
+            <span className="kspace-mob-act-ico"><${Ic} n="book" s=${19} /></span>
+            <span>Browse Standards (${items.length})</span>
+          </button>
+        </div>`;
+      })()}
+
+      <div ref=${askBarRef} className=${'kspace-ask-bar' + ((aiAns && aiAns.busy) || (isMobile && lastMobMsg && lastMobMsg.busy) ? ' is-busy' : '')}>
+        ${isMobile
+          ? html`<button
+              type="button"
+              className="kspace-mob-plus"
+              aria-label=${mobMenuOpen ? 'Close quick menu' : 'Open quick menu'}
+              aria-expanded=${mobMenuOpen}
+              onClick=${() => {
+                setMobMenuOpen((v) => !v);
+                setKitsOpen(false);
+                if (onSetCmdOpen) onSetCmdOpen(false);
+              }}
+            >
+              <${Ic} n=${mobMenuOpen ? 'x' : 'plus'} s=${18} />
+            </button>`
+          : html`<span className="kspace-ask-ico" aria-hidden="true">
+              <${Ic} n="spark" s=${17} />
+            </span>`}
         <input
           ref=${askInputRef}
           type="text"
@@ -1607,7 +2344,7 @@ export function KnowledgeSpaceView({
           onChange=${(e) => {
             const val = e.target.value;
             setSpaceQuery(val);
-            if (aiAns && val.trim() !== aiAns.q) setAiAns(null);
+            if (!isMobile && aiAns && val.trim() !== aiAns.q) setAiAns(null);
             if (spaceFilterMode !== 'all') setSpaceFilterMode('all');
             if (!val.trim() && catalogQ && onCatalogQChange) onCatalogQChange('');
           }}
@@ -1647,14 +2384,29 @@ export function KnowledgeSpaceView({
               clearSpaceSearch();
             }
           }}
-          placeholder="Search 3D Space, ask Library AI, or press Ctrl+K for commands…"
+          placeholder=${isMobile
+            ? activeMobChat
+              ? 'Ask follow-up or search…'
+              : 'Search Datum or ask AI…'
+            : 'Search 3D Space, ask Library AI, or press Ctrl+K for commands…'}
           aria-label="Search 3D Space, ask Library AI, or open commands"
         />
         ${hasReactiveFilter &&
-        html`<span className="kspace-match-pill">
-          ${count} ${count === 1 ? 'match' : 'matches'}
-        </span>`}
-        ${(spaceQuery || aiAns || spaceFilterMode !== 'all') &&
+        (isMobile
+          ? html`<button
+              type="button"
+              className="kspace-match-pill"
+              onClick=${() => {
+                setMobHistoryOpen(false);
+                setMobBrowseOpen((v) => !v);
+              }}
+            >
+              ${count} ${count === 1 ? 'match' : 'matches'}
+            </button>`
+          : html`<span className="kspace-match-pill">
+              ${count} ${count === 1 ? 'match' : 'matches'}
+            </span>`)}
+        ${(spaceQuery || (!isMobile && aiAns) || spaceFilterMode !== 'all') &&
         html`<button
           type="button"
           className="kspace-ask-clr"
@@ -1679,13 +2431,19 @@ export function KnowledgeSpaceView({
         <button
           type="button"
           className="kspace-ask-btn"
+          aria-label="Ask Library AI"
           onClick=${() => {
+            if (isMobile && !spaceQuery.trim()) {
+              setMobMenuOpen((v) => !v);
+              setKitsOpen(false);
+              return;
+            }
             if (spaceQuery.trim() && onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
             if (onSetCmdOpen) onSetCmdOpen(false);
             runAi(spaceQuery);
           }}
         >
-          Ask
+          ${isMobile ? html`<${Ic} n="spark" s=${16} />` : 'Ask'}
         </button>
       </div>
 
