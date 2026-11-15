@@ -423,3 +423,86 @@ mark{background:color-mix(in srgb,#ffd60a 50%,transparent);color:inherit;border-
 .rvt-lk-foot code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;background:var(--fill);padding:1px 5px;border-radius:5px}
 a.rvt-lk{display:inline-flex;align-items:center;gap:5px;padding:1px 8px;border-radius:999px;background:color-mix(in srgb,var(--blue) 14%,transparent);color:var(--blue);font-weight:500;text-decoration:none;transition:background .14s}
 a.rvt-lk:hover{background:color-mix(in srgb,var(--blue) 22%,transparent)}
+
+/* Dark Theme: Crisp Hairline Cards over #000000 Canvas instead of filled #1c1c1e slabs */
+:root[data-theme="dark"] .card:not(.kspace-card),
+:root[data-theme="dark"] .hc,
+:root[data-theme="dark"] .bcard,
+:root[data-theme="dark"] .rt-hero,
+:root[data-theme="dark"] .rt-card,
+:root[data-theme="dark"] .pdl-scan-card,
+:root[data-theme="dark"] .dw-card,
+:root[data-theme="dark"] .a3d-stage-card,
+:root[data-theme="dark"] .a3d-side,
+:root[data-theme="dark"] .a3d-layer{
+  background:transparent;
+  border-color:rgba(255,255,255,.14);
+  box-shadow:0 0 0 1px rgba(255,255,255,.14);
+}
+:root[data-theme="dark"] .dw-card,
+:root[data-theme="dark"] .a3d-stage-card,
+:root[data-theme="dark"] .a3d-side,
+:root[data-theme="dark"] .rt-hero,
+:root[data-theme="dark"] .rt-card{box-shadow:none}
+:root[data-theme="dark"] .card:not(.kspace-card):hover,
+:root[data-theme="dark"] .bcard:hover,
+:root[data-theme="dark"] .rt-card:hover,
+:root[data-theme="dark"] .dw-card:hover{
+  background:rgba(255,255,255,.03);
+  border-color:rgba(255,255,255,.26);
+  box-shadow:0 0 0 1px rgba(255,255,255,.26),0 14px 36px rgba(0,0,0,.45);
+}
+:root[data-theme="dark"] .card:not(.kspace-card) .row{
+  padding-top:10px;
+  border-top:1px solid rgba(255,255,255,.08);
+}
+:root[data-theme="dark"] .rt-param,
+:root[data-theme="dark"] .a3d-toolbar,
+:root[data-theme="dark"] .a3d-specs,
+:root[data-theme="dark"] .a3d-rule{
+  background:transparent;
+  border-color:rgba(255,255,255,.11);
+}
+:root[data-theme="dark"] .rt-param{box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .card:not(.kspace-card),
+  :root:not([data-theme="light"]) .hc,
+  :root:not([data-theme="light"]) .bcard,
+  :root:not([data-theme="light"]) .rt-hero,
+  :root:not([data-theme="light"]) .rt-card,
+  :root:not([data-theme="light"]) .pdl-scan-card,
+  :root:not([data-theme="light"]) .dw-card,
+  :root:not([data-theme="light"]) .a3d-stage-card,
+  :root:not([data-theme="light"]) .a3d-side,
+  :root:not([data-theme="light"]) .a3d-layer{
+    background:transparent;
+    border-color:rgba(255,255,255,.14);
+    box-shadow:0 0 0 1px rgba(255,255,255,.14);
+  }
+  :root:not([data-theme="light"]) .dw-card,
+  :root:not([data-theme="light"]) .a3d-stage-card,
+  :root:not([data-theme="light"]) .a3d-side,
+  :root:not([data-theme="light"]) .rt-hero,
+  :root:not([data-theme="light"]) .rt-card{box-shadow:none}
+  :root:not([data-theme="light"]) .card:not(.kspace-card):hover,
+  :root:not([data-theme="light"]) .bcard:hover,
+  :root:not([data-theme="light"]) .rt-card:hover,
+  :root:not([data-theme="light"]) .dw-card:hover{
+    background:rgba(255,255,255,.03);
+    border-color:rgba(255,255,255,.26);
+    box-shadow:0 0 0 1px rgba(255,255,255,.26),0 14px 36px rgba(0,0,0,.45);
+  }
+  :root:not([data-theme="light"]) .card:not(.kspace-card) .row{
+    padding-top:10px;
+    border-top:1px solid rgba(255,255,255,.08);
+  }
+  :root:not([data-theme="light"]) .rt-param,
+  :root:not([data-theme="light"]) .a3d-toolbar,
+  :root:not([data-theme="light"]) .a3d-specs,
+  :root:not([data-theme="light"]) .a3d-rule{
+    background:transparent;
+    border-color:rgba(255,255,255,.11);
+  }
+  :root:not([data-theme="light"]) .rt-param{box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+}

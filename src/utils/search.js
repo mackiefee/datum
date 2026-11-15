@@ -1,11 +1,16 @@
 import { plain } from './markdown.js';
 
+const SHORT_BIM_TOKENS = new Set([
+  'ch', 'bi', 'ai', 'fi', '0i', '0s', '0g', 'ag', 'gl', 'ar', 'pl',
+  'sr', 'nr', 'oc', '5d', 'bd', '2s', '3s', '4s', '6s', '8s', '2w', '4w', '6w', '8w',
+]);
+
 export const tok = (s) =>
   s
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, ' ')
     .split(/\s+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 || SHORT_BIM_TOKENS.has(w));
 
 const hayCache = new WeakMap();
 const tokCache = new WeakMap();

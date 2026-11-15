@@ -10,6 +10,7 @@ import '../styles/revitType.css';
 import '../styles/polish.css';
 import '../styles/editor.css';
 import '../styles/space3d.css';
+import '../styles/naming.css';
 
 export const metadata = {
   title: 'Datum',

@@ -2,6 +2,7 @@ import { html, useMemo } from '../../lib/react.js';
 import { Assembly3DView } from '../assembly3d/Assembly3DView.js';
 import { DetailWall } from '../wall/DetailWall.js';
 import { LocalImpactGraph } from '../graph/LocalImpactGraph.js';
+import { parseAndValidateWallName } from '../naming/namingEngine.js';
 import { Ic } from '../../components/Icon.js';
 
 function tokenize(text) {
@@ -135,6 +136,7 @@ export function RevitTypeView({
   favs = [],
   onToggleFav,
   onRead,
+  onOpenNamingStudio,
   onToast,
 }) {
   const category = (ctx && ctx.category) || 'Walls';
@@ -155,6 +157,18 @@ export function RevitTypeView({
   }, [ctx, category, family, typeName]);
 
   const liveAssembly = useMemo(() => buildLiveAssemblyFromCtx(ctx), [ctx]);
+
+  const isSyntheticBanner =
+    !ctx ||
+    !ctx.typeName ||
+    /^(3D Assembly & Wall Standards|Architectural Detail Reference|Selected Revit Type)$/i.test(ctx.typeName);
+
+  const namingAudit = useMemo(() => {
+    if (isSyntheticBanner) return null;
+    const looksLikeWall = category.toLowerCase().includes('wall') || typeName.includes('_') || /^C\d{4}/i.test(typeName);
+    if (!looksLikeWall) return null;
+    return parseAndValidateWallName(typeName, ctx && ctx.layers, ctx && ctx.fire);
+  }, [isSyntheticBanner, category, typeName, ctx]);
 
   const relatedDocs = useMemo(() => {
     const tokens = tokenize(`${category} ${family} ${typeName}`);
@@ -201,6 +215,14 @@ export function RevitTypeView({
           <button type="button" className="rt-btn pri" onClick=${copyType}>
             <${Ic} n="copy" s=${14} /> Copy Type Name
           </button>
+          ${onOpenNamingStudio &&
+          html`<button
+            type="button"
+            className="rt-btn"
+            onClick=${() => onOpenNamingStudio(isSyntheticBanner ? '' : typeName, ctx)}
+          >
+            <${Ic} n="sliders" s=${14} /> Open in Naming Studio
+          </button>`}
         </div>
       </div>
       <div className="rt-params">
@@ -212,6 +234,70 @@ export function RevitTypeView({
         )}
       </div>
     </section>
+
+    ${namingAudit &&
+    html`<section className="rt-hero rt-audit">
+      <div className="rt-audit-hd">
+        <div style=${{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style=${{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Wall Naming Audit</span>
+          <span className=${'nm-status ' + namingAudit.status}>
+            <${Ic}
+              n=${namingAudit.status === 'valid' ? 'check' : namingAudit.status === 'warn' ? 'spark' : 'x'}
+              s=${12}
+            />
+            ${namingAudit.status === 'valid'
+              ? 'Compliant'
+              : namingAudit.status === 'warn'
+              ? 'Needs Review'
+              : `${namingAudit.issues.filter((i) => i.level === 'error').length} Issue(s)`}
+          </span>
+        </div>
+        <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          ${namingAudit.changedByFix &&
+          namingAudit.autoFixed &&
+          html`<button
+            type="button"
+            className="rt-btn pri"
+            onClick=${() => {
+              if (navigator && navigator.clipboard) {
+                navigator.clipboard.writeText(namingAudit.autoFixed).catch(() => {});
+              }
+              if (onToast) onToast(`Copied auto-fixed: ${namingAudit.autoFixed}`);
+            }}
+          >
+            <${Ic} n="dup" s=${14} /> Copy Auto-Fixed Name
+          </button>`}
+          ${onOpenNamingStudio &&
+          html`<button type="button" className="rt-btn" onClick=${() => onOpenNamingStudio(typeName, ctx)}>
+            <${Ic} n="sliders" s=${14} /> Edit Slots in 3D
+          </button>`}
+        </div>
+      </div>
+
+      ${namingAudit.slots &&
+      namingAudit.slots.length > 0 &&
+      html`<div className="nm-slots">
+        ${namingAudit.slots.map(
+          (s) => html`<span key=${s.num} className=${'nm-slot' + (s.muted ? ' muted' : '')}>
+            <span className="nm-slot-n">${s.num}</span>
+            <span className="nm-slot-k">${s.label}:</span>
+            <span className="nm-slot-v">${s.value}</span>
+          </span>`
+        )}
+      </div>`}
+
+      ${namingAudit.issues && namingAudit.issues.length > 0
+        ? html`<div className="nm-issue-list">
+            ${namingAudit.issues.map(
+              (iss, idx) => html`<div key=${idx} className=${'nm-issue ' + iss.level}>
+                ${iss.slot ? html`<b>Slot ${iss.slot}: </b>` : null}${iss.message}
+              </div>`
+            )}
+          </div>`
+        : html`<p className="rt-sub" style=${{ margin: 0 }}>
+            All 13 naming slots match the C1010/C1070 Interior Wall Naming Standard${ctx && ctx.layers && ctx.layers.length ? ' and live CompoundStructure layers' : ''}.
+          </p>`}
+    </section>`}
 
     <section className="rt-sec">
       <div className="rt-sec-head">

@@ -32,6 +32,7 @@ import { Reader } from './features/reader/Reader.js';
 import { Graph } from './features/graph/GraphView.js';
 import { CollectionsView } from './features/collections/CollectionsView.js';
 import { RevitTypeView } from './features/revitType/RevitTypeView.js';
+import { NamingStudioView } from './features/naming/NamingStudioView.js';
 import { KnowledgeSpaceView } from './features/space/KnowledgeSpaceView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
@@ -58,7 +59,13 @@ export function App() {
   const [res, setRes] = useState(() => {
     const a = db.load("kb2-res", null);
     if (!a || !Array.isArray(a) || !a.length) return [GUIDE, ...SEED];
-    return a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
+    let list = a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
+    // Non-destructively ensure newly added standard naming doc (#137) is available in existing sessions
+    const seed137 = SEED.find((x) => x.id === 137);
+    if (seed137 && !list.some((x) => x.id === 137)) {
+      list = [...list, seed137];
+    }
+    return list;
   });
   const [tree, setTree] = useState(() => db.load("kb2-tree", null) || TREE);
   const [users, setUsers] = useState(() => {
@@ -99,6 +106,7 @@ export function App() {
   const [view, setView] = useState("kb");
   const [assemblyId, setAssemblyId] = useState(null);
   const [revitTypeCtx, setRevitTypeCtx] = useState(null);
+  const [namingTypeSeed, setNamingTypeSeed] = useState("");
   const [revitLinkCtx, setRevitLinkCtx] = useState(null);
   const closeRevitLink = () => {
     setRevitLinkCtx(null);
@@ -256,7 +264,11 @@ export function App() {
     const qView = sp.get("view");
     const qAsm = sp.get("assembly");
     const qRead = sp.get("read");
-    if (qView === "3d") {
+    const qType = sp.get("type");
+    if (qView === "naming") {
+      if (qType) setNamingTypeSeed(qType);
+      setView("naming");
+    } else if (qView === "3d") {
       if (qAsm) setAssemblyId(qAsm);
       setRevitTypeCtx({ category: "Walls", family: "Basic Wall", typeName: "3D Assembly & Wall Standards" });
       setView("type");
@@ -883,6 +895,8 @@ export function App() {
       ? "3D Assemblies"
       : view === "type"
       ? (revitTypeCtx && revitTypeCtx.typeName) || "Revit Type"
+      : view === "naming"
+      ? "Naming Studio"
       : view === "reslib"
       ? "Resource Library"
       : view === "boards"
@@ -1157,6 +1171,11 @@ export function App() {
         <span className="tn">People & Teams</span>
         <span className="ct">${users.filter((u) => u.status === "active").length}</span>
       </button>`}
+
+      <button className=${"ti" + (view === "naming" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Naming Studio" onClick=${() => goV("naming")}>
+        <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="sliders" s=${14} /></span>
+        <span className="tn">Naming Studio</span>
+      </button>
 
       ${!isGuest &&
       html`<div>
@@ -1639,6 +1658,19 @@ export function App() {
           favs=${favs}
           onToggleFav=${(id) => tgl(setFavs, id)}
           onRead=${rd}
+          onOpenNamingStudio=${(tName, rCtx) => {
+            setNamingTypeSeed(tName || "");
+            if (rCtx) setRevitTypeCtx(rCtx);
+            goV("naming");
+          }}
+          onToast=${setToast}
+        />`}
+
+        ${view === "naming" &&
+        html`<${NamingStudioView}
+          initialTypeName=${namingTypeSeed}
+          revitCtx=${revitTypeCtx}
+          onReadDoc=${rd}
           onToast=${setToast}
         />`}
 

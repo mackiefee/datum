@@ -1,0 +1,966 @@
+/* Naming Studio — 100% Native Datum Design System Integration */
+
+.nm-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+}
+
+/* Native segmented control matching .pdl-top-r .seg visually without JS thumb drift */
+.nm-seg-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 3px;
+  background: var(--fill);
+  border-radius: 999px;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.nm-seg-pill button {
+  height: 30px;
+  padding: 0 13px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.16s, box-shadow 0.16s, color 0.16s;
+}
+
+.nm-seg-pill button.on {
+  background: var(--on);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.14);
+}
+
+.nm-seg-pill.compact {
+  height: 32px;
+  padding: 2px;
+  flex: 1;
+}
+
+.nm-seg-pill.compact button {
+  flex: 1;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+/* Unified Type Bar styled identically to Datum search + card surfaces */
+.nm-typebar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nm-typebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 8px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.03);
+  transition: box-shadow 0.18s;
+}
+
+.nm-typebar:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 28%, transparent), 0 0 0 1px var(--blue);
+}
+
+.nm-typebar.has-issue {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ff3b30 55%, var(--line)), 0 2px 10px color-mix(in srgb, #ff3b30 10%, transparent);
+}
+
+.nm-typebar.has-warn {
+  box-shadow: 0 0 0 1px color-mix(in srgb, #ff9f0a 55%, var(--line)), 0 2px 10px color-mix(in srgb, #ff9f0a 10%, transparent);
+}
+
+.nm-bar-inp {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  outline: none;
+  padding: 4px 2px;
+}
+
+.nm-bar-inp::placeholder {
+  color: var(--sub);
+  font-weight: 400;
+}
+
+.nm-bar-acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+.nm-bar-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 16px;
+  border-radius: 16px;
+  font-size: 13px;
+  background: color-mix(in srgb, #ff3b30 10%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff3b30 28%, transparent);
+  color: var(--text);
+}
+
+.nm-bar-alert.warn {
+  background: color-mix(in srgb, #ff9f0a 10%, var(--surface));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff9f0a 28%, transparent);
+}
+
+/* Native Quick Presets Strip matching Datum pill/chip language */
+.nm-quick-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nm-quick-lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sub);
+  margin-right: 4px;
+}
+
+.nm-quick-chip {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--sub);
+  background: var(--fill);
+  transition: background 0.15s, color 0.15s;
+}
+
+.nm-quick-chip:hover {
+  background: var(--fill2);
+  color: var(--text);
+}
+
+.nm-quick-chip.on {
+  background: color-mix(in srgb, var(--blue) 16%, transparent);
+  color: var(--blue);
+  font-weight: 600;
+}
+
+/* Balanced Two-Pane Workspace using identical Datum Surface Cards */
+.nm-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.92fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+@media (max-width: 980px) {
+  .nm-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+.nm-canvas-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Synchronize embedded Assembly3DView CSS tokens with Datum variables */
+.a3d-compact {
+  --card: var(--surface);
+  --bd: var(--line);
+  --mut: var(--sub);
+  --ac: var(--blue);
+  --fg: var(--text);
+  --bg2: transparent;
+  padding: 0 !important;
+  min-height: 0 !important;
+  height: 100%;
+  gap: 10px !important;
+}
+
+.a3d-compact .a3d-grid {
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+  flex: 1;
+}
+
+.a3d-compact .a3d-stage-card {
+  min-height: 0 !important;
+  border: 0 !important;
+  border-radius: 22px !important;
+  background: var(--surface) !important;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+}
+
+.a3d-compact .a3d-toolbar {
+  padding: 12px 16px !important;
+  border-bottom: 1px solid var(--line) !important;
+  background: transparent !important;
+}
+
+.a3d-compact .a3d-viewport {
+  height: 316px !important;
+  min-height: 280px !important;
+}
+
+.a3d-compact .a3d-hud-pill {
+  background: var(--glass) !important;
+  color: var(--text) !important;
+  box-shadow: 0 0 0 1px var(--line);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.a3d-compact .a3d-specs {
+  padding: 12px 18px !important;
+  border-top: 1px solid var(--line) !important;
+  background: transparent !important;
+}
+
+.a3d-compact-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.a3d-compact-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.a3d-compact-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--line);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  transition: background 0.14s, box-shadow 0.14s;
+}
+
+.a3d-compact-chip:hover {
+  background: var(--fill);
+}
+
+.a3d-compact-chip.on {
+  background: color-mix(in srgb, var(--blue) 12%, var(--surface));
+  box-shadow: 0 0 0 1.5px var(--blue);
+}
+
+.a3d-compact-chip small {
+  color: var(--sub);
+  font-size: 11px;
+}
+
+.a3d-compact-rule {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--fill);
+  font-size: 12.5px;
+  color: var(--sub);
+}
+
+.a3d-compact-rule b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Right Inspector Card matching Datum .card elevation and 22px radius */
+.nm-inspector {
+  background: var(--surface);
+  border-radius: 22px;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.nm-group {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.nm-group:last-child {
+  border-bottom: none;
+}
+
+.nm-group-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nm-inspector .nm-group-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sub);
+}
+
+.nm-group-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.nm-seg-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.nm-sr-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sub);
+  background: var(--fill);
+  transition: background 0.15s, color 0.15s;
+}
+
+.nm-sr-btn:hover {
+  background: var(--fill2);
+  color: var(--text);
+}
+
+.nm-sr-btn.on {
+  background: color-mix(in srgb, #ff9f0a 18%, transparent);
+  color: color-mix(in srgb, #ff9f0a 75%, var(--text));
+}
+
+/* Dynamic Layer Rows */
+.nm-dyn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nm-dyn-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: center;
+}
+
+.nm-dyn-del {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--sub);
+  background: var(--fill);
+  transition: background 0.14s, color 0.14s;
+}
+
+.nm-dyn-del:hover {
+  background: color-mix(in srgb, #ff3b30 16%, transparent);
+  color: #ff453a;
+}
+
+.nm-empty-line {
+  font-size: 13px;
+  color: var(--sub);
+  padding: 2px 0;
+}
+
+.nm-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.nm-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  transition: background 0.15s;
+}
+
+.nm-switch-row:hover {
+  background: var(--fill2);
+}
+
+.nm-switch-pill {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--fill2);
+  position: relative;
+  flex: none;
+  transition: background 0.16s;
+}
+
+.nm-switch-pill::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
+  transition: transform 0.16s;
+}
+
+.nm-switch-pill.on {
+  background: var(--blue);
+}
+
+.nm-switch-pill.on::after {
+  transform: translateX(14px);
+}
+
+.nm-lock-note {
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: var(--fill);
+  font-size: 12.5px;
+  color: var(--sub);
+  line-height: 1.45;
+}
+
+.nm-lock-note code {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Native Datum Surface Card for Batch & Custom Schema */
+.nm-card {
+  background: var(--surface);
+  border-radius: 22px;
+  padding: 20px 22px;
+  box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nm-out-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nm-sec-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.nm-sub {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  color: var(--sub);
+}
+
+.nm-batch-ta {
+  width: 100%;
+  min-height: 124px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 0;
+  background: var(--fill);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.nm-batch-ta:focus {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 35%, transparent);
+}
+
+.nm-stats-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.nm-batch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nm-batch-row {
+  padding: 13px 16px;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--fill) 45%, var(--surface));
+  box-shadow: 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nm-batch-row-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.nm-batch-row-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-all;
+}
+
+/* Modal Sheet matching Datum .pdl-modal */
+.nm-sheet-ov {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.nm-sheet {
+  width: min(760px, 100%);
+  max-height: 85vh;
+  background: var(--surface);
+  border-radius: 24px;
+  box-shadow: var(--shadow-lg), 0 0 0 1px var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: pop 0.22s cubic-bezier(0.2, 0.9, 0.25, 1.05);
+}
+
+.nm-sheet-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.nm-sheet-body {
+  padding: 18px 20px 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nm-ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.nm-ref-table th,
+.nm-ref-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+
+.nm-ref-table th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--sub);
+}
+
+.nm-ref-table code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+/* Shared Status, Slots & Issue styles (also used by RevitTypeView Audit Card) */
+.nm-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nm-status.valid {
+  background: color-mix(in srgb, #34c759 16%, transparent);
+  color: color-mix(in srgb, #34c759 65%, var(--text));
+}
+
+.nm-status.warn {
+  background: color-mix(in srgb, #ff9f0a 18%, transparent);
+  color: color-mix(in srgb, #ff9f0a 65%, var(--text));
+}
+
+.nm-status.error {
+  background: color-mix(in srgb, #ff3b30 16%, transparent);
+  color: color-mix(in srgb, #ff3b30 70%, var(--text));
+}
+
+.nm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.nm-slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nm-slot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--fill);
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.nm-slot.muted {
+  opacity: 0.58;
+}
+
+.nm-slot-n {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sub);
+}
+
+.nm-slot-k {
+  color: var(--sub);
+}
+
+.nm-slot-v {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nm-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nm-issue {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: var(--fill);
+  border-left: 3px solid var(--blue);
+}
+
+.nm-issue.error {
+  border-left-color: #ff3b30;
+  background: color-mix(in srgb, #ff3b30 10%, var(--fill));
+}
+
+.nm-issue.warn {
+  border-left-color: #ff9f0a;
+  background: color-mix(in srgb, #ff9f0a 10%, var(--fill));
+}
+
+.rt-audit {
+  border-color: color-mix(in srgb, var(--blue) 25%, var(--line));
+}
+
+.rt-audit-hd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+@media (max-width: 720px) {
+  .nm-typebar {
+    flex-wrap: wrap;
+    border-radius: 20px;
+    padding: 10px 12px;
+  }
+  .nm-bar-inp {
+    min-width: 100%;
+    order: 3;
+  }
+  .nm-two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Dark Theme: Line-first monochrome surface treatment matching #000000 canvas */
+:root[data-theme="dark"] .nm-wrap .nm-typebar,
+:root[data-theme="dark"] .nm-wrap .a3d-compact .a3d-stage-card,
+:root[data-theme="dark"] .nm-wrap .nm-inspector,
+:root[data-theme="dark"] .nm-wrap .nm-card,
+:root[data-theme="dark"] .nm-wrap .nm-batch-row {
+  background: transparent !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-typebar:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 26%, transparent), 0 0 0 1px var(--blue) !important;
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-typebar.has-issue {
+  box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.6) !important;
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-typebar.has-warn {
+  box-shadow: 0 0 0 1px rgba(255, 159, 10, 0.55) !important;
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-group,
+:root[data-theme="dark"] .nm-wrap .a3d-compact .a3d-toolbar,
+:root[data-theme="dark"] .nm-wrap .a3d-compact .a3d-specs {
+  border-color: rgba(255, 255, 255, 0.11) !important;
+}
+
+:root[data-theme="dark"] .nm-wrap .pdl-cnt,
+:root[data-theme="dark"] .nm-wrap .nm-seg-pill,
+:root[data-theme="dark"] .nm-wrap .asel-filter,
+:root[data-theme="dark"] .nm-wrap .asel-field,
+:root[data-theme="dark"] .nm-wrap .inp,
+:root[data-theme="dark"] .nm-wrap .btn:not(.p),
+:root[data-theme="dark"] .nm-wrap .nm-quick-chip,
+:root[data-theme="dark"] .nm-wrap .a3d-compact-chip,
+:root[data-theme="dark"] .nm-wrap .nm-sr-btn,
+:root[data-theme="dark"] .nm-wrap .nm-switch-row,
+:root[data-theme="dark"] .nm-wrap .nm-dyn-del,
+:root[data-theme="dark"] .nm-wrap .nm-slot,
+:root[data-theme="dark"] .nm-wrap .a3d-compact-rule,
+:root[data-theme="dark"] .nm-wrap .nm-lock-note,
+:root[data-theme="dark"] .nm-wrap .nm-batch-ta {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+:root[data-theme="dark"] .nm-wrap .asel-filter:hover:not(:disabled),
+:root[data-theme="dark"] .nm-wrap .asel-field:hover:not(:disabled),
+:root[data-theme="dark"] .nm-wrap .btn:not(.p):hover,
+:root[data-theme="dark"] .nm-wrap .nm-quick-chip:hover,
+:root[data-theme="dark"] .nm-wrap .a3d-compact-chip:hover,
+:root[data-theme="dark"] .nm-wrap .nm-sr-btn:hover,
+:root[data-theme="dark"] .nm-wrap .nm-switch-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-seg-pill button {
+  color: var(--sub);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-seg-pill button:hover {
+  color: var(--text);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-seg-pill button.on {
+  background: rgba(255, 255, 255, 0.09);
+  color: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+}
+
+:root[data-theme="dark"] .nm-wrap .asel-filter.asel-active,
+:root[data-theme="dark"] .nm-wrap .nm-quick-chip.on {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  color: var(--blue);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 50%, transparent);
+}
+
+:root[data-theme="dark"] .nm-wrap .a3d-compact-chip.on {
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-sr-btn.on {
+  background: color-mix(in srgb, #ff9f0a 12%, transparent);
+  color: #ffb340;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff9f0a 52%, transparent);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-switch-pill {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+}
+
+:root[data-theme="dark"] .nm-wrap .nm-switch-pill.on {
+  background: var(--blue);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .nm-wrap .a3d-compact .a3d-hud-pill {
+  background: rgba(0, 0, 0, 0.65) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .nm-wrap .nm-typebar,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact .a3d-stage-card,
+  :root:not([data-theme="light"]) .nm-wrap .nm-inspector,
+  :root:not([data-theme="light"]) .nm-wrap .nm-card,
+  :root:not([data-theme="light"]) .nm-wrap .nm-batch-row {
+    background: transparent !important;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14) !important;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-typebar:focus-within {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--blue) 26%, transparent), 0 0 0 1px var(--blue) !important;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-typebar.has-issue {
+    box-shadow: 0 0 0 1px rgba(255, 69, 58, 0.6) !important;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-typebar.has-warn {
+    box-shadow: 0 0 0 1px rgba(255, 159, 10, 0.55) !important;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-group,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact .a3d-toolbar,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact .a3d-specs {
+    border-color: rgba(255, 255, 255, 0.11) !important;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .pdl-cnt,
+  :root:not([data-theme="light"]) .nm-wrap .nm-seg-pill,
+  :root:not([data-theme="light"]) .nm-wrap .asel-filter,
+  :root:not([data-theme="light"]) .nm-wrap .asel-field,
+  :root:not([data-theme="light"]) .nm-wrap .inp,
+  :root:not([data-theme="light"]) .nm-wrap .btn:not(.p),
+  :root:not([data-theme="light"]) .nm-wrap .nm-quick-chip,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact-chip,
+  :root:not([data-theme="light"]) .nm-wrap .nm-sr-btn,
+  :root:not([data-theme="light"]) .nm-wrap .nm-switch-row,
+  :root:not([data-theme="light"]) .nm-wrap .nm-dyn-del,
+  :root:not([data-theme="light"]) .nm-wrap .nm-slot,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact-rule,
+  :root:not([data-theme="light"]) .nm-wrap .nm-lock-note,
+  :root:not([data-theme="light"]) .nm-wrap .nm-batch-ta {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .asel-filter:hover:not(:disabled),
+  :root:not([data-theme="light"]) .nm-wrap .asel-field:hover:not(:disabled),
+  :root:not([data-theme="light"]) .nm-wrap .btn:not(.p):hover,
+  :root:not([data-theme="light"]) .nm-wrap .nm-quick-chip:hover,
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact-chip:hover,
+  :root:not([data-theme="light"]) .nm-wrap .nm-sr-btn:hover,
+  :root:not([data-theme="light"]) .nm-wrap .nm-switch-row:hover {
+    background: rgba(255, 255, 255, 0.04);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-seg-pill button {
+    color: var(--sub);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-seg-pill button:hover {
+    color: var(--text);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-seg-pill button.on {
+    background: rgba(255, 255, 255, 0.09);
+    color: #ffffff;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .asel-filter.asel-active,
+  :root:not([data-theme="light"]) .nm-wrap .nm-quick-chip.on {
+    background: color-mix(in srgb, var(--blue) 10%, transparent);
+    color: var(--blue);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--blue) 50%, transparent);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact-chip.on {
+    background: color-mix(in srgb, var(--blue) 10%, transparent);
+    box-shadow: inset 0 0 0 1.5px var(--blue);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-sr-btn.on {
+    background: color-mix(in srgb, #ff9f0a 12%, transparent);
+    color: #ffb340;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #ff9f0a 52%, transparent);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-switch-pill {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .nm-switch-pill.on {
+    background: var(--blue);
+    box-shadow: none;
+  }
+
+  :root:not([data-theme="light"]) .nm-wrap .a3d-compact .a3d-hud-pill {
+    background: rgba(0, 0, 0, 0.65) !important;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
+  }
+}

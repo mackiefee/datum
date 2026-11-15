@@ -116,7 +116,14 @@ function buildLayerFaces(layer, zCenter, yawRad, pitchRad, zoom, cx, cy) {
   return { prismDepth: centerProj.depth, visibleFaces, detailLines };
 }
 
-export function Assembly3DView({ initialAssemblyId = null, customAssembly = null, embedded = false, onRead, onToast }) {
+export function Assembly3DView({
+  initialAssemblyId = null,
+  customAssembly = null,
+  embedded = false,
+  compact = false,
+  onRead,
+  onToast,
+}) {
   const [assemblyId, setAssemblyId] = useState(
     () => initialAssemblyId || ASSEMBLIES_3D[0].id
   );
@@ -131,7 +138,8 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
     }
   }, [initialAssemblyId]);
 
-  const [selectedLayerId, setSelectedLayerId] = useState(assembly.layers[0].id);
+  const firstLayerId = (assembly.layers[0] && assembly.layers[0].id) || 'layer-0';
+  const [selectedLayerId, setSelectedLayerId] = useState(firstLayerId);
   const [hiddenLayers, setHiddenLayers] = useState({});
   const [explode, setExplode] = useState(55);
   const [yaw, setYaw] = useState(-34);
@@ -140,7 +148,7 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
   const dragRef = useRef(null);
 
   useEffect(() => {
-    setSelectedLayerId(assembly.layers[0].id);
+    setSelectedLayerId((assembly.layers[0] && assembly.layers[0].id) || 'layer-0');
     setHiddenLayers({});
   }, [assembly.id]);
 
@@ -221,8 +229,9 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
     }
   };
 
-  return html`<div className=${embedded ? 'a3d-wrap a3d-emb' : 'a3d-wrap'}>
+  return html`<div className=${`a3d-wrap${embedded ? ' a3d-emb' : ''}${compact ? ' a3d-compact' : ''}`}>
     ${!customAssembly &&
+    !compact &&
     html`<div className="a3d-top">
       ${!embedded &&
       html`<div className="a3d-title">
@@ -325,7 +334,7 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
           </svg>
           <div className="a3d-hud">
             <span className="a3d-hud-pill">Drag to Orbit · Click Layer to Inspect</span>
-            <span className="a3d-hud-pill">Revit Type: ${assembly.revitType}</span>
+            ${!compact && html`<span className="a3d-hud-pill">Revit Type: ${assembly.revitType}</span>`}
           </div>
         </div>
 
@@ -345,7 +354,8 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
         </div>
       </div>
 
-      <div className="a3d-side">
+      ${!compact &&
+      html`<div className="a3d-side">
         <div className="a3d-panel">
           <div className="a3d-panel-hd">
             <div>
@@ -405,7 +415,30 @@ export function Assembly3DView({ initialAssemblyId = null, customAssembly = null
             <p className="a3d-rule">${selectedLayer.rule}</p>
           </div>
         </div>
-      </div>
+      </div>`}
+      ${compact &&
+      selectedLayer &&
+      html`<div className="a3d-compact-foot">
+        <div className="a3d-compact-chips">
+          ${assembly.layers.map((layer) => {
+            const isSel = layer.id === selectedLayer.id;
+            return html`<button
+              key=${layer.id}
+              type="button"
+              className=${`a3d-compact-chip ${isSel ? 'on' : ''}`}
+              onClick=${() => setSelectedLayerId(layer.id)}
+            >
+              <span className="a3d-swatch" style=${{ background: layer.color }}></span>
+              <span>${layer.name}</span>
+              <small>${layer.thicknessMm}mm</small>
+            </button>`;
+          })}
+        </div>
+        <div className="a3d-compact-rule">
+          <b>${selectedLayer.name}</b>
+          <span>${selectedLayer.rule}</span>
+        </div>
+      </div>`}
     </div>
   </div>`;
 }

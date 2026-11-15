@@ -1,11 +1,18 @@
 // Shared pure-JS Edge logic (Web Standard safe — runs in Next.js Edge Runtime and browser fallback)
 
+import { lookupNamingQuery } from '../features/naming/namingEngine.js';
+
+const SHORT_BIM_TOKENS = new Set([
+  'ch', 'bi', 'ai', 'fi', '0i', '0s', '0g', 'ag', 'gl', 'ar', 'pl',
+  'sr', 'nr', 'oc', '5d', 'bd', '2s', '3s', '4s', '6s', '8s', '2w', '4w', '6w', '8w',
+]);
+
 const tokenize = (s) =>
   (s || "")
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 || SHORT_BIM_TOKENS.has(w));
 
 const plainText = (b) =>
   (b || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/[#>*`|]/g, " ").replace(/\s+/g, " ").trim();
@@ -59,6 +66,7 @@ export function runAiEdgeLogic(payload) {
     canUserViewInEdge(it, userRole, userName, allowedCategories, directShareIds)
   );
 
+  const namingNote = lookupNamingQuery(query);
   const qTokens = tokenize(query);
   const ranked = authorized
     .map((r) => {
@@ -78,7 +86,30 @@ export function runAiEdgeLogic(payload) {
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
+  const toSource = (item, idx) => {
+    const cycle = item.reviewDays || 90;
+    const age = daysSince(item.verified || item.upd, today);
+    const bodyExcerpt = plainText(item.body || "").slice(0, 160);
+    return {
+      index: idx + 1,
+      id: item.id,
+      title: item.title,
+      stale: age > cycle,
+      ageDays: age,
+      excerpt: (bodyExcerpt || item.desc || "").trim(),
+    };
+  };
+
   if (!ranked.length) {
+    if (namingNote) {
+      const namingDoc = authorized.find((r) => r.id === 137) || authorized.find((r) => r.id === 107);
+      const sources = namingDoc ? [toSource(namingDoc, 0)] : [];
+      return {
+        answer: `[Rule Spec${namingDoc ? ` #${namingDoc.id}` : ''}] ${namingNote}${sources.length ? ' [1]' : ''}`,
+        sources,
+        authorizedCount: authorized.length,
+      };
+    }
     return {
       answer: "This topic is not covered in the current published library accessible to your role.",
       sources: [],
@@ -86,23 +117,15 @@ export function runAiEdgeLogic(payload) {
     };
   }
 
-  const sources = ranked.map((x, idx) => {
-    const cycle = x.item.reviewDays || 90;
-    const age = daysSince(x.item.verified || x.item.upd, today);
-    const bodyExcerpt = plainText(x.item.body || "").slice(0, 160);
-    return {
-      index: idx + 1,
-      id: x.item.id,
-      title: x.item.title,
-      stale: age > cycle,
-      ageDays: age,
-      excerpt: (bodyExcerpt || x.item.desc || "").trim(),
-    };
-  });
+  const sources = ranked.map((x, idx) => toSource(x.item, idx));
 
-  const answer = sources
+  const rankedSummary = sources
     .map((s) => `${s.excerpt}${s.excerpt.endsWith(".") ? "" : "."} [${s.index}]`)
     .join(" ");
+
+  const answer = namingNote
+    ? `${authorized.some((r) => r.id === 137) ? '[Rule Spec #137]' : '[Rule Spec]'} ${namingNote} — ${rankedSummary}`
+    : rankedSummary;
 
   return {
     answer,

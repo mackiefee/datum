@@ -431,7 +431,7 @@ Whenever a slide displays the **OUTDATED / SUPERSEDED** badge, engineers must us
     tags: ["naming", "worksets", "shared-parameters", "Revit"],
     author: "Andrii Lytvynov",
     upd: "2026-10-15",
-    links: [[105, "hard"], [130, "hard"]],
+    links: [[105, "hard"], [130, "hard"], [137, "hard"]],
     body: `## Element & Material Naming Rules
 Every Revit family type, wall assembly, door type, and material in the **C10_INTERIOR** model must conform strictly to \`T/U_Interior_Naming of the Elements/Materials\`.
 
@@ -1478,6 +1478,64 @@ Interior partitions, doors (with \`Door Clear Zones\` & \`Door Clear Handle\`), 
 - Cross-check Input Checklist, Procore, Input Log, and Coordination Log dates against C1010 LOD, Model Naming, Project Browser Standards, and **P&C Planit NF Standard**.
 
 > [!important] Initial **model setup time is NOT included** inside the interior partitions modeling ET — log it under a dedicated setup task in Redmine.
+`,
+  }),
+  mk({
+    id: 137,
+    node: "c10-doc-read",
+    type: "doc",
+    vis: "Internal",
+    title: "Wall & Soffit Naming Convention (13-Slot Standard)",
+    desc: "Official 13-slot Interior Wall & Soffit Revit type naming formula: Uniformat Unicode, PartitionType, Fire/SR, Finish Layers 1–3, Stud (S/CH/W/0S/AG), Insulation (BI/AI/FI/0I), O.C. Spacing, DD Tag, and GypsumLayer/CMU/5D&BD exceptions.",
+    status: "Approved",
+    stage: "Construction",
+    disc: "VDC",
+    tags: ["naming", "wall-naming", "soffit-naming", "C1010", "C1070", "CH", "BI", "AI", "FI", "0I", "0S", "0OC", "AG", "GypsumLayer", "CMUWall", "DoubleStudWall"],
+    author: "Andrii Lytvynov",
+    upd: "2026-11-15",
+    links: [[107, "hard"], [133, "hard"], [135, "hard"]],
+    body: `## 13-Slot Wall & Soffit Naming Formula
+Every Interior Wall and Soffit Revit type follows strict bottom-to-top / exterior-to-interior slot encoding separated by \`_\` (with \` - <Tag>\` only when present on DD):
+
+\`<1:Unicode>_<2:PartitionType>_<3:FireRating>_<4:Side1_1st>_<5:Side1_2nd>_<6:Side1_3rd>_<7:Stud>_<8:Insulation>_<9:Side2_1st>_<10:Side2_2nd>_<11:Side2_3rd>_<12:O.C.> - <13:DD Tag>\`
+
+> [!tip] Interactive Builder & Batch Validator: open **Naming Studio** in the sidebar (or **Ctrl+K -> Naming Studio**) to build types visually in 3D, run batch CSV audits, and detect Cyrillic homoglyphs (\`С\` vs Latin \`C\`).
+
+## Partition Types & Uniformat Codes
+- \`C1010.10.01_PartitionWall\` · Standard single-stud partition
+- \`C1010.10.02_FurredWall\` · Furred chase/wall framing
+- \`C1010.10.03_ShaftWall\` · Shaft liner assembly (\`1CH\`, \`C-H\`, \`E\`, \`T\` liner)
+- \`C1010.10.04_DemisingWall\` · Acoustic / fire demising partition
+- \`C1010.10.05_DoubleStudWall\` · Twin studs separated by Air Gap (\`2-1/2S/1AG/2-1/2S\`)
+- \`C1010.10.06_CMUWall\` · Masonry wall (forces \`0I\` & \`0OC\`)
+- \`C1010.10.07_ChaseWall\` · Plumbing/MEP chase partition
+- \`C1010.10.08_StackedWall\` · Multi-profile stacked wall
+- \`C1010.90.04_WallBase\` / \`C1010.90.03_WallGuard\` / \`C1010.90.06_SheathingLayer\` / \`C1010.90.07_AcousticLayer\`
+- \`C1010.90.05_GypsumLayer\` · **Short 6-slot exception**: stops at Side 1 · 3rd layer (no Stud/Insulation/Side 2/OC)
+- \`C1070.20.03_InteriorGWB Soffits\` · Ceiling soffit framing (no space before fire rating)
+
+## Short Codes Reference
+- **Fire Rating (Slot 3)**: \`NR\` (Non-Rated), \`1HR\`, \`2HR\`, \`3HR\`, append \`/SR\` for Smoke Resistant (\`2HR/SR\`).
+- **Finish Layers (Slots 4–6 & 9–11)**: \`0\` when absent, otherwise \`<thickness><code >\` — \`G\` (Gypsum/Type X), \`GL\` (Glass-Mat / Moisture & Mold), \`AR\` (Abuse-Resistant), \`PL\` (Acoustic/QuietRock), \`MR\` (Moisture Resistant), \`FR\` (Fire-Rated), \`C\` (Core/Shaftliner), \`P\` (Plywood), \`OSB\`, \`B\` (Cement Board), \`W\` (Wood), \`CMU\`.
+- **Studs & Framing (Slot 7)**: \`S\` = Metal Stud (\`3-5/8S\`, \`6S\`), \`CH\` = CH/H-Stud for shaft walls (\`2-1/2CH\`), \`W\` = Wood Stud (\`2x4W\`, \`2x6W\`), \`AG\` = Air Gap (\`1AG\` between double studs), \`0S\` = Lost / No Stud (use \`0S\`, never plain \`0\`).
+- **Insulation (Slot 8)**: \`BI\` = Batt Insulation, \`AI\` = Acoustic Insulation, \`FI\` = Foam Insulation, \`0I\` = Lost/None (use \`0I\`, never plain \`0\`). **CMUWall always uses \`0I\`**.
+- **O.C. Spacing (Slot 12)**: \`16OC\`, \`24OC\`, dual \`16OC/24OC\`, or \`0OC\` (Lost/None; **CMUWall always uses \`0OC\`**).
+- **DD Tag (Slot 13)**: Prefix with \` - \` only when tagged on DD (\` - 1MG2\`, \` - 70B\`, \` - B6 Smoke\`). Omit \` - \` entirely when modeled by assumption.
+
+## Mandatory Edge Rules & Exceptions
+1. **Lost Parameters**: Missing Stud = \`0S\`, missing Insulation = \`0I\`, missing Spacing = \`0OC\` (never bare \`0\`).
+2. **CMUWall (\`C1010.10.06\`)**: No stud Insulation and no O.C. spacing -> always encode \`..._7-5/8CMU_0I_0_0_0_0OC\`.
+3. **DoubleStudWall Air Gap**: Place \`1AG\` between stud sizes (\`2-1/2S/1AG/2-1/2S\`). On **5D&BD** projects, remove \`AG\` from the stud slot (\`2-1/2S/2-1/2S\`).
+4. **GypsumLayer (\`C1010.90.05\`)**: Truncate after Slot 6 (\`C1010.90.05_GypsumLayer_2HR_0_5/8G_5/8G\`).
+5. **Latin Characters Only**: Watch out for Cyrillic \`С\` (\`U+0421\`) pasted from Russian keyboards in \`C1010\` — always normalize to Latin \`C\`.
+
+## Verified Standard Examples
+1. \`C1010.10.01_PartitionWall_NR_0_0_5/8G_2x6W_BI_5/8G_0_0_16OC - 23\`
+2. \`C1010.10.06_CMUWall_1HR_0_0_0_7-5/8CMU_0I_0_0_0_0OC - 70B\`
+3. \`C1010.10.05_DoubleStudWall_1HR_0_5/8G_5/8G_2-1/2S/1AG/2-1/2S_AI_5/8G_5/8G_0_16OC/16OC - 1MG2\`
+4. \`C1010.10.01_PartitionWall_2HR/SR_0_5/8G_5/8G_6S_AI_5/8G_5/8G_0_16OC - B6 Smoke\`
+5. \`C1010.90.05_GypsumLayer_2HR_0_5/8G_5/8G\`
+6. \`C1070.20.03_InteriorGWB Soffits_NR_0_0_5/8G_3-5/8S_0I_0_0_0_16OC\`
 `,
   }),
 ];

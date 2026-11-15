@@ -146,6 +146,7 @@ export function Pal(p) {
   const A = [
     ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
     ["Knowledge Space (3D)", "globe", "kb-space"],
+    ["Naming Studio (Wall & Element Builder)", "layers", "view", "naming"],
     ["Knowledge Base (Grid)", "layout", "view", "kb"],
     ["Playbooks & Kits", "folder", "kits"],
     ["Dependency Graph", "graph", "kb-graph"],
