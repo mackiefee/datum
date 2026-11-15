@@ -27,7 +27,7 @@ import {
 import { docxImport } from './utils/docx.js';
 import { Ic, DatumMark } from './components/Icon.js';
 import { Pill, VisPill } from './components/Badge.js';
-import { FilterPopover, SortPopover, UserSwitcher } from './components/Select.js';
+import { FilterPopover, SortPopover, ViewModeSwitch, UserSwitcher } from './components/Select.js';
 import { Node } from './components/SpaceTree.js';
 import { Pal } from './components/CommandPalette.js';
 import { Drawer } from './components/ResourceDrawer.js';
@@ -141,6 +141,8 @@ export function App() {
   const [activeKitId, setActiveKitId] = useState(null);
   const [kitTier, setKitTier] = useState("all");
   const [creatingKit, setCreatingKit] = useState(false);
+  const [spaceStageOpen, setSpaceStageOpen] = useState(false);
+  const [heroResetSig, setHeroResetSig] = useState(0);
   const [open, setOpen] = useState([]);
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
@@ -308,10 +310,12 @@ export function App() {
     }
     if (qQuery) {
       setQ(qQuery);
+      setSpaceStageOpen(true);
     }
     if (qAsk) {
       setKbDisplay("space");
       setView("kb");
+      setSpaceStageOpen(true);
       setAq({ q: qAsk, n: Date.now() });
     }
     if (qRead) {
@@ -719,6 +723,7 @@ export function App() {
     setCatFilter("all");
     setActiveKitId(null);
     setView("lib");
+    setSpaceStageOpen(true);
     setNav(false);
     setQ("");
     window.scrollTo({ top: 0 });
@@ -732,17 +737,62 @@ export function App() {
   };
 
   const switchKbDisplay = (nextMode) => {
-    if (catFilter === "kits") setCatFilter("all");
+    if (catFilter === "kits" && !activeKitId) setCatFilter("all");
     setKbDisplay(nextMode);
+    setSpaceStageOpen(true);
     if (view === "space" && nextMode !== "space") {
       setView("kb");
     }
   };
 
+  const selectSpatialMode = (mode) => {
+    setRead(null);
+    setNav(false);
+    if (view === "naming" || view === "team" || view === "admin" || view === "type") {
+      setView("kb");
+    }
+    if (mode === "kits") {
+      setActiveKitId(null);
+      setCatFilter("kits");
+      setSpaceStageOpen(true);
+      return;
+    }
+    if (catFilter === "kits" && !activeKitId) {
+      setCatFilter("all");
+    }
+    setKbDisplay(mode === "grid" || mode === "graph" ? mode : "space");
+    setSpaceStageOpen(true);
+  };
+
+  const returnCleanChatHero = () => {
+    setNav(false);
+    setBell(false);
+    setPal(false);
+    setRead(null);
+    setActiveKitId(null);
+    setCatFilter("all");
+    setCur("all");
+    setF({});
+    setQ("");
+    setKbDisplay("space");
+    setView("kb");
+    setSpaceStageOpen(false);
+    setHeroResetSig((n) => n + 1);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
+
   const handleSetCatFilter = (nextCat) => {
     setCatFilter(nextCat);
+    if (nextCat !== "all") setSpaceStageOpen(true);
     if (view === "space" && nextCat === "kits") {
       setView("kb");
+    }
+  };
+
+  const setSpaceF = (nextF) => {
+    setF(nextF);
+    if (nextF && Object.values(nextF).some(Boolean)) {
+      setSpaceStageOpen(true);
     }
   };
 
@@ -752,30 +802,32 @@ export function App() {
     else if (k === "new") createNewDoc();
     else if (k === "home") goHome();
     else if (k === "kits") {
-      setActiveKitId(null);
-      setCatFilter("kits");
-      goV("kb");
+      selectSpatialMode("kits");
     } else if (k === "kb-space") {
       setActiveKitId(null);
       if (catFilter === "kits") setCatFilter("all");
       setKbDisplay("space");
+      setSpaceStageOpen(true);
       goV("kb");
+    } else if (k === "grid") {
+      selectSpatialMode("grid");
     } else if (k === "kb-graph") {
-      setCatFilter("all");
-      setKbDisplay("graph");
-      goV("kb");
+      selectSpatialMode("graph");
     } else if (k === "view") goV(a);
     else if (k === "go") go(a);
     else if (k === "theme") theme();
     else if (k === "ask") {
       setKbDisplay("space");
+      setSpaceStageOpen(true);
       goHome(true);
       setAq({ q: a, n: Date.now() });
     } else if (k === "all") {
       setQ(a);
       setRead(null);
       setCatFilter("all");
+      setActiveKitId(null);
       setKbDisplay("grid");
+      setSpaceStageOpen(true);
       setView("lib");
       setCur("all");
     }
@@ -1044,15 +1096,18 @@ export function App() {
 
   const curCat = view === "lib" && !["all", "fav", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
   const isSpaceView =
-    catFilter !== "kits" &&
-    (view === "space" || (kbDisplay === "space" && (view === "lib" || view === "kb" || view === "home" || view === "reslib")));
+    view === "space" || view === "lib" || view === "kb" || view === "home" || view === "reslib";
+  const activeViewMode =
+    (view === "kb" || view === "space" || view === "lib" || view === "home" || view === "reslib") &&
+    catFilter === "kits" &&
+    !activeKitId
+      ? "kits"
+      : kbDisplay === "grid" || kbDisplay === "graph"
+      ? kbDisplay
+      : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
   const pageTitle =
-    view === "kb" || view === "home"
-      ? isSpaceView
-        ? "Knowledge Space"
-        : "Knowledge Base"
-      : view === "space"
+    view === "kb" || view === "home" || view === "space"
       ? "Knowledge Space"
       : view === "wall"
       ? "Detail Wall"
@@ -1311,15 +1366,18 @@ export function App() {
       setCatFilter("all");
       setCur("all");
       setKbDisplay("space");
+      setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "kits") {
       setRead(null);
       setActiveKitId(null);
       setCatFilter("kits");
+      setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "naming" || key === "team" || key === "admin") {
       goV(key);
     } else if (key === "fav" || key === "drafts" || key === "recent") {
+      setSpaceStageOpen(true);
       go(key);
     }
   };
@@ -1331,6 +1389,7 @@ export function App() {
     setCatFilter("all");
     setCur("all");
     setKbDisplay("space");
+    setSpaceStageOpen(true);
     setView("kb");
     setSpaceChatSig((n) => n + 1);
     setNav(false);
@@ -1343,7 +1402,11 @@ export function App() {
     setActiveKitId(null);
     setCatFilter("all");
     setCur("all");
+    setF({});
+    setQ("");
     setKbDisplay("space");
+    setSpaceStageOpen(false);
+    setHeroResetSig((n) => n + 1);
     setView("kb");
     setNav(false);
     setHf((n) => n + 1);
@@ -1577,8 +1640,8 @@ export function App() {
           <button
             type="button"
             className="nav-brand-btn"
-            title="Knowledge Space"
-            onClick=${() => handleNavSwitch("kb-space")}
+            title="Return to clean Chat-First view"
+            onClick=${returnCleanChatHero}
           >
             <${DatumMark} s=${20} />
             <span className="nav-brand-label">${rr ? "Datum" : pageTitle}</span>
@@ -1705,6 +1768,12 @@ export function App() {
         ${(view === "home" || view === "lib" || view === "kb" || view === "space" || view === "reslib") &&
         (() => {
           const catalogToolbarControls = html`<${Fragment}>
+            <${ViewModeSwitch}
+              viewMode=${activeViewMode}
+              stageOpen=${spaceStageOpen}
+              visibleColsCount=${visibleCols.length}
+              onSelectMode=${selectSpatialMode}
+            />
             <${FilterPopover}
               view=${view}
               curCat=${curCat}
@@ -1715,7 +1784,7 @@ export function App() {
               kitTier=${kitTier}
               setKitTier=${setKitTier}
               f=${f}
-              setF=${setF}
+              setF=${setSpaceF}
               disciplines=${DISC}
               discColors=${DC}
               canFilterStatus=${can.createDraft(role)}
@@ -1728,18 +1797,16 @@ export function App() {
               catFilter=${catFilter}
               setCatFilter=${handleSetCatFilter}
               setActiveKitId=${setActiveKitId}
+              activeKitId=${activeKitId}
               kbDisplay=${kbDisplay}
               setKbDisplay=${switchKbDisplay}
+              onSelectViewMode=${selectSpatialMode}
+              stageOpen=${spaceStageOpen}
+              hideViewDesktop=${true}
               sort=${sort}
               setSort=${setSort}
               visibleColsCount=${visibleCols.length}
             />
-            ${view === "kb" &&
-            catFilter === "kits" &&
-            !isGuest &&
-            html`<button className="btn p" onClick=${() => setCreatingKit(true)}>
-              <${Ic} n="plus" s=${14} /><span>New Kit</span>
-            </button>`}
           <//>`;
 
           const spaceLeftNav = html`<${Fragment}>
@@ -1758,8 +1825,8 @@ export function App() {
             <button
               type="button"
               className="nav-brand-btn"
-              title="Knowledge Space"
-              onClick=${() => handleNavSwitch("kb-space")}
+              title=${spaceStageOpen ? "Clean Chat-First view" : "Knowledge Space"}
+              onClick=${returnCleanChatHero}
             >
               <${DatumMark} s=${20} />
               <span className="nav-brand-label">${pageTitle}</span>
@@ -1810,7 +1877,26 @@ export function App() {
               role=${role}
               userName=${userName}
               pinned=${pinned}
-              cols=${cols}
+              cols=${visibleCols}
+              viewMode=${activeViewMode}
+              onSelectViewMode=${selectSpatialMode}
+              stageOpen=${spaceStageOpen}
+              onStageOpenChange=${setSpaceStageOpen}
+              heroResetSignal=${heroResetSig}
+              activeKitId=${activeKitId}
+              onSelectKit=${(kitId) => {
+                setActiveKitId(kitId || null);
+                setCatFilter("kits");
+                setSpaceStageOpen(true);
+              }}
+              kitTier=${kitTier}
+              onKitTierChange=${setKitTier}
+              creatingKit=${creatingKit}
+              onCreatingKitChange=${setCreatingKit}
+              onAddCol=${addCol}
+              onSaveCol=${saveCol}
+              onDelCol=${delCol}
+              onOpenPublic=${(t) => setPubTarget(t)}
               aq=${aq}
               focusSignal=${hf}
               openChatSignal=${spaceChatSig}
@@ -1819,12 +1905,12 @@ export function App() {
               onOpenKit=${(kitId) => {
                 setActiveKitId(kitId);
                 setCatFilter("kits");
-                setView("kb");
+                setSpaceStageOpen(true);
               }}
               onOpenAllKits=${() => {
                 setActiveKitId(null);
                 setCatFilter("kits");
-                setView("kb");
+                setSpaceStageOpen(true);
               }}
               favs=${favs}
               onToggleFav=${(id) => tgl(setFavs, id)}
@@ -1835,11 +1921,11 @@ export function App() {
               onResetFilters=${() => {
                 setF({});
                 setQ("");
-                setCatFilter("all");
+                if (catFilter !== "kits") setCatFilter("all");
               }}
               onClearCategory=${() => goHome()}
               f=${f}
-              setF=${setF}
+              setF=${setSpaceF}
               toolbarRight=${catalogToolbarControls}
               spaceLeftNav=${spaceLeftNav}
               spaceActions=${spaceHeaderActions}

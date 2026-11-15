@@ -76,6 +76,16 @@
     linear-gradient(180deg, #000000 0%, transparent 10%, transparent 78%, rgba(0, 0, 0, 0.68) 90%, #000000 100%);
 }
 
+.kspace-stage.is-flat .kspace-vignette {
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0.42) 0%, transparent 8%, transparent 84%, rgba(0, 0, 0, 0.72) 100%);
+}
+
+.kspace-stage.is-hero .kspace-vignette,
+.kspace-stage.is-kits .kspace-vignette {
+  background: none;
+}
+
 /* Single-row floating visionOS top bar */
 .kspace-topbar {
   position: relative;
@@ -250,6 +260,56 @@
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 36%, transparent);
 }
 
+/* Unified 1-click mode switcher (Space | Grid | Graph | Kits) */
+.kspace-view-seg {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  gap: 2px;
+}
+
+.kspace-view-seg button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: rgba(235, 235, 245, 0.68);
+  white-space: nowrap;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.kspace-view-seg button:hover:not(.on) {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.kspace-view-seg button.on {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+@media (min-width: 960px) {
+  .lpop-view-mob {
+    display: none;
+  }
+}
+
+@media (max-width: 959px) {
+  .kspace-view-seg {
+    display: none;
+  }
+}
+
 /* Segmented Grid | Space mode switcher pill */
 .kview-seg {
   display: inline-flex;
@@ -296,6 +356,16 @@
   overflow: hidden;
 }
 
+.kspace-viewport.is-grid {
+  perspective: none;
+  cursor: default;
+}
+
+.kspace-viewport.is-graph {
+  perspective: none;
+  cursor: grab;
+}
+
 .kspace-viewport.dragging {
   cursor: grabbing;
 }
@@ -306,6 +376,12 @@
   height: 0;
   transform-style: preserve-3d;
   will-change: transform;
+}
+
+.kspace-viewport.is-grid .kspace-scene,
+.kspace-viewport.is-graph .kspace-scene {
+  transform-style: flat;
+  z-index: 2;
 }
 
 /* Apple visionOS-styled cards (no backdrop-filter inside preserve-3d to avoid tile seams) */
@@ -376,7 +452,8 @@
   transition: opacity 0.14s ease;
 }
 
-.card.kspace-card.is-ai-source .acts {
+.card.kspace-card.is-ai-source:not(:hover) .acts,
+.card.kspace-card.is-ai-source.is-focus:not(:hover) .acts {
   opacity: 0;
   pointer-events: none;
 }
@@ -520,16 +597,24 @@
 
 .kspace-dock {
   position: absolute;
-  left: 50%;
+  left: 0;
+  right: 0;
   bottom: 14px;
-  transform: translateX(-50%);
+  margin: 0 auto;
   width: min(940px, calc(100% - 48px));
   z-index: 12;
   display: flex;
   flex-direction: column;
   gap: 8px;
   pointer-events: none;
-  transition: transform 0.24s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease;
+  transition: opacity 0.2s ease;
+}
+
+.kspace-dock.is-hero {
+  top: clamp(136px, calc(50vh - 118px), 44vh);
+  bottom: auto;
+  width: min(760px, calc(100% - 48px));
+  gap: 12px;
 }
 
 .kspace-dock > * {
@@ -2029,6 +2114,14 @@
   .pad.pad-space {
     padding: 0 !important;
     min-height: 100dvh;
+    max-width: 100%;
+    overflow-x: clip;
+  }
+
+  .app:has(.pad-space),
+  .app:has(.pad-space) .main {
+    max-width: 100%;
+    overflow-x: clip;
   }
 
   .kspace-stage {
@@ -2038,6 +2131,7 @@
     flex-direction: column;
     justify-content: flex-end;
     overflow: hidden;
+    overflow-x: clip;
     border-radius: 0 !important;
   }
 
@@ -3253,6 +3347,852 @@
   }
 }
 
+/* Minimalist Chat-First Hero Intro */
+.kspace-hero-head {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  animation: kspaceMobFadeUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.kspace-hero-title {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 35px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: #f5f5f7;
+}
+
+.kspace-hero-sub {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: rgba(235, 235, 245, 0.6);
+  max-width: 540px;
+}
+
+.kspace-dock.is-hero .kspace-dock-bar {
+  justify-content: center;
+}
+
+.kspace-dock.is-hero .kspace-chips-scroll {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.kspace-pchip-hero {
+  background: rgba(10, 132, 255, 0.2);
+  border-color: rgba(10, 132, 255, 0.45);
+  color: #70b7ff;
+  font-weight: 600;
+}
+
+.kspace-pchip-hero:hover {
+  background: rgba(10, 132, 255, 0.3);
+  border-color: rgba(10, 132, 255, 0.72);
+  color: #ffffff;
+}
+
+/* Grid soft scroll feather mask */
+.kspace-viewport.is-grid {
+  mask-image: linear-gradient(180deg, transparent 0%, #000 68px, #000 calc(100% - 116px), transparent 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 68px, #000 calc(100% - 116px), transparent 100%);
+}
+
+/* Live Card Dependency Graph SVG Edges & Node Styling */
+.kspace-graph-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+  overflow: visible;
+}
+
+.kspace-graph-edge {
+  transition: opacity 0.16s ease;
+}
+
+.kspace-graph-edge path {
+  stroke: rgba(155, 170, 196, 0.56);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  transition: stroke 0.16s ease, stroke-width 0.16s ease;
+}
+
+.kspace-graph-edge.is-soft path {
+  stroke-dasharray: 4 4;
+}
+
+.kspace-graph-edge polygon {
+  fill: rgba(155, 170, 196, 0.74);
+  transition: fill 0.16s ease;
+}
+
+.kspace-graph-edge.is-out path {
+  stroke: #0a84ff;
+  stroke-width: 2.3;
+  stroke-dasharray: none;
+}
+
+.kspace-graph-edge.is-out polygon {
+  fill: #0a84ff;
+}
+
+.kspace-graph-edge.is-in path {
+  stroke: #30d158;
+  stroke-width: 2.3;
+  stroke-dasharray: none;
+}
+
+.kspace-graph-edge.is-in polygon {
+  fill: #30d158;
+}
+
+.kspace-graph-edge.is-ai path {
+  stroke: #bf5af2;
+  stroke-width: 2.2;
+}
+
+.kspace-graph-edge.is-ai polygon {
+  fill: #bf5af2;
+}
+
+.card.kspace-card.is-graph-node {
+  padding: 9px 11px;
+  border-radius: 13px;
+  cursor: pointer;
+}
+
+.card.kspace-card.is-graph-node .acts {
+  top: 7px;
+  right: 7px;
+}
+
+.card.kspace-card.is-graph-node .ch2 {
+  gap: 7px;
+  margin-bottom: 4px;
+}
+
+.card.kspace-card.is-graph-node .tl {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+}
+
+.card.kspace-card.is-graph-node .who small {
+  display: none;
+}
+
+.card.kspace-card.is-graph-node h3 {
+  font-size: 12px;
+  line-height: 1.24;
+  -webkit-line-clamp: 2;
+  margin-bottom: 4px;
+}
+
+.card.kspace-card.is-graph-node p {
+  display: none;
+}
+
+.card.kspace-card.is-graph-node .row {
+  margin-top: auto;
+  gap: 5px;
+  font-size: 10px;
+}
+
+.card.kspace-card.is-graph-node.is-graph-selected {
+  border-color: rgba(10, 132, 255, 0.92);
+  box-shadow:
+    0 0 0 2px #0a84ff,
+    0 14px 36px rgba(10, 132, 255, 0.34);
+}
+
+.card.kspace-card.is-graph-node.is-graph-neighbor {
+  border-color: rgba(48, 209, 88, 0.65);
+  box-shadow: 0 0 0 1px rgba(48, 209, 88, 0.32);
+}
+
+.card.kspace-card.is-graph-node.is-graph-hover:not(.is-graph-selected) {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.card.kspace-card.is-graph-node.is-graph-dim {
+  filter: saturate(0.45);
+}
+
+.kspace-graph-deg {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.68);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Graph Relationship Selection Bar inside Dock */
+.kspace-graph-selbar {
+  border-radius: 16px;
+  padding: 10px 14px;
+  background: rgba(18, 19, 23, 0.9);
+  backdrop-filter: saturate(180%) blur(28px);
+  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 16px 40px rgba(0, 0, 0, 0.56);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  animation: kspaceSheetIn 0.18s cubic-bezier(0.2, 0.9, 0.25, 1);
+}
+
+.kspace-gs-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kspace-gs-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1 1 220px;
+}
+
+.kspace-gs-node b {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f5f5f7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kspace-gs-disc {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.65);
+  flex: none;
+}
+
+.kspace-gs-meta {
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+
+.kspace-gs-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.kspace-gs-rels {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kspace-gs-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.kspace-gs-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(235, 235, 245, 0.52);
+  margin-right: 2px;
+}
+
+.kspace-gs-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.kspace-gs-chip:hover {
+  background: rgba(255, 255, 255, 0.13);
+  border-color: var(--c, #0a84ff);
+}
+
+.kspace-gs-chip i {
+  background: var(--c, #0a84ff);
+}
+
+.kspace-gs-empty {
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.52);
+}
+
+/* Graph Options Popover in HUD */
+.kspace-graph-opts-wrap {
+  position: relative;
+}
+
+.kspace-graph-opts-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  min-width: 210px;
+  padding: 6px;
+  border-radius: 14px;
+  background: rgba(20, 21, 26, 0.96);
+  backdrop-filter: blur(26px);
+  -webkit-backdrop-filter: blur(26px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.62);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 20;
+}
+
+.kspace-gopt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(245, 245, 247, 0.88);
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.kspace-gopt-row:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.kspace-gopt-row span:last-child {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.52);
+}
+
+.kspace-gopt-row.on span:last-child {
+  color: #30d158;
+  font-weight: 600;
+}
+
+.kspace-hud-btn.up svg {
+  transform: rotate(90deg);
+}
+
+.kspace-hud-btn.down svg {
+  transform: rotate(-90deg);
+}
+
+/* Starter Kits Showcase & Opened Kit Spatial Crumb */
+.kspace-kits-showcase {
+  position: absolute;
+  inset: 66px 0 118px;
+  z-index: 6;
+  overflow-y: auto;
+  padding: 12px 34px 32px;
+  animation: kspaceMobFadeUp 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.kspace-kits-head,
+.kspace-kits-deck {
+  max-width: 1140px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.kspace-kits-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.kspace-kits-head h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: #f5f5f7;
+}
+
+.kspace-kits-head p {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(235, 235, 245, 0.62);
+}
+
+.kspace-kits-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.kspace-kits-deck {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(295px, 1fr));
+  gap: 22px;
+}
+
+.kspace-kit-pack {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px 15px;
+  border-radius: 20px;
+  background: linear-gradient(160deg, rgba(30, 32, 38, 0.96) 0%, rgba(18, 19, 24, 0.94) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.44);
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kspace-kit-pack::before,
+.kspace-kit-pack::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 10px;
+  border-radius: 0 0 16px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 0;
+  background: rgba(22, 24, 30, 0.85);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.kspace-kit-pack::before {
+  bottom: -6px;
+}
+
+.kspace-kit-pack::after {
+  left: 20px;
+  right: 20px;
+  bottom: -11px;
+  opacity: 0.65;
+  z-index: -2;
+}
+
+.kspace-kit-pack:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--kit-c, #0a84ff) 65%, rgba(255, 255, 255, 0.3));
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, 0.58),
+    0 0 0 1px color-mix(in srgb, var(--kit-c, #0a84ff) 25%, transparent);
+}
+
+.kspace-kit-pack-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.kspace-kit-pack h3 {
+  margin: 2px 0 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #f5f5f7;
+}
+
+.kspace-kit-pack p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: rgba(235, 235, 245, 0.64);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kspace-kit-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  margin-top: auto;
+}
+
+.kspace-kit-mini {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  color: rgba(245, 245, 247, 0.86);
+}
+
+.kspace-kit-mini span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kspace-kit-mini-n {
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: rgba(235, 235, 245, 0.45);
+  flex: none;
+}
+
+.kspace-kit-mini-more {
+  font-size: 11px;
+  color: rgba(235, 235, 245, 0.5);
+  padding-left: 20px;
+}
+
+.kspace-kit-pack-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.54);
+  padding-top: 2px;
+}
+
+.kspace-kit-go {
+  color: var(--kit-c, #2997ff);
+  font-weight: 600;
+}
+
+/* Opened Kit Crumb Bar inside Spatial Stage */
+.kspace-kit-crumb {
+  position: relative;
+  z-index: 7;
+  margin: 8px 22px 0;
+  padding: 8px 14px;
+  border-radius: 15px;
+  background: rgba(20, 21, 26, 0.86);
+  backdrop-filter: saturate(180%) blur(24px);
+  -webkit-backdrop-filter: saturate(180%) blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kspace-kit-crumb-main {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.kspace-kit-crumb-t {
+  font-size: 13.5px;
+  font-weight: 650;
+  color: #f5f5f7;
+  white-space: nowrap;
+}
+
+.kspace-kit-crumb-cnt {
+  font-size: 11.5px;
+  color: rgba(235, 235, 245, 0.55);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.kspace-kit-crumb-d {
+  font-size: 12px;
+  color: rgba(235, 235, 245, 0.58);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kspace-kit-crumb-acts {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+}
+
+.kspace-mini-btn.is-danger {
+  color: #ff453a;
+  border-color: rgba(255, 69, 58, 0.45);
+  background: rgba(255, 69, 58, 0.14);
+}
+
+.kspace-kit-addbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  flex-wrap: wrap;
+}
+
+.kspace-kit-note-in {
+  flex: 1 1 200px;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f5f7;
+  font-size: 12.5px;
+}
+
+.kspace-kit-step {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.16);
+  border: 1px solid rgba(10, 132, 255, 0.34);
+  color: #70b7ff;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.card.kspace-card:hover .kspace-kit-step {
+  opacity: 0.12;
+}
+
+.kspace-kit-note {
+  font-size: 11px;
+  line-height: 1.35;
+  color: #70b7ff;
+  background: rgba(10, 132, 255, 0.1);
+  border-left: 2px solid #0a84ff;
+  padding: 4px 8px;
+  border-radius: 0 7px 7px 0;
+  margin: 4px 0 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Light Theme Overrides for Unified Spatial Formations */
+:root[data-theme="light"] .kspace-stage.is-flat .kspace-vignette {
+  background:
+    linear-gradient(180deg, rgba(245, 245, 247, 0.5) 0%, transparent 8%, transparent 84%, rgba(245, 245, 247, 0.78) 100%);
+}
+
+:root[data-theme="light"] .kspace-stage.is-hero .kspace-vignette,
+:root[data-theme="light"] .kspace-stage.is-kits .kspace-vignette {
+  background: none;
+}
+
+:root[data-theme="light"] .kspace-view-seg {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .kspace-view-seg button {
+  color: #515156;
+}
+
+:root[data-theme="light"] .kspace-view-seg button:hover:not(.on) {
+  color: #1d1d1f;
+  background: rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="light"] .kspace-view-seg button.on {
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14);
+}
+
+:root[data-theme="light"] .kspace-hero-title,
+:root[data-theme="light"] .kspace-kits-head h2,
+:root[data-theme="light"] .kspace-kit-pack h3,
+:root[data-theme="light"] .kspace-kit-crumb-t,
+:root[data-theme="light"] .kspace-gs-node b {
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-hero-sub,
+:root[data-theme="light"] .kspace-kits-head p,
+:root[data-theme="light"] .kspace-kit-pack p,
+:root[data-theme="light"] .kspace-kit-pack-foot,
+:root[data-theme="light"] .kspace-kit-crumb-cnt,
+:root[data-theme="light"] .kspace-kit-crumb-d,
+:root[data-theme="light"] .kspace-gs-disc,
+:root[data-theme="light"] .kspace-gs-meta,
+:root[data-theme="light"] .kspace-gs-lbl,
+:root[data-theme="light"] .kspace-gs-empty,
+:root[data-theme="light"] .kspace-graph-deg {
+  color: #6e6e73;
+}
+
+:root[data-theme="light"] .kspace-pchip-hero {
+  background: rgba(0, 113, 227, 0.12);
+  border-color: rgba(0, 113, 227, 0.34);
+  color: #0071e3;
+}
+
+:root[data-theme="light"] .kspace-graph-edge path {
+  stroke: rgba(71, 85, 105, 0.45);
+}
+
+:root[data-theme="light"] .kspace-graph-edge polygon {
+  fill: rgba(71, 85, 105, 0.65);
+}
+
+:root[data-theme="light"] .kspace-graph-selbar,
+:root[data-theme="light"] .kspace-graph-opts-pop,
+:root[data-theme="light"] .kspace-kit-crumb {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.12);
+}
+
+:root[data-theme="light"] .kspace-gs-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-gopt-row {
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-gopt-row:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="light"] .kspace-kit-pack {
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 249, 252, 0.95) 100%);
+  border-color: rgba(0, 0, 0, 0.09);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-theme="light"] .kspace-kit-pack::before,
+:root[data-theme="light"] .kspace-kit-pack::after {
+  background: #eff1f5;
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .kspace-kit-preview {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+
+:root[data-theme="light"] .kspace-kit-mini {
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-kit-note-in {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-kit-step {
+  color: #0071e3;
+  background: rgba(0, 113, 227, 0.1);
+  border-color: rgba(0, 113, 227, 0.25);
+}
+
+:root[data-theme="light"] .kspace-kit-note {
+  color: #0058b0;
+  background: rgba(0, 113, 227, 0.08);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .kspace-stage.is-flat .kspace-vignette {
+    background:
+      linear-gradient(180deg, rgba(245, 245, 247, 0.5) 0%, transparent 8%, transparent 84%, rgba(245, 245, 247, 0.78) 100%);
+  }
+  :root:not([data-theme="dark"]) .kspace-view-seg {
+    background: rgba(0, 0, 0, 0.05);
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
+  }
+  :root:not([data-theme="dark"]) .kspace-view-seg button {
+    color: #515156;
+  }
+  :root:not([data-theme="dark"]) .kspace-view-seg button.on {
+    background: #ffffff;
+    color: #1d1d1f;
+  }
+  :root:not([data-theme="dark"]) .kspace-hero-title,
+  :root:not([data-theme="dark"]) .kspace-kits-head h2,
+  :root:not([data-theme="dark"]) .kspace-kit-pack h3,
+  :root:not([data-theme="dark"]) .kspace-kit-crumb-t,
+  :root:not([data-theme="dark"]) .kspace-gs-node b {
+    color: #1d1d1f;
+  }
+  :root:not([data-theme="dark"]) .kspace-hero-sub,
+  :root:not([data-theme="dark"]) .kspace-kits-head p,
+  :root:not([data-theme="dark"]) .kspace-kit-pack p {
+    color: #6e6e73;
+  }
+  :root:not([data-theme="dark"]) .kspace-graph-selbar,
+  :root:not([data-theme="dark"]) .kspace-graph-opts-pop,
+  :root:not([data-theme="dark"]) .kspace-kit-crumb {
+    background: rgba(255, 255, 255, 0.94);
+    border-color: rgba(0, 0, 0, 0.09);
+  }
+  :root:not([data-theme="dark"]) .kspace-kit-pack {
+    background: linear-gradient(160deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 249, 252, 0.95) 100%);
+    border-color: rgba(0, 0, 0, 0.09);
+  }
+}
+
+.card.kspace-card .who b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kspace-kit-step-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(10, 132, 255, 0.16);
+  border: 1px solid rgba(10, 132, 255, 0.34);
+  color: #70b7ff;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+:root[data-theme="light"] .kspace-kit-step-inline {
+  color: #0071e3;
+  background: rgba(0, 113, 227, 0.1);
+  border-color: rgba(0, 113, 227, 0.25);
+}
+
 @keyframes kspaceMobFadeUp {
   from {
     opacity: 0;
@@ -3274,6 +4214,11 @@
   .kspace-chat-panel,
   .kspace-quick-hits,
   .kspace-kits-pop,
+  .kspace-hero-head,
+  .kspace-kits-showcase,
+  .kspace-kit-pack,
+  .kspace-graph-selbar,
+  .kspace-graph-edge,
   .kspace-mob-actions,
   .kspace-mob-sheet,
   .kspace-mob-results {

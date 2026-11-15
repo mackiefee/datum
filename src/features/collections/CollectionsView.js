@@ -6,8 +6,126 @@ import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { Select } from '../../components/Select.js';
 
-const TIER_LABEL = { official: "Official", shared: "Shared", personal: "Personal" };
-const TIER_COL = { official: "#0a84ff", shared: "#34c759", personal: "#bf5af2" };
+export const TIER_LABEL = { official: "Official", shared: "Shared", personal: "Personal" };
+export const TIER_COL = { official: "#0a84ff", shared: "#34c759", personal: "#bf5af2" };
+
+export function canEditCol(c, role, userName) {
+  if (!c) return false;
+  if (can.admin(role)) return true;
+  if (c.tier === "official") return false;
+  if (c.tier === "shared") return can.createDraft(role) && (c.owner === userName || (c.coEditors || []).includes(userName));
+  return normRole(role) !== "Guest" && c.owner === userName;
+}
+
+/**
+ * Portal modal for creating a new Starter Kit / Playbook.
+ */
+export function KitComposerModal({ open, role, userName, onClose, onCreate }) {
+  const [draft, setDraft] = useState({ name: "", desc: "", tier: "personal", vis: "Restricted" });
+  if (!open || typeof document === "undefined") return null;
+
+  const submit = () => {
+    if (!draft.name.trim()) return;
+    const isOfficial = draft.tier === "official" && (can.admin(role) || normRole(role) === "Editor");
+    const finalTier = isOfficial ? "official" : draft.tier === "official" ? "shared" : draft.tier;
+    const col = {
+      id: "col-" + Date.now(),
+      name: draft.name.trim(),
+      desc: draft.desc.trim() || "Curated resource and document kit.",
+      tier: finalTier,
+      mode: "list",
+      owner: userName,
+      vis: finalTier === "personal" ? "Restricted" : draft.vis === "Public" && can.publicize(role) ? "Public" : "Internal",
+      coEditors: [],
+      at: Date.now(),
+      items: [],
+      nodes: [],
+      edges: [],
+      vp: null,
+    };
+    onCreate && onCreate(col);
+    setDraft({ name: "", desc: "", tier: "personal", vis: "Restricted" });
+    onClose && onClose();
+  };
+
+  return createPortal(
+    html`<div
+      className="pdl-composer-ov"
+      onMouseDown=${(e) => {
+        if (e.target === e.currentTarget) onClose && onClose();
+      }}
+      onKeyDown=${(e) => {
+        if (e.key === "Escape") onClose && onClose();
+      }}
+    >
+      <form
+        className="pdl-composer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="New Kit"
+        onSubmit=${(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <div className="pdl-comp-head">
+          <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Kit / Playbook</span>
+          <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => onClose && onClose()}>
+            <${Ic} n="x" s=${14} />
+          </button>
+        </div>
+        <div className="pdl-comp-body">
+          <input
+            className="pdl-comp-title"
+            placeholder="Kit title (e.g. Revit Onboarding Kit)"
+            value=${draft.name}
+            onChange=${(e) => setDraft({ ...draft, name: e.target.value })}
+            autoFocus
+          />
+          <input
+            className="pdl-comp-sub"
+            placeholder="Add short description or purpose..."
+            value=${draft.desc}
+            onChange=${(e) => setDraft({ ...draft, desc: e.target.value })}
+          />
+        </div>
+        <div className="pdl-comp-foot">
+          <div className="pdl-comp-pills">
+            <${Select}
+              variant="field"
+              ariaLabel="Kit tier"
+              value=${draft.tier}
+              minMenuWidth=${190}
+              options=${[
+                ["personal", "Personal (Private)"],
+                ...(can.createDraft(role) ? [["shared", "Shared Team Kit"]] : []),
+                ...(can.admin(role) ? [["official", "Official Company Kit"]] : []),
+              ]}
+              onChange=${(v) => setDraft({ ...draft, tier: v })}
+            />
+            ${draft.tier !== "personal" &&
+            html`<${Select}
+              variant="field"
+              ariaLabel="Kit visibility"
+              value=${draft.vis}
+              minMenuWidth=${200}
+              options=${[
+                ["Internal", "Internal (Company-wide)"],
+                ...(can.publicize(role) ? [["Public", "Public (External Portal)"]] : []),
+              ]}
+              onChange=${(v) => setDraft({ ...draft, vis: v })}
+            />`}
+          </div>
+          <div className="pdl-comp-acts">
+            <button type="button" className="btn" onClick=${() => onClose && onClose()}>Cancel</button>
+            <button type="submit" className="btn p" disabled=${!draft.name.trim()}>Create</button>
+          </div>
+        </div>
+      </form>
+    </div>`,
+    document.body
+  );
+}
 
 export function CollectionsView(p) {
   const {
@@ -43,7 +161,6 @@ export function CollectionsView(p) {
     setCreating(next);
     onExternalCreatingChange && onExternalCreatingChange(next);
   };
-  const [draft, setDraft] = useState({ name: "", desc: "", tier: "personal", vis: "Restricted" });
   const [addItemId, setAddItemId] = useState("");
   const [addNote, setAddNote] = useState("");
   const [confirmDel, setConfirmDel] = useState(null);
@@ -74,38 +191,7 @@ export function CollectionsView(p) {
   const activeCol = visibleCols.find((c) => c.id === openColId);
   const resMap = Object.fromEntries(res.map((r) => [r.id, r]));
 
-  const handleCreate = () => {
-    if (!draft.name.trim()) return;
-    const isOfficial = draft.tier === "official" && (can.admin(role) || normRole(role) === "Editor");
-    const finalTier = isOfficial ? "official" : draft.tier === "official" ? "shared" : draft.tier;
-    const col = {
-      id: "col-" + Date.now(),
-      name: draft.name.trim(),
-      desc: draft.desc.trim() || "Curated resource and document kit.",
-      tier: finalTier,
-      mode: "list",
-      owner: userName,
-      vis: finalTier === "personal" ? "Restricted" : draft.vis === "Public" && can.publicize(role) ? "Public" : "Internal",
-      coEditors: [],
-      at: Date.now(),
-      items: [],
-      nodes: [],
-      edges: [],
-      vp: null,
-    };
-    onAddCol(col);
-    setIsCreating(false);
-    setDraft({ name: "", desc: "", tier: "personal", vis: "Restricted" });
-    setOpenColId(col.id);
-  };
-
-  const canEditCol = (c) => {
-    if (!c) return false;
-    if (can.admin(role)) return true;
-    if (c.tier === "official") return false;
-    if (c.tier === "shared") return can.createDraft(role) && (c.owner === userName || (c.coEditors || []).includes(userName));
-    return normRole(role) !== "Guest" && c.owner === userName;
-  };
+  const canEditItemCol = (c) => canEditCol(c, role, userName);
 
   const renderKitPreview = (c) => {
     const entries = (c.items || [])
@@ -129,7 +215,7 @@ export function CollectionsView(p) {
   if (activeCol) {
     const colItems = (activeCol.items || []).map((entry) => ({ ...entry, res: resMap[entry.id] })).filter((x) => x.res);
     const availableToAdd = res.filter((r) => !(activeCol.items || []).some((x) => x.id === r.id));
-    const editable = canEditCol(activeCol);
+    const editable = canEditItemCol(activeCol);
     return html`<div>
       <div className="pdl-top">
         <div className="pdl-top-l">
@@ -265,84 +351,16 @@ export function CollectionsView(p) {
           </div>
         </div>`}
 
-    ${isCreating &&
-    createPortal(
-      html`<div
-        className="pdl-composer-ov"
-        onMouseDown=${(e) => {
-          if (e.target === e.currentTarget) setIsCreating(false);
-        }}
-        onKeyDown=${(e) => {
-          if (e.key === "Escape") setIsCreating(false);
-        }}
-      >
-        <form
-          className="pdl-composer"
-          role="dialog"
-          aria-modal="true"
-          aria-label="New Kit"
-          onSubmit=${(e) => {
-            e.preventDefault();
-            if (draft.name.trim()) handleCreate();
-          }}
-        >
-          <div className="pdl-comp-head">
-            <span className="pdl-comp-tag"><${Ic} n="folder" s=${13} /> New Kit / Playbook</span>
-            <button type="button" className="x" style=${{ position: "static" }} aria-label="Close" onClick=${() => setIsCreating(false)}>
-              <${Ic} n="x" s=${14} />
-            </button>
-          </div>
-          <div className="pdl-comp-body">
-            <input
-              className="pdl-comp-title"
-              placeholder="Kit title (e.g. Revit Onboarding Kit)"
-              value=${draft.name}
-              onChange=${(e) => setDraft({ ...draft, name: e.target.value })}
-              autoFocus
-            />
-            <input
-              className="pdl-comp-sub"
-              placeholder="Add short description or purpose..."
-              value=${draft.desc}
-              onChange=${(e) => setDraft({ ...draft, desc: e.target.value })}
-            />
-          </div>
-          <div className="pdl-comp-foot">
-            <div className="pdl-comp-pills">
-              <${Select}
-                variant="field"
-                ariaLabel="Kit tier"
-                value=${draft.tier}
-                minMenuWidth=${190}
-                options=${[
-                  ["personal", "Personal (Private)"],
-                  ...(can.createDraft(role) ? [["shared", "Shared Team Kit"]] : []),
-                  ...(can.admin(role) ? [["official", "Official Company Kit"]] : []),
-                ]}
-                onChange=${(v) => setDraft({ ...draft, tier: v })}
-              />
-              ${draft.tier !== "personal" &&
-              html`<${Select}
-                variant="field"
-                ariaLabel="Kit visibility"
-                value=${draft.vis}
-                minMenuWidth=${200}
-                options=${[
-                  ["Internal", "Internal (Company-wide)"],
-                  ...(can.publicize(role) ? [["Public", "Public (External Portal)"]] : []),
-                ]}
-                onChange=${(v) => setDraft({ ...draft, vis: v })}
-              />`}
-            </div>
-            <div className="pdl-comp-acts">
-              <button type="button" className="btn" onClick=${() => setIsCreating(false)}>Cancel</button>
-              <button type="submit" className="btn p" disabled=${!draft.name.trim()}>Create</button>
-            </div>
-          </div>
-        </form>
-      </div>`,
-      document.body
-    )}
+    <${KitComposerModal}
+      open=${isCreating}
+      role=${role}
+      userName=${userName}
+      onClose=${() => setIsCreating(false)}
+      onCreate=${(col) => {
+        onAddCol(col);
+        setOpenColId(col.id);
+      }}
+    />
 
     ${filtered.length
       ? html`<div className="bl">
@@ -366,7 +384,7 @@ export function CollectionsView(p) {
                 <small>${c.owner} · ${count} ${count === 1 ? "item" : "items"} · ${fmt(new Date(c.at || Date.now()).toISOString().slice(0, 10))}</small>
               </div>
               <div className="pdl-bcard-acts">
-                ${canEditCol(c) &&
+                ${canEditItemCol(c) &&
                 html`<button
                   className=${confirmDel === c.id ? "dng" : ""}
                   title="Delete kit"
