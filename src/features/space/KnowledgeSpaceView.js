@@ -1,60 +1,12 @@
 import { html, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from '../../lib/react.js';
-import { TODAY, DC, DISC, TY, CITE, can, normRole, isResType } from '../../config/constants.js';
-import { byId, buildFlat } from '../../data/spaces.js';
+import { DC, DISC, TY, can, normRole, isResType } from '../../config/constants.js';
+import { byId } from '../../data/spaces.js';
 import { fmt } from '../../utils/format.js';
-import { hay } from '../../utils/search.js';
+import { scoreDocument, tokenizeUnique, detectSearchIntent } from '../../utils/search.js';
 import { plain } from '../../utils/markdown.js';
-import { edgeClient } from '../../lib/edgeClient.js';
 import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
-
-const MOB_CHAT_STORAGE_KEY = 'datum_mob_chats_v1';
-const MOB_ACTIVE_CHAT_KEY = 'datum_mob_active_chat_v1';
-
-const loadMobChats = () => {
-  try {
-    const raw = typeof window !== 'undefined' && window.localStorage.getItem(MOB_CHAT_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.slice(0, 24).map((c) => ({
-          ...c,
-          messages: Array.isArray(c.messages)
-            ? c.messages.map((m) => (m && m.busy ? { ...m, busy: false } : m))
-            : [],
-        }))
-      : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveMobChats = (chats) => {
-  try {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(MOB_CHAT_STORAGE_KEY, JSON.stringify((chats || []).slice(0, 24)));
-  } catch {}
-};
-
-const loadActiveMobChatId = () => {
-  try {
-    return (typeof window !== 'undefined' && window.localStorage.getItem(MOB_ACTIVE_CHAT_KEY)) || null;
-  } catch {
-    return null;
-  }
-};
-
-const saveActiveMobChatId = (id) => {
-  try {
-    if (typeof window === 'undefined') return;
-    if (id) window.localStorage.setItem(MOB_ACTIVE_CHAT_KEY, id);
-    else window.localStorage.removeItem(MOB_ACTIVE_CHAT_KEY);
-  } catch {}
-};
-
-const PITCH_MAX = 4.5;
-const ZOOM_MIN = -220;
-const ZOOM_MAX = 240;
+import { ChatMessages } from '../../components/ChatMessages.js';
 
 const AI_PROMPTS = [
   { label: 'Model naming', query: 'How should model files be named?' },
@@ -62,79 +14,12 @@ const AI_PROMPTS = [
   { label: 'BEP template', query: 'What is the BEP template?' },
 ];
 
-const STOP_WORDS = new Set([
-  'how', 'should', 'what', 'when', 'where', 'why', 'who', 'which', 'whom',
-  'is', 'are', 'was', 'were', 'be', 'been', 'being', 'the', 'and', 'for',
-  'with', 'this', 'that', 'these', 'those', 'from', 'into', 'can', 'could',
-  'would', 'does', 'did', 'has', 'have', 'had', 'not', 'but', 'our', 'your',
-]);
-
 function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
 
 function wrapDeg(deg) {
   return ((((deg % 360) + 540) % 360) - 180);
-}
-
-function tokenizeQuery(q) {
-  return String(q || '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
-    .split(/\s+/)
-    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
-}
-
-function scoreItemForQuery(r, rawQuery, tokens) {
-  const s = rawQuery.trim().toLowerCase();
-  if (!s) return { score: 0, matched: 0 };
-
-  const titleL = (r.title || '').toLowerCase();
-  const descL = (r.desc || '').toLowerCase();
-  const tagsL = (r.tags || []).join(' ').toLowerCase();
-  const discL = (r.disc || '').toLowerCase();
-  const hayL = hay(r);
-
-  let score = 0;
-  let matched = 0;
-
-  if (titleL.includes(s)) score += 16;
-  else if (hayL.includes(s)) score += 7;
-
-  for (let i = 0; i < tokens.length; i++) {
-    const w = tokens[i];
-    const stem = w.length >= 4 ? w.slice(0, w.length - 1) : w;
-    let hit = false;
-
-    if (titleL.includes(w)) {
-      score += 7;
-      hit = true;
-    } else if (stem.length >= 3 && titleL.includes(stem)) {
-      score += 4.5;
-      hit = true;
-    }
-
-    if (tagsL.includes(w) || (stem.length >= 3 && tagsL.includes(stem))) {
-      score += 5;
-      hit = true;
-    }
-    if (discL.includes(w)) {
-      score += 3.5;
-      hit = true;
-    }
-    if (descL.includes(w) || (stem.length >= 3 && descL.includes(stem))) {
-      score += 3;
-      hit = true;
-    }
-    if (hayL.includes(w) || (stem.length >= 3 && hayL.includes(stem))) {
-      score += 1.5;
-      hit = true;
-    }
-
-    if (hit) matched++;
-  }
-
-  return { score, matched };
 }
 
 /**
@@ -158,9 +43,7 @@ export function KnowledgeSpaceView({
   onOpenKit,
   onOpenAllKits,
   favs = [],
-  watch = [],
   onToggleFav,
-  onToggleWatch,
   onRead,
   onInspect,
   isGuest = false,
@@ -169,11 +52,25 @@ export function KnowledgeSpaceView({
   f = {},
   setF,
   toolbarRight = null,
+  spaceLeftNav = null,
+  spaceActions = null,
+  onClearCategory = null,
+  onImportDocx = null,
+  openChatSignal = 0,
   active = true,
   cmdOpen = false,
   onSetCmdOpen,
   recentSearches = [],
   onLogSearch,
+  chats = [],
+  activeChatId = null,
+  onSelectChat,
+  onNewChat,
+  onDeleteChat,
+  onClearChats,
+  onSendChat,
+  onOpenNamingStudio,
+  onFlagGap,
   onCommand,
   kb = 'Ctrl K',
   omniRectRef = null,
@@ -185,7 +82,7 @@ export function KnowledgeSpaceView({
   const hoveredIdxRef = useRef(-1);
   const dotRefs = useRef([]);
   const hudColRef = useRef(null);
-  const hudZoomRef = useRef(null);
+  const wakeMotionRef = useRef(() => {});
   const resetBtnRef = useRef(null);
   const askInputRef = useRef(null);
   const askBarRef = useRef(null);
@@ -204,55 +101,66 @@ export function KnowledgeSpaceView({
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const [spaceQuery, setSpaceQuery] = useState(() => catalogQ || '');
-  const [aiAns, setAiAns] = useState(null);
-  const [spaceFilterMode, setSpaceFilterMode] = useState('all'); // 'all' | 'pinned'
+  const [spaceFilterMode, setSpaceFilterMode] = useState('all'); // 'all' | 'bookmarks'
   const [showAllAfterAi, setShowAllAfterAi] = useState(false);
   const [kitsOpen, setKitsOpen] = useState(false);
+  const [desktopChatOpen, setDesktopChatOpen] = useState(false);
+  const [desktopHistoryOpen, setDesktopHistoryOpen] = useState(false);
   const [mobBrowseOpen, setMobBrowseOpen] = useState(false);
   const [mobMenuOpen, setMobMenuOpen] = useState(false);
-  const [mobChats, setMobChats] = useState(() => loadMobChats());
-  const [activeMobChatId, setActiveMobChatId] = useState(() => loadActiveMobChatId());
   const [mobHistoryOpen, setMobHistoryOpen] = useState(false);
-  const [mobExpandedTurnId, setMobExpandedTurnId] = useState(null);
+  const desktopChatEndRef = useRef(null);
   const mobChatEndRef = useRef(null);
   const [hoveredSourceId, setHoveredSourceId] = useState(null);
-  const [openingId, setOpeningId] = useState(null);
   const [cmdIdx, setCmdIdx] = useState(0);
 
-  const activeMobChat = useMemo(
-    () => mobChats.find((c) => c.id === activeMobChatId) || null,
-    [mobChats, activeMobChatId]
+  const activeChat = useMemo(
+    () => (activeChatId ? chats.find((c) => c.id === activeChatId) || null : null),
+    [chats, activeChatId]
   );
-
-  useEffect(() => {
-    saveMobChats(mobChats);
-  }, [mobChats]);
-
-  useEffect(() => {
-    saveActiveMobChatId(activeMobChatId);
-  }, [activeMobChatId]);
 
   useEffect(() => {
     if (!isMobile) {
       setMobMenuOpen(false);
       setMobBrowseOpen(false);
       setMobHistoryOpen(false);
+    } else {
+      setDesktopChatOpen(false);
+      setDesktopHistoryOpen(false);
     }
   }, [isMobile]);
 
-  const lastMobMsg = activeMobChat && activeMobChat.messages ? activeMobChat.messages[activeMobChat.messages.length - 1] : null;
+  const lastChatMsg =
+    activeChat && activeChat.messages && activeChat.messages.length
+      ? activeChat.messages[activeChat.messages.length - 1]
+      : null;
+
+  const activeAiTurn = useMemo(() => {
+    if (!activeChat || !Array.isArray(activeChat.messages)) return null;
+    for (let i = activeChat.messages.length - 1; i >= 0; i--) {
+      if (activeChat.messages[i] && activeChat.messages[i].role === 'assistant') {
+        return activeChat.messages[i];
+      }
+    }
+    return null;
+  }, [activeChat]);
+
   useEffect(() => {
-    if (!isMobile || !activeMobChat || !mobChatEndRef.current) return;
-    mobChatEndRef.current.scrollIntoView({
-      behavior: reducedMotion ? 'auto' : 'smooth',
-      block: 'end',
-    });
-  }, [isMobile, activeMobChat?.id, activeMobChat?.messages?.length, lastMobMsg?.busy, reducedMotion]);
+    if (isMobile && activeChat && mobChatEndRef.current) {
+      mobChatEndRef.current.scrollIntoView({
+        behavior: reducedMotion ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    } else if (!isMobile && desktopChatOpen && activeChat && desktopChatEndRef.current) {
+      desktopChatEndRef.current.scrollIntoView({
+        behavior: reducedMotion ? 'auto' : 'smooth',
+        block: 'end',
+      });
+    }
+  }, [isMobile, desktopChatOpen, activeChat?.id, activeChat?.messages?.length, lastChatMsg?.busy, reducedMotion]);
 
   const suppressClickUntilRef = useRef(0);
   const snapTimerRef = useRef(null);
-  const openingIdxRef = useRef(-1);
-  const openTimerRef = useRef(null);
 
   // Sync external catalog search resets
   useEffect(() => {
@@ -285,12 +193,6 @@ export function KnowledgeSpaceView({
     return map;
   }, [poolAll]);
 
-  const flatCats = useMemo(() => buildFlat(tree), [tree]);
-  const allowedCats = useMemo(
-    () => flatCats.filter((c) => can.viewCat(c, role, userName)).map((c) => c.id),
-    [flatCats, role, userName]
-  );
-
   const visibleKits = useMemo(
     () =>
       cols.filter((c) => {
@@ -304,78 +206,52 @@ export function KnowledgeSpaceView({
     [cols, role, userName]
   );
 
-  const pinnedData = useMemo(() => {
-    const officialHighlights = poolAll
-      .filter((r) => r.status === 'Approved' && (r.id === 100 || r.id === 9 || r.id === 1))
-      .slice(0, 3);
-    const pinnedItems = pinned
-      .map((id) => poolAll.find((r) => r.id === id))
-      .filter((r) => r && !officialHighlights.some((o) => o.id === r.id))
-      .slice(0, 6);
-    const combined = [...officialHighlights, ...pinnedItems];
-    const idSet = new Set(combined.map((x) => x.id));
-    return { officialHighlights, pinnedItems, combined, idSet };
-  }, [poolAll, pinned]);
+  const queryIntent = useMemo(() => detectSearchIntent(spaceQuery), [spaceQuery]);
 
-  // Reactive 3D Space items: responds to AI citations, live natural-language/keyword search, or Pinned spotlight
+  // Reactive 3D Space items: responds to AI citations, live keyword search, or Bookmarks spotlight
   const reactive = useMemo(() => {
     const sourceOrderMap = new Map();
-    if (aiAns && Array.isArray(aiAns.src)) {
-      aiAns.src.forEach((s, i) => sourceOrderMap.set(s.id, s.index || i + 1));
+    const aiSpotlightOn = !isMobile && desktopChatOpen && activeAiTurn;
+    if (aiSpotlightOn && Array.isArray(activeAiTurn.src)) {
+      activeAiTurn.src.forEach((s, i) => sourceOrderMap.set(s.id, s.index || i + 1));
     }
 
     const rawQ = spaceQuery.trim();
-    const tokens = tokenizeQuery(rawQ);
+    const tokens = tokenizeUnique(rawQ);
     const matchMap = new Map();
 
     if (rawQ) {
       const searchSource = items.length ? items : poolAll;
       const scored = searchSource
-        .map((r) => ({ r, ...scoreItemForQuery(r, rawQ, tokens) }))
+        .map((r) => ({ r, ...scoreDocument(r, rawQ, tokens) }))
         .filter((x) => x.score > 0);
       scored.sort((a, b) => b.matched - a.matched || b.score - a.score);
       scored.forEach((x) => matchMap.set(x.r.id, x));
     }
 
-    // Mode 1: Highlights & Pinned spotlight in 3D Space
-    if (spaceFilterMode === 'pinned') {
-      const inItems = items.filter((r) => pinnedData.idSet.has(r.id));
-      const pinnedList = inItems.length ? inItems : pinnedData.combined;
+    // Mode 1: Personal Bookmarks spotlight in 3D Space / Mobile
+    if (spaceFilterMode === 'bookmarks') {
+      const bmList = (items.length ? items : poolAll).filter((r) => favs.includes(r.id));
       return {
-        displayItems: pinnedList,
+        displayItems: bmList,
         sourceOrderMap,
         matchMap,
-        mode: 'pinned',
+        mode: 'bookmarks',
       };
     }
 
-    // Mode 2: AI Answer Source Spotlight in 3D Space
-    if (aiAns && !aiAns.busy && sourceOrderMap.size > 0 && !showAllAfterAi) {
+    // Mode 2: Desktop AI Answer Source Spotlight in 3D Space
+    if (aiSpotlightOn && !activeAiTurn.busy && sourceOrderMap.size > 0 && !showAllAfterAi) {
       const citedItems = [];
       const seenIds = new Set();
 
-      aiAns.src.forEach((s) => {
+      activeAiTurn.src.forEach((s) => {
         const doc = poolAll.find((r) => r.id === s.id) || items.find((r) => r.id === s.id);
         if (doc && !seenIds.has(doc.id)) {
           seenIds.add(doc.id);
           citedItems.push(doc);
         }
       });
-
-      // Add up to 4 related high-scoring matches around the cited sources so the arc feels rich
-      if (rawQ) {
-        const extras = [];
-        matchMap.forEach((entry, id) => {
-          if (!seenIds.has(id) && entry.score >= 4) extras.push(entry);
-        });
-        extras
-          .sort((a, b) => b.matched - a.matched || b.score - a.score)
-          .slice(0, 4)
-          .forEach((entry) => {
-            seenIds.add(entry.r.id);
-            citedItems.push(entry.r);
-          });
-      }
 
       return {
         displayItems: citedItems,
@@ -385,11 +261,11 @@ export function KnowledgeSpaceView({
       };
     }
 
-    // When showing all items alongside an AI answer, bring cited items to the front columns
-    if (aiAns && sourceOrderMap.size > 0 && showAllAfterAi) {
+    // When showing all items alongside an open Desktop AI chat, bring cited items to the front columns
+    if (aiSpotlightOn && sourceOrderMap.size > 0 && showAllAfterAi) {
       const front = [];
       const rest = [];
-      aiAns.src.forEach((s) => {
+      activeAiTurn.src.forEach((s) => {
         const doc = items.find((r) => r.id === s.id) || poolAll.find((r) => r.id === s.id);
         if (doc && !front.some((x) => x.id === doc.id)) front.push(doc);
       });
@@ -404,12 +280,11 @@ export function KnowledgeSpaceView({
       };
     }
 
-    // Mode 3: Live smart search filtering & front-ranking
-    if (rawQ) {
+    // Mode 3: Live smart keyword search filtering (never jitters 3D cards when typing conversational questions)
+    if (rawQ && (isMobile || (!desktopChatOpen && queryIntent === 'search'))) {
       const scoredList = [];
       matchMap.forEach((entry) => scoredList.push(entry));
       scoredList.sort((a, b) => b.matched - a.matched || b.score - a.score);
-      // Require strong relevance for multi-word queries if top hit matched >= 2 tokens
       const topMatched = scoredList[0] ? scoredList[0].matched : 0;
       const filtered =
         tokens.length >= 2 && topMatched >= 2
@@ -430,7 +305,7 @@ export function KnowledgeSpaceView({
       matchMap,
       mode: 'gallery',
     };
-  }, [items, poolAll, spaceQuery, aiAns, spaceFilterMode, showAllAfterAi, pinnedData]);
+  }, [items, poolAll, favs, spaceQuery, queryIntent, isMobile, desktopChatOpen, activeAiTurn, spaceFilterMode, showAllAfterAi]);
 
   const displayItems = reactive.displayItems;
   const count = displayItems.length;
@@ -438,115 +313,20 @@ export function KnowledgeSpaceView({
 
   const runAi = async (question) => {
     const t = String(question || '').trim();
-    if (!t) return;
+    if (!t || !onSendChat) return;
     setSpaceFilterMode('all');
     setKitsOpen(false);
     setMobMenuOpen(false);
     setMobBrowseOpen(false);
     setMobHistoryOpen(false);
+    setDesktopHistoryOpen(false);
     setShowAllAfterAi(false);
+    if (!isMobile) setDesktopChatOpen(true);
 
-    if (isMobile) {
-      const tokens = tokenizeQuery(t);
-      const searchSource = poolAll && poolAll.length ? poolAll : items;
-      const matchedIds = searchSource
-        .map((r) => ({ id: r.id, ...scoreItemForQuery(r, t, tokens) }))
-        .filter((x) => x.score > 0)
-        .sort((a, b) => b.matched - a.matched || b.score - a.score)
-        .slice(0, 8)
-        .map((x) => x.id);
+    setSpaceQuery('');
+    if (catalogQ && onCatalogQChange) onCatalogQChange('');
 
-      const now = Date.now();
-      const userMsgId = 'u-' + now + '-' + Math.random().toString(36).slice(2, 5);
-      const botMsgId = 'a-' + (now + 1) + '-' + Math.random().toString(36).slice(2, 5);
-      const existingChat = activeMobChatId ? mobChats.find((c) => c.id === activeMobChatId) : null;
-      const targetChatId = existingChat
-        ? existingChat.id
-        : 'chat-' + now + '-' + Math.random().toString(36).slice(2, 5);
-      const shortTitle = t.length > 44 ? t.slice(0, 43) + '…' : t;
-
-      const userMsg = { id: userMsgId, role: 'user', text: t, at: now };
-      const botStub = {
-        id: botMsgId,
-        role: 'assistant',
-        query: t,
-        text: '',
-        src: [],
-        matchIds: matchedIds,
-        busy: true,
-        at: now + 1,
-      };
-
-      setActiveMobChatId(targetChatId);
-      setMobChats((prev) => {
-        const idx = prev.findIndex((c) => c.id === targetChatId);
-        if (idx === -1) {
-          return [
-            { id: targetChatId, title: shortTitle, updatedAt: now, messages: [userMsg, botStub] },
-            ...prev,
-          ].slice(0, 24);
-        }
-        const cur = prev[idx];
-        const updated = {
-          ...cur,
-          updatedAt: now,
-          messages: [...(cur.messages || []), userMsg, botStub].slice(-40),
-        };
-        return [updated, ...prev.filter((c) => c.id !== targetChatId)].slice(0, 24);
-      });
-      setSpaceQuery('');
-      if (catalogQ && onCatalogQChange) onCatalogQChange('');
-
-      const out = await edgeClient.ai({
-        action: 'qa',
-        query: t,
-        userRole: role,
-        userName,
-        allowedCategories: allowedCats,
-        items: poolAll,
-        today: TODAY,
-      });
-
-      setMobChats((prev) =>
-        prev.map((c) =>
-          c.id !== targetChatId
-            ? c
-            : {
-                ...c,
-                updatedAt: Date.now(),
-                messages: (c.messages || []).map((m) =>
-                  m.id === botMsgId
-                    ? {
-                        ...m,
-                        src: out.sources || [],
-                        text: out.answer || '',
-                        busy: false,
-                      }
-                    : m
-                ),
-              }
-        )
-      );
-      return;
-    }
-
-    setAiAns({ q: t, src: [], text: '', busy: true });
-
-    const out = await edgeClient.ai({
-      action: 'qa',
-      query: t,
-      userRole: role,
-      userName,
-      allowedCategories: allowedCats,
-      items: poolAll,
-      today: TODAY,
-    });
-    setAiAns({
-      q: t,
-      src: out.sources || [],
-      text: out.answer || '',
-      busy: false,
-    });
+    await onSendChat({ query: t });
   };
 
   useEffect(() => {
@@ -562,7 +342,7 @@ export function KnowledgeSpaceView({
   }, [spaceQuery]);
 
   const recordAskBarRect = () => {
-    if (!omniRectRef || !active || !askBarRef.current || openingIdxRef.current !== -1 || dockAnimRef.current) return;
+    if (!omniRectRef || !active || !askBarRef.current || dockAnimRef.current) return;
     const r = askBarRef.current.getBoundingClientRect();
     if (r.width > 10 && r.height > 10) {
       omniRectRef.current = {
@@ -586,7 +366,7 @@ export function KnowledgeSpaceView({
       if (ro) ro.disconnect();
       window.removeEventListener('resize', syncRect);
     };
-  }, [active, aiAns, kitsOpen, cmdOpen]);
+  }, [active, desktopChatOpen, activeChat?.id, activeAiTurn?.id, kitsOpen, cmdOpen]);
 
   // FLIP flight from Topbar Center Pill -> Bottom Spatial Dock when entering 3D Space
   useLayoutEffect(() => {
@@ -667,10 +447,31 @@ export function KnowledgeSpaceView({
   }, [active, reducedMotion]);
 
   useEffect(() => {
-    if (focusSignal && askInputRef.current) {
+    if (!focusSignal) return;
+    if (!activeChatId) {
+      setDesktopChatOpen(false);
+      setDesktopHistoryOpen(false);
+      setMobBrowseOpen(false);
+      setMobHistoryOpen(false);
+      setMobMenuOpen(false);
+      setKitsOpen(false);
+    }
+    if (askInputRef.current) {
       askInputRef.current.focus();
     }
   }, [focusSignal]);
+
+  useEffect(() => {
+    if (!openChatSignal) return;
+    setSpaceFilterMode('all');
+    setKitsOpen(false);
+    setMobMenuOpen(false);
+    setMobBrowseOpen(false);
+    setMobHistoryOpen(false);
+    setDesktopHistoryOpen(false);
+    setShowAllAfterAi(false);
+    if (!isMobile) setDesktopChatOpen(true);
+  }, [openChatSignal, isMobile]);
 
   useEffect(() => {
     if (aq && aq.q) {
@@ -679,9 +480,10 @@ export function KnowledgeSpaceView({
     }
   }, [aq]);
 
-  // Slightly shift scene up smoothly when a bottom glass sheet (AI Answer / Starter Kits) is open
+  // Slightly shift scene up smoothly when a bottom glass sheet (Desktop Chat / Starter Kits) is open
+  const hasOverlaySheet = Boolean((!isMobile && desktopChatOpen && activeChat) || kitsOpen);
   const hasOverlaySheetRef = useRef(false);
-  hasOverlaySheetRef.current = Boolean(aiAns || kitsOpen);
+  hasOverlaySheetRef.current = hasOverlaySheet;
 
   // Adaptive visionOS cylindrical layout: scales 1..5 rows by viewport height & item count
   const layout = useMemo(() => {
@@ -791,15 +593,9 @@ export function KnowledgeSpaceView({
     yaw: 0,
     targetYaw: 0,
     velYaw: 0,
-    zoom: 0,
-    targetZoom: 0,
+    sceneZOffset: 0,
+    targetSceneZOffset: 0,
     sceneY: -28,
-    pitch: 0,
-    targetPitch: 0,
-    lookYaw: 0,
-    targetLookYaw: 0,
-    lookPitch: 0,
-    targetLookPitch: 0,
     dragging: false,
     didDrag: false,
     pointerId: null,
@@ -809,11 +605,10 @@ export function KnowledgeSpaceView({
     lastT: 0,
     dragDist: 0,
     lastColShown: -1,
-    lastZoomShown: -999,
     lastMovedShown: false,
   });
 
-  // Automatically center the 3D carousel when query, AI spotlight, or filter changes
+  // Automatically center the 3D carousel when query, AI spotlight, or filter changes (not when merely toggling chat)
   useEffect(() => {
     const m = motionRef.current;
     m.lastColShown = -1;
@@ -821,10 +616,21 @@ export function KnowledgeSpaceView({
     m.velYaw = 0;
     m.targetYaw = 0;
     const isFocusedSet = Boolean(
-      spaceQuery.trim() || aiAns || spaceFilterMode === 'pinned'
+      (spaceQuery.trim() && (isMobile || (!desktopChatOpen && queryIntent === 'search'))) ||
+        (!isMobile && desktopChatOpen && activeAiTurn) ||
+        spaceFilterMode === 'bookmarks'
     );
-    m.targetZoom = isFocusedSet && count > 0 && count <= 5 ? 55 : 0;
-  }, [spaceQuery, aiAns?.q, aiAns?.busy, spaceFilterMode, showAllAfterAi, pageTitle]);
+    m.targetSceneZOffset = isFocusedSet && count > 0 && count <= 5 ? 55 : 0;
+    wakeMotionRef.current();
+  }, [
+    spaceQuery,
+    queryIntent,
+    isMobile,
+    activeAiTurn?.id,
+    activeAiTurn?.busy,
+    spaceFilterMode,
+    pageTitle,
+  ]);
 
   // Keep bounds sane if item count changes without query change
   useEffect(() => {
@@ -833,9 +639,15 @@ export function KnowledgeSpaceView({
       m.targetYaw = clamp(m.targetYaw, -layout.maxYawBound, layout.maxYawBound);
       m.yaw = clamp(m.yaw, -layout.maxYawBound, layout.maxYawBound);
     }
+    wakeMotionRef.current();
   }, [layout.cols, layout.fullRing, layout.maxYawBound]);
 
-  // Schedule smooth settle onto nearest column
+  // Wake sleeping 3D motion loop when bottom sheets toggle or items re-order
+  useEffect(() => {
+    wakeMotionRef.current();
+  }, [hasOverlaySheet, displayItems, active]);
+
+  // Schedule smooth settle onto nearest column after pointer drag momentum
   const scheduleSnap = (delayMs = 190) => {
     clearTimeout(snapTimerRef.current);
     snapTimerRef.current = setTimeout(() => {
@@ -844,19 +656,30 @@ export function KnowledgeSpaceView({
       if (m.dragging || Math.abs(m.velYaw) > 0.08) return;
       const snapped = Math.round(m.targetYaw / l.stepDeg) * l.stepDeg;
       m.targetYaw = l.fullRing ? snapped : clamp(snapped, -l.maxYawBound, l.maxYawBound);
+      wakeMotionRef.current();
     }, delayMs);
   };
 
-  // High-frequency 60fps 3D spatial transform loop (imperative DOM writes, zero React re-renders)
+  // On-demand 3D spatial loop: sleeps at 0fps when idle or hidden behind Reader/other views
   useEffect(() => {
-    if (isMobile) return undefined;
+    if (isMobile || !active) {
+      wakeMotionRef.current = () => {};
+      return undefined;
+    }
     let rafId = 0;
     let alive = true;
 
+    const scheduleFrame = () => {
+      if (!alive || rafId) return;
+      rafId = requestAnimationFrame(frame);
+    };
+
     const frame = () => {
+      rafId = 0;
       if (!alive) return;
       const l = layoutRef.current;
       const m = motionRef.current;
+      let moving = m.dragging;
 
       if (!m.dragging) {
         if (Math.abs(m.velYaw) > 0.015) {
@@ -871,16 +694,28 @@ export function KnowledgeSpaceView({
             const snapped = Math.round(m.targetYaw / l.stepDeg) * l.stepDeg;
             m.targetYaw = l.fullRing ? snapped : clamp(snapped, -l.maxYawBound, l.maxYawBound);
           }
+          moving = true;
+        } else if (m.velYaw !== 0) {
+          m.velYaw = 0;
         }
-        m.targetPitch *= 0.94;
       }
 
-      const ease = reducedMotion ? 1 : m.dragging ? 0.44 : 0.16;
-      m.yaw += (m.targetYaw - m.yaw) * ease;
-      m.zoom += (m.targetZoom - m.zoom) * (reducedMotion ? 1 : 0.16);
-      m.pitch += (m.targetPitch - m.pitch) * (reducedMotion ? 1 : 0.14);
-      m.lookYaw += (m.targetLookYaw - m.lookYaw) * (reducedMotion ? 1 : 0.09);
-      m.lookPitch += (m.targetLookPitch - m.lookPitch) * (reducedMotion ? 1 : 0.09);
+      const ease = reducedMotion ? 1 : m.dragging ? 0.44 : 0.18;
+      const dYaw = m.targetYaw - m.yaw;
+      if (Math.abs(dYaw) < 0.01 || reducedMotion) {
+        m.yaw = m.targetYaw;
+      } else {
+        m.yaw += dYaw * ease;
+        moving = true;
+      }
+
+      const dZ = m.targetSceneZOffset - m.sceneZOffset;
+      if (Math.abs(dZ) < 0.1 || reducedMotion) {
+        m.sceneZOffset = m.targetSceneZOffset;
+      } else {
+        m.sceneZOffset += dZ * 0.18;
+        moving = true;
+      }
 
       if (sceneRef.current) {
         const targetSceneY = hasOverlaySheetRef.current
@@ -892,16 +727,20 @@ export function KnowledgeSpaceView({
           : l.rows >= 4
           ? -32
           : -28;
-        m.sceneY += (targetSceneY - m.sceneY) * (reducedMotion ? 1 : 0.16);
-        sceneRef.current.style.transform = `translate3d(0, ${m.sceneY.toFixed(1)}px, ${(l.sceneZ + m.zoom).toFixed(1)}px) rotateX(${(m.pitch + m.lookPitch).toFixed(2)}deg) rotateY(${m.lookYaw.toFixed(2)}deg)`;
+        const dSceneY = targetSceneY - m.sceneY;
+        if (Math.abs(dSceneY) < 0.08 || reducedMotion) {
+          m.sceneY = targetSceneY;
+        } else {
+          m.sceneY += dSceneY * 0.18;
+          moving = true;
+        }
+        sceneRef.current.style.transform = `translate3d(0, ${m.sceneY.toFixed(1)}px, ${(l.sceneZ + m.sceneZOffset).toFixed(1)}px)`;
       }
 
       const positions = l.positions;
       const R = l.radius;
       const cullDeg = isCompact ? 88 : 98;
       const focusDeg = Math.max(26, l.stepDeg * 0.85);
-      const openIdx = openingIdxRef.current;
-      const openProgress = openIdx >= 0 ? Math.min(1, (hoverLiftRef.current[openIdx] || 0) / 1.8) : 0;
 
       for (let i = 0; i < positions.length; i++) {
         const el = cardRefs.current[i];
@@ -926,34 +765,34 @@ export function KnowledgeSpaceView({
           el.tabIndex = 0;
         }
 
-        const isOpening = openIdx === i;
-        const targetLift = isOpening ? 2.6 : hoveredIdxRef.current === i && !m.dragging && openIdx === -1 ? 1 : 0;
+        const targetLift = hoveredIdxRef.current === i && !m.dragging ? 1 : 0;
         const prevLift = hoverLiftRef.current[i] || 0;
-        const liftEase = isOpening ? 0.28 : 0.22;
-        const lift = reducedMotion ? targetLift : prevLift + (targetLift - prevLift) * liftEase;
-        hoverLiftRef.current[i] = Math.abs(lift) < 0.002 ? 0 : lift;
+        const liftDiff = targetLift - prevLift;
+        let lift;
+        if (Math.abs(liftDiff) < 0.005 || reducedMotion) {
+          lift = targetLift;
+        } else {
+          lift = prevLift + liftDiff * 0.24;
+          moving = true;
+        }
+        hoverLiftRef.current[i] = lift;
 
         const rad = (rel * Math.PI) / 180;
-        const x = isOpening ? R * Math.sin(rad) * Math.max(0.15, 1 - openProgress * 0.85) : R * Math.sin(rad);
+        const x = R * Math.sin(rad);
         const centerPresence =
           Math.max(0, Math.cos((Math.min(absRel, l.stepDeg) / Math.max(1, l.stepDeg)) * (Math.PI / 2))) * 14;
-        const zDelta = isOpening ? lift * 88 : openIdx !== -1 ? -openProgress * 82 : lift * 32;
+        const zDelta = lift * 9;
         const z = -R * Math.cos(rad) + centerPresence + zDelta;
-        const rotY = isOpening
-          ? -rel * 0.7 * Math.max(0, 1 - openProgress)
-          : -rel * (0.7 - Math.min(1, lift) * 0.14);
+        const rotY = -rel * 0.7;
 
         const t = Math.min(1, absRel / cullDeg);
-        const sc = 1.03 - 0.24 * Math.pow(t, 1.35) + (isOpening ? lift * 0.1 : lift * 0.045 - openProgress * 0.05);
+        const sc = 1.03 - 0.24 * Math.pow(t, 1.35) + lift * 0.015;
         const baseOp = Math.max(0.24, 1 - 0.7 * Math.pow(t, 1.75));
-        let op = lift > 0.05 ? Math.max(baseOp, 0.92 + Math.min(0.08, lift * 0.08)) : baseOp;
-        if (openIdx !== -1 && !isOpening) {
-          op *= Math.max(0.12, 1 - openProgress * 0.85);
-        }
+        const op = lift > 0.05 ? Math.max(baseOp, Math.min(1, baseOp + lift * 0.08)) : baseOp;
 
-        el.style.transform = `translate3d(${x.toFixed(1)}px, ${(isOpening ? pos.y * (1 - openProgress * 0.65) : pos.y).toFixed(1)}px, ${z.toFixed(1)}px) rotateY(${rotY.toFixed(2)}deg) scale3d(${sc.toFixed(3)}, ${sc.toFixed(3)}, 1)`;
+        el.style.transform = `translate3d(${x.toFixed(1)}px, ${pos.y.toFixed(1)}px, ${z.toFixed(1)}px) rotateY(${rotY.toFixed(2)}deg) scale3d(${sc.toFixed(3)}, ${sc.toFixed(3)}, 1)`;
         el.style.opacity = op.toFixed(3);
-        el.style.zIndex = String(isOpening ? 999 : Math.round(200 - absRel + lift * 120));
+        el.style.zIndex = String(Math.round(200 - absRel + lift * 20));
 
         const isCenterCol = absRel < l.stepDeg * 0.45;
         if (isCenterCol) {
@@ -967,24 +806,6 @@ export function KnowledgeSpaceView({
           if (!el.classList.contains('is-peripheral')) el.classList.add('is-peripheral');
         } else if (el.classList.contains('is-peripheral')) {
           el.classList.remove('is-peripheral');
-        }
-
-        const blurTier =
-          reducedMotion || lift > 0.2
-            ? '0'
-            : t > 0.8
-            ? '2'
-            : t > 0.65
-            ? '1'
-            : '0';
-        if (el.dataset.blur !== blurTier) {
-          el.dataset.blur = blurTier;
-          el.style.filter =
-            blurTier === '2'
-              ? 'blur(2px)'
-              : blurTier === '1'
-              ? 'blur(1px)'
-              : 'none';
         }
       }
 
@@ -1014,57 +835,52 @@ export function KnowledgeSpaceView({
         }
       }
 
-      if (hudZoomRef.current) {
-        const zPct = Math.round(100 + (m.zoom / ZOOM_MAX) * 28);
-        if (zPct !== m.lastZoomShown) {
-          m.lastZoomShown = zPct;
-          hudZoomRef.current.textContent = `${zPct}%`;
-        }
-      }
-
       if (resetBtnRef.current) {
-        const isMoved = Math.abs(m.yaw) > 4 || Math.abs(m.zoom) > 12;
+        const isMoved = Math.abs(m.yaw) > 4;
         if (isMoved !== m.lastMovedShown) {
           m.lastMovedShown = isMoved;
           resetBtnRef.current.hidden = !isMoved;
         }
       }
 
-      rafId = requestAnimationFrame(frame);
+      if (moving) {
+        scheduleFrame();
+      }
     };
 
-    rafId = requestAnimationFrame(frame);
+    wakeMotionRef.current = scheduleFrame;
+    scheduleFrame();
     return () => {
       alive = false;
-      cancelAnimationFrame(rafId);
+      wakeMotionRef.current = () => {};
+      if (rafId) cancelAnimationFrame(rafId);
       clearTimeout(snapTimerRef.current);
-      clearTimeout(openTimerRef.current);
     };
-  }, [layout, reducedMotion, isCompact, isMobile]);
+  }, [active, layout, reducedMotion, isCompact, isMobile]);
 
-  // Wheel navigation: vertical/horizontal scroll rotates 360° carousel; Ctrl/Meta/Alt + scroll zooms
+  // Wheel navigation: vertical/horizontal scroll rotates carousel cleanly across mouse & trackpad
   useEffect(() => {
     const vp = viewportRef.current;
     if (!vp) return undefined;
 
     const onWheel = (e) => {
-      if (e.target && e.target.closest && e.target.closest('.asel-menu,.pop,.dr,.kspace-dock')) return;
+      if (e.ctrlKey || e.metaKey) return;
+      if (document.querySelector('.side.open, .ov')) return;
+      if (e.target && e.target.closest && e.target.closest('.asel-menu,.pop,.dr,.kspace-dock,.kspace-cmd-pop')) return;
       e.preventDefault();
       const m = motionRef.current;
       const l = layoutRef.current;
-      const dx = e.deltaX || 0;
-      const dy = e.deltaY || 0;
-
-      if (e.ctrlKey || e.metaKey || e.altKey) {
-        m.targetZoom = clamp(m.targetZoom - dy * 0.85, ZOOM_MIN, ZOOM_MAX);
-        return;
-      }
-
-      const rawDelta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      const modeScale = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? 320 : 1;
+      const dx = (e.deltaX || 0) * modeScale;
+      const dy = (e.deltaY || 0) * modeScale;
+      const dominant = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+      if (!dominant) return;
+      const rawDelta = clamp(dominant, -140, 140);
+      clearTimeout(snapTimerRef.current);
       m.velYaw = 0;
-      const nextYaw = m.targetYaw + rawDelta * 0.16;
+      const nextYaw = m.targetYaw + rawDelta * 0.14;
       m.targetYaw = l.fullRing ? nextYaw : clamp(nextYaw, -l.maxYawBound, l.maxYawBound);
-      scheduleSnap(190);
+      wakeMotionRef.current();
     };
 
     vp.addEventListener('wheel', onWheel, { passive: false });
@@ -1078,19 +894,14 @@ export function KnowledgeSpaceView({
     const curSnap = Math.round(m.targetYaw / l.stepDeg) * l.stepDeg;
     const nextYaw = curSnap + dir * l.stepDeg;
     m.targetYaw = l.fullRing ? nextYaw : clamp(nextYaw, -l.maxYawBound, l.maxYawBound);
-  };
-
-  const stepZoom = (delta) => {
-    const m = motionRef.current;
-    m.targetZoom = clamp(m.targetZoom + delta, ZOOM_MIN, ZOOM_MAX);
+    wakeMotionRef.current();
   };
 
   const resetCamera = () => {
     const m = motionRef.current;
     m.velYaw = 0;
     m.targetYaw = 0;
-    m.targetZoom = 0;
-    m.targetPitch = 0;
+    wakeMotionRef.current();
   };
 
   const rotateToAngle = (colAngle) => {
@@ -1100,10 +911,12 @@ export function KnowledgeSpaceView({
     m.velYaw = 0;
     if (!l.fullRing) {
       m.targetYaw = clamp(colAngle, -l.maxYawBound, l.maxYawBound);
+      wakeMotionRef.current();
       return;
     }
     const diff = wrapDeg(colAngle - m.yaw);
     m.targetYaw = m.yaw + diff;
+    wakeMotionRef.current();
   };
 
   const focusItemInSpace = (itemId) => {
@@ -1113,33 +926,32 @@ export function KnowledgeSpaceView({
     if (pos) rotateToAngle(pos.angle);
     hoveredIdxRef.current = idx;
     setHoveredSourceId(itemId);
+    wakeMotionRef.current();
   };
 
-  const triggerOpenCard = (itemId, idx = -1, colAngle) => {
-    if (!onRead) return;
+  const triggerOpenCard = (itemId, _idx = -1, _colAngle, sectionId = null) => {
+    if (!onRead || !itemId) return;
     recordAskBarRect();
     if (onSetCmdOpen) onSetCmdOpen(false);
-    if (reducedMotion || isMobile || idx < 0) {
-      onRead(itemId);
+    const readOpts = sectionId ? { sectionId } : undefined;
+    onRead(itemId, readOpts);
+  };
+
+  const openSourceFromChat = (s) => {
+    if (!s || !s.id) return;
+    if (isMobile) {
+      triggerOpenCard(s.id, -1, undefined, s.sectionId || null);
       return;
     }
-    if (openingIdxRef.current !== -1) return;
-    openingIdxRef.current = idx;
-    setOpeningId(itemId);
-    if (typeof colAngle === 'number') {
-      rotateToAngle(colAngle);
-    }
-    clearTimeout(openTimerRef.current);
-    openTimerRef.current = setTimeout(() => {
-      openingIdxRef.current = -1;
-      setOpeningId(null);
-      onRead(itemId);
-    }, 220);
+    const idx = displayItems.findIndex((x) => x.id === s.id);
+    const colAngle = idx >= 0 && layout.positions[idx] ? layout.positions[idx].angle : undefined;
+    triggerOpenCard(s.id, idx, colAngle, s.sectionId || null);
   };
 
   const clearSpaceSearch = () => {
     setSpaceQuery('');
-    setAiAns(null);
+    setDesktopChatOpen(false);
+    setDesktopHistoryOpen(false);
     setSpaceFilterMode('all');
     setShowAllAfterAi(false);
     setMobBrowseOpen(false);
@@ -1150,31 +962,27 @@ export function KnowledgeSpaceView({
     resetCamera();
   };
 
-  const startNewMobChat = () => {
-    setActiveMobChatId(null);
-    setMobExpandedTurnId(null);
+  const startNewChatView = () => {
+    if (onNewChat) onNewChat();
+    setDesktopChatOpen(false);
+    setDesktopHistoryOpen(false);
     setMobHistoryOpen(false);
     setMobBrowseOpen(false);
     setMobMenuOpen(false);
     setKitsOpen(false);
     setSpaceFilterMode('all');
+    setShowAllAfterAi(false);
     setSpaceQuery('');
-    setAiAns(null);
+    setHoveredSourceId(null);
     if (catalogQ && onCatalogQChange) onCatalogQChange('');
-  };
-
-  const deleteMobChat = (chatId) => {
-    setMobChats((prev) => prev.filter((c) => c.id !== chatId));
-    if (activeMobChatId === chatId) {
-      setActiveMobChatId(null);
-      setMobExpandedTurnId(null);
-    }
+    askInputRef.current && askInputRef.current.focus();
   };
 
   const onPointerDown = (e) => {
     if (e.button !== 0) return;
+    if (document.querySelector('.side.open, .ov')) return;
     if (e.target && e.target.closest && e.target.closest('button,a,input')) {
-      if (e.target.closest('.acts,.kspace-read-btn,.kspace-dock,.kspace-topbar')) return;
+      if (e.target.closest('.acts,.kspace-open-link,.kspace-dock,.kspace-topbar')) return;
     }
     const m = motionRef.current;
     clearTimeout(snapTimerRef.current);
@@ -1191,23 +999,12 @@ export function KnowledgeSpaceView({
 
   const onPointerMove = (e) => {
     const m = motionRef.current;
-
-    if (!m.dragging && !reducedMotion && viewportRef.current) {
-      const rect = viewportRef.current.getBoundingClientRect();
-      if (rect.width > 0 && rect.height > 0) {
-        const nx = (e.clientX - rect.left) / rect.width - 0.5;
-        const ny = (e.clientY - rect.top) / rect.height - 0.5;
-        m.targetLookYaw = clamp(nx * 3.2, -1.6, 1.6);
-        m.targetLookPitch = clamp(-ny * 3.6, -1.8, 1.8);
-      }
-    }
-
     if (!m.dragging || e.pointerId !== m.pointerId) return;
     const dxTotal = e.clientX - m.startX;
     const dyTotal = e.clientY - m.startY;
     m.dragDist = Math.hypot(dxTotal, dyTotal);
 
-    if (m.dragDist > 6) {
+    if (m.dragDist > 9) {
       if (!m.didDrag) {
         m.didDrag = true;
         if (viewportRef.current) {
@@ -1226,10 +1023,10 @@ export function KnowledgeSpaceView({
       const nextYaw = m.targetYaw + degDelta;
       m.targetYaw = l.fullRing ? nextYaw : clamp(nextYaw, -l.maxYawBound, l.maxYawBound);
       m.velYaw = clamp((degDelta / dt) * 16, -5.5, 5.5);
-      m.targetPitch = clamp(-dyTotal * 0.028, -PITCH_MAX, PITCH_MAX);
 
       m.lastX = e.clientX;
       m.lastT = now;
+      wakeMotionRef.current();
     }
   };
 
@@ -1246,39 +1043,52 @@ export function KnowledgeSpaceView({
     if (m.didDrag) {
       suppressClickUntilRef.current = performance.now() + 180;
       scheduleSnap(200);
+      wakeMotionRef.current();
     }
     m.didDrag = false;
   };
 
   const onViewportPointerLeave = () => {
-    const m = motionRef.current;
-    m.targetLookYaw = 0;
-    m.targetLookPitch = 0;
-    hoveredIdxRef.current = -1;
-  };
-
-  const onStageKeyDown = (e) => {
-    if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
-    if (e.key === '/') {
-      e.preventDefault();
-      askInputRef.current && askInputRef.current.focus();
-    } else if (e.key === 'ArrowRight') {
-      e.preventDefault();
-      stepRotate(1);
-    } else if (e.key === 'ArrowLeft') {
-      e.preventDefault();
-      stepRotate(-1);
-    } else if (e.key === '+' || e.key === '=') {
-      e.preventDefault();
-      stepZoom(70);
-    } else if (e.key === '-' || e.key === '_') {
-      e.preventDefault();
-      stepZoom(-70);
-    } else if (e.key === '0' || e.key === 'Home') {
-      e.preventDefault();
-      resetCamera();
+    if (hoveredIdxRef.current !== -1) {
+      hoveredIdxRef.current = -1;
+      wakeMotionRef.current();
     }
   };
+
+  // Global keyboard shortcuts when desktop 3D Space stage is active and unobscured
+  useEffect(() => {
+    if (!active || isMobile) return undefined;
+    const onWinKeyDown = (e) => {
+      if (e.defaultPrevented || cmdOpen) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target;
+      if (
+        t &&
+        (t.isContentEditable ||
+          /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) ||
+          (t.closest && t.closest('.kspace-dock, .kspace-cmd-pop, .pop, .asel-menu, .dr')))
+      ) {
+        return;
+      }
+      if (document.querySelector('.side.open, .ov, .pop, .asel-menu')) return;
+
+      if (e.key === '/') {
+        e.preventDefault();
+        askInputRef.current && askInputRef.current.focus();
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        stepRotate(1);
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        stepRotate(-1);
+      } else if (e.key === '0' || e.key === 'Home') {
+        e.preventDefault();
+        resetCamera();
+      }
+    };
+    window.addEventListener('keydown', onWinKeyDown);
+    return () => window.removeEventListener('keydown', onWinKeyDown);
+  }, [active, isMobile, cmdOpen]);
 
   const cmdItems = useMemo(() => {
     const qTrim = spaceQuery.trim();
@@ -1294,7 +1104,17 @@ export function KnowledgeSpaceView({
         : [];
 
     const docPool = qLow
-      ? displayItems.slice(0, 5)
+      ? queryIntent === 'question'
+        ? items
+            .map((r) => {
+              const sc = scoreDocument(r, qTrim);
+              return sc.matched > 0 ? { r, sc } : null;
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.sc.matched - a.sc.matched || b.sc.score - a.sc.score)
+            .slice(0, 5)
+            .map((x) => x.r)
+        : displayItems.slice(0, 5)
       : [...displayItems].sort((a, b) => (b.upd || '').localeCompare(a.upd || '')).slice(0, 4);
 
     const snip = (r) => {
@@ -1307,6 +1127,7 @@ export function KnowledgeSpaceView({
 
     const actions = [
       ...(can.createDraft(role) ? [['Create article or resource', 'plus', 'new']] : []),
+      ...(onImportDocx ? [['Import .docx document', 'doc', 'import-docx']] : []),
       ['Knowledge Base (Grid)', 'layout', 'view', 'kb'],
       ['Playbooks & Kits', 'folder', 'kits'],
       ['Dependency Graph', 'graph', 'kb-graph'],
@@ -1335,6 +1156,10 @@ export function KnowledgeSpaceView({
         run: () => {
           recordAskBarRect();
           onSetCmdOpen && onSetCmdOpen(false);
+          if (a[2] === 'import-docx') {
+            onImportDocx && onImportDocx();
+            return;
+          }
           onCommand && onCommand(a[2], a[3]);
         },
       })),
@@ -1373,56 +1198,67 @@ export function KnowledgeSpaceView({
       : html`${text.slice(0, idx)}<mark>${text.slice(idx, idx + qLow.length)}</mark>${text.slice(idx + qLow.length)}`;
   };
 
-  const discChips = DISC;
   const activeDisc = f.disc || '';
   const envAccent = (f.disc && DC[f.disc]) || (curCat && curCat.color) || '#2997ff';
-  const hasReactiveFilter = Boolean(spaceQuery.trim() || aiAns || spaceFilterMode === 'pinned');
+  const hasReactiveFilter = Boolean(
+    (spaceQuery.trim() && (isMobile || (!desktopChatOpen && queryIntent === 'search'))) ||
+      (!isMobile && desktopChatOpen && activeAiTurn) ||
+      spaceFilterMode === 'bookmarks'
+  );
+  const isNarrowed = Boolean(hasReactiveFilter || curCat || activeDisc || (allCount > 0 && count !== allCount));
 
   return html`<section
-    className=${'kspace-stage' + (openingId !== null ? ' is-opening' : '')}
+    className="kspace-stage"
     style=${{ '--env-accent': envAccent }}
-    aria-label=${`${pageTitle} — Apple visionOS Spatial View`}
-    onKeyDown=${onStageKeyDown}
+    aria-label=${`${pageTitle} — Spatial Knowledge View`}
   >
     <div className="kspace-topbar">
       <div className="kspace-head">
         <div className="kspace-title-row">
-          <h1>${pageTitle}</h1>
-          <span
-            className="kspace-cnt"
-            title=${`${count} in view of ${allCount} items`}
-          >${hasReactiveFilter ? `${count}/${items.length || allCount}` : count}</span>
+          ${spaceLeftNav || html`<h1>${pageTitle}</h1>`}
           ${curCat &&
           html`<span className="kspace-cat-pill" style=${{ '--cc': curCat.color || '#0a84ff' }}>
             <i></i>
             <span>${curCat.path ? curCat.path.join(' › ') : curCat.name}</span>
+            ${onClearCategory &&
+            html`<button
+              type="button"
+              className="kspace-cat-clr"
+              title="Show all items"
+              aria-label="Clear category filter"
+              onClick=${onClearCategory}
+            >
+              <${Ic} n="x" s=${11} />
+            </button>`}
           </span>`}
+          ${activeDisc &&
+          html`<span className="kspace-cat-pill" style=${{ '--cc': DC[activeDisc] || '#0a84ff' }}>
+            <i></i>
+            <span>${activeDisc}</span>
+            ${setF &&
+            html`<button
+              type="button"
+              className="kspace-cat-clr"
+              title="Clear discipline filter"
+              aria-label="Clear discipline filter"
+              onClick=${() => setF({ ...f, disc: undefined })}
+            >
+              <${Ic} n="x" s=${11} />
+            </button>`}
+          </span>`}
+          ${isNarrowed &&
+          html`<span
+            className="kspace-cnt"
+            title=${`${count} in view of ${allCount} items`}
+          >${`${count}/${allCount || items.length}`}</span>`}
         </div>
       </div>
 
-      <div className="kspace-disc-strip" role="group" aria-label="Quick discipline filter">
-        <button
-          type="button"
-          className=${'kspace-dchip' + (!activeDisc ? ' on' : '')}
-          onClick=${() => setF && setF({ ...f, disc: undefined })}
-        >
-          All
-        </button>
-        ${discChips.map(
-          (d) => html`<button
-            key=${d}
-            type="button"
-            className=${'kspace-dchip' + (activeDisc === d ? ' on' : '')}
-            style=${{ '--dc': DC[d] }}
-            onClick=${() => setF && setF({ ...f, disc: activeDisc === d ? undefined : d })}
-          >
-            <i></i>
-            <span>${d}</span>
-          </button>`
-        )}
-      </div>
-
-      ${toolbarRight && html`<div className="kspace-controls">${toolbarRight}</div>`}
+      ${(toolbarRight || spaceActions) &&
+      html`<div className="kspace-controls">
+        ${toolbarRight}
+        ${spaceActions}
+      </div>`}
     </div>
 
     ${count
@@ -1439,7 +1275,6 @@ export function KnowledgeSpaceView({
             ${displayItems.map((r, idx) => {
               const cat = byId(r.node, tree);
               const catName = cat ? cat.name : '';
-              const isWatch = watch.includes(r.id);
               const isFav = favs.includes(r.id);
               const colAngle = layout.positions[idx] ? layout.positions[idx].angle : 0;
               const citeNum = reactive.sourceOrderMap.get(r.id);
@@ -1455,8 +1290,7 @@ export function KnowledgeSpaceView({
                 className=${'card kspace-card' +
                   (isAiSource ? ' is-ai-source' : '') +
                   (isSearchMatch ? ' is-search-match' : '') +
-                  (isHighlighted ? ' is-spotlight' : '') +
-                  (openingId === r.id ? ' is-opening-card' : '')}
+                  (isHighlighted ? ' is-spotlight' : '')}
                 role="button"
                 tabIndex="0"
                 aria-label=${`${r.title} (${r.disc || 'VDC'})`}
@@ -1468,21 +1302,21 @@ export function KnowledgeSpaceView({
                 }}
                 onPointerEnter=${() => {
                   hoveredIdxRef.current = idx;
+                  wakeMotionRef.current();
                 }}
                 onPointerLeave=${() => {
-                  if (hoveredIdxRef.current === idx) hoveredIdxRef.current = -1;
+                  if (hoveredIdxRef.current === idx) {
+                    hoveredIdxRef.current = -1;
+                    wakeMotionRef.current();
+                  }
                 }}
-                onFocus=${() => rotateToAngle(colAngle)}
+                onFocus=${(e) => {
+                  if (e.currentTarget.matches && e.currentTarget.matches(':focus-visible')) {
+                    rotateToAngle(colAngle);
+                  }
+                }}
                 onClick=${() => {
                   if (performance.now() < suppressClickUntilRef.current) return;
-                  const m = motionRef.current;
-                  const l = layoutRef.current;
-                  const rel = l.fullRing ? wrapDeg(colAngle - m.yaw) : colAngle - m.yaw;
-                  const focusThresh = Math.max(26, l.stepDeg * 0.85);
-                  if (Math.abs(rel) > focusThresh) {
-                    rotateToAngle(colAngle);
-                    return;
-                  }
                   triggerOpenCard(r.id, idx, colAngle);
                 }}
                 onKeyDown=${(e) => {
@@ -1498,19 +1332,6 @@ export function KnowledgeSpaceView({
                 </span>`}
 
                 <div className="acts" onPointerDown=${(e) => e.stopPropagation()}>
-                  ${!isGuest &&
-                  html`<button
-                    type="button"
-                    className=${isWatch ? 'on' : ''}
-                    title=${isWatch ? 'Watching' : 'Watch'}
-                    aria-label="Watch"
-                    onClick=${(e) => {
-                      e.stopPropagation();
-                      onToggleWatch && onToggleWatch(r.id);
-                    }}
-                  >
-                    <${Ic} n="eye" s=${15} />
-                  </button>`}
                   ${!isGuest &&
                   html`<button
                     type="button"
@@ -1570,17 +1391,6 @@ export function KnowledgeSpaceView({
                       </a>`
                     : html`<span className="kspace-foot-r" style=${{ marginLeft: 'auto' }}>
                         <span className="kspace-date">${fmt(r.upd)}</span>
-                        <button
-                          type="button"
-                          className="kspace-read-btn"
-                          onPointerDown=${(e) => e.stopPropagation()}
-                          onClick=${(e) => {
-                            e.stopPropagation();
-                            triggerOpenCard(r.id, idx, colAngle);
-                          }}
-                        >
-                          Read ›
-                        </button>
                       </span>`}
                 </div>
               </div>`;
@@ -1613,7 +1423,6 @@ export function KnowledgeSpaceView({
         </div>`}
 
     <div className="kspace-vignette" aria-hidden="true"></div>
-    <div className="kspace-reticle" aria-hidden="true"><span></span></div>
 
     ${cmdOpen &&
     html`<div
@@ -1725,81 +1534,183 @@ export function KnowledgeSpaceView({
         </div>
       </div>`}
 
-      ${aiAns &&
-      html`<div className="kspace-ai-panel" role="region" aria-label="Library AI Answer">
+      ${!isMobile &&
+      !desktopChatOpen &&
+      !cmdOpen &&
+      !kitsOpen &&
+      spaceQuery.trim() &&
+      queryIntent === 'search' &&
+      displayItems.length > 0 &&
+      html`<div className="kspace-quick-hits" role="region" aria-label="Quick matching standards">
+        <span className="kspace-qh-label">Quick hits</span>
+        <div className="kspace-qh-list">
+          ${displayItems.slice(0, 4).map(
+            (r) => html`<button
+              key=${r.id}
+              type="button"
+              className=${'kspace-qh-pill' + (hoveredSourceId === r.id ? ' on' : '')}
+              style=${{ '--c': DC[r.disc] || '#0a84ff' }}
+              onMouseEnter=${() => focusItemInSpace(r.id)}
+              onMouseLeave=${() => setHoveredSourceId(null)}
+              onClick=${() => {
+                if (onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
+                openSourceFromChat({ id: r.id });
+              }}
+              title="Hover to center in 3D Space · Click to open"
+            >
+              <i className="kspace-mob-dot" />
+              <span className="kspace-qh-title">${r.title}</span>
+              <span className="kspace-qh-disc">${r.disc || 'General'}</span>
+              <span className="kspace-src-go">↗</span>
+            </button>`
+          )}
+        </div>
+        <button
+          type="button"
+          className="kspace-qh-ask"
+          onClick=${() => {
+            if (onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
+            runAi(spaceQuery);
+          }}
+        >
+          <${Ic} n="spark" s=${12} />
+          <span>Ask AI ↵</span>
+        </button>
+      </div>`}
+
+      ${!isMobile &&
+      desktopChatOpen &&
+      activeChat &&
+      !kitsOpen &&
+      html`<div className="kspace-chat-panel" role="region" aria-label="Datum AI Chat">
         <div className="kspace-ai-head">
           <span className="kspace-ai-badge">
-            <${Ic} n="spark" s=${13} /> Library Intelligence
+            <${Ic} n="spark" s=${13} /> Datum AI
           </span>
-          <span className="kspace-ai-q">${aiAns.q}</span>
+          <span className="kspace-ai-q">${activeChat.title || 'Conversation'}</span>
           <div className="kspace-pop-acts">
-            ${aiAns.src.length > 0 &&
-            items.length > aiAns.src.length &&
+            ${chats.length > 0 &&
+            html`<div className="kspace-hist-wrap">
+              <button
+                type="button"
+                className=${'kspace-mini-btn' + (desktopHistoryOpen ? ' on' : '')}
+                onClick=${() => setDesktopHistoryOpen((v) => !v)}
+              >
+                Chats (${chats.length})
+              </button>
+              ${desktopHistoryOpen &&
+              html`<div className="kspace-hist-pop" role="menu" aria-label="Saved conversations">
+                <div className="kspace-hist-head">
+                  <b>Recent Chats (${chats.length})</b>
+                  ${onClearChats &&
+                  html`<button
+                    type="button"
+                    className="kspace-mini-btn"
+                    onClick=${() => {
+                      onClearChats();
+                      setDesktopHistoryOpen(false);
+                      setDesktopChatOpen(false);
+                    }}
+                  >
+                    Clear all
+                  </button>`}
+                </div>
+                <div className="kspace-hist-list">
+                  ${chats.map((c) => {
+                    const isCur = c.id === activeChatId;
+                    const turnCount = (c.messages || []).filter((m) => m.role === 'user').length;
+                    return html`<div key=${c.id} className=${'kspace-hist-row' + (isCur ? ' on' : '')}>
+                      <button
+                        type="button"
+                        className="kspace-hist-pick"
+                        onClick=${() => {
+                          onSelectChat && onSelectChat(c.id);
+                          setDesktopHistoryOpen(false);
+                          setShowAllAfterAi(false);
+                        }}
+                      >
+                        <span className="kspace-hist-t">${c.title}</span>
+                        <span className="kspace-hist-m">${turnCount} ${turnCount === 1 ? 'turn' : 'turns'}</span>
+                      </button>
+                      ${onDeleteChat &&
+                      html`<button
+                        type="button"
+                        className="kspace-hist-del"
+                        aria-label="Delete conversation"
+                        onClick=${() => {
+                          onDeleteChat(c.id);
+                          if (chats.length <= 1) {
+                            setDesktopHistoryOpen(false);
+                            setDesktopChatOpen(false);
+                          }
+                        }}
+                      >
+                        <${Ic} n="trash" s=${12} />
+                      </button>`}
+                    </div>`;
+                  })}
+                </div>
+              </div>`}
+            </div>`}
+            <button
+              type="button"
+              className="kspace-mini-btn"
+              onClick=${startNewChatView}
+              title="Start a new chat thread"
+            >
+              + New
+            </button>
+            ${activeAiTurn &&
+            activeAiTurn.src &&
+            activeAiTurn.src.length > 0 &&
+            items.length > activeAiTurn.src.length &&
             html`<button
               type="button"
               className="kspace-mini-btn"
               onClick=${() => setShowAllAfterAi((v) => !v)}
             >
-              ${showAllAfterAi ? `Focus sources (${aiAns.src.length})` : `Show all (${items.length})`}
+              ${showAllAfterAi ? `Focus sources (${activeAiTurn.src.length})` : `Show all (${items.length})`}
             </button>`}
             <button
               type="button"
               className="kspace-pop-x"
-              aria-label="Clear answer and show all"
-              onClick=${clearSpaceSearch}
+              aria-label="Minimize AI chat"
+              title="Minimize chat panel"
+              onClick=${() => {
+                setDesktopChatOpen(false);
+                setDesktopHistoryOpen(false);
+                setShowAllAfterAi(false);
+                setHoveredSourceId(null);
+                resetCamera();
+              }}
             >
               <${Ic} n="x" s=${13} />
             </button>
           </div>
         </div>
 
-        <div className="kspace-ai-body">
-          ${aiAns.busy && !aiAns.text
-            ? html`<div className="dots"><i></i><i></i><i></i></div>`
-            : html`<p>
-                ${aiAns.text.split(CITE).map((x, i) =>
-                  i % 2
-                    ? html`<sup
-                        key=${i}
-                        className="kspace-cite-sup"
-                        onClick=${() => {
-                          const s = aiAns.src[Number(x) - 1];
-                          if (s) focusItemInSpace(s.id);
-                        }}
-                      >[${x}]</sup>`
-                    : x
-                )}
-              </p>`}
+        <div className="kspace-chat-body">
+          <${ChatMessages}
+            messages=${activeChat.messages || []}
+            poolById=${poolById}
+            favs=${favs}
+            isGuest=${isGuest}
+            compact=${true}
+            onSelectSource=${openSourceFromChat}
+            onHoverSource=${(id) => (id ? focusItemInSpace(id) : setHoveredSourceId(null))}
+            onOpenCard=${(id) => openSourceFromChat({ id })}
+            onToggleFav=${onToggleFav}
+            onOpenNamingStudio=${onOpenNamingStudio}
+            onFlagGap=${onFlagGap}
+            endRef=${desktopChatEndRef}
+          />
         </div>
-
-        ${aiAns.src.length > 0 &&
-        html`<div className="kspace-ai-srcs">
-          ${aiAns.src.map(
-            (s) => html`<button
-              key=${s.id}
-              type="button"
-              className=${'kspace-src-pill' + (hoveredSourceId === s.id ? ' on' : '')}
-              onMouseEnter=${() => focusItemInSpace(s.id)}
-              onMouseLeave=${() => setHoveredSourceId(null)}
-              onClick=${() => {
-                const idx = displayItems.findIndex((x) => x.id === s.id);
-                const colAngle = idx >= 0 && layout.positions[idx] ? layout.positions[idx].angle : undefined;
-                triggerOpenCard(s.id, idx, colAngle);
-              }}
-              title="Hover to center in 3D Space · Click to open"
-            >
-              <b>${s.index}</b>
-              <span>${s.title}${s.stale ? ' (Review)' : ''}</span>
-              <span className="kspace-src-go">↗</span>
-            </button>`
-          )}
-        </div>`}
       </div>`}
 
       ${isMobile &&
-      (activeMobChat || mobHistoryOpen || mobBrowseOpen || spaceFilterMode === 'pinned' || Boolean(f && f.disc)) &&
+      (activeChat || mobHistoryOpen || mobBrowseOpen || spaceFilterMode === 'bookmarks' || Boolean(f && f.disc)) &&
       html`<div className="kspace-mob-toprow">
-        ${mobChats.length > 0 &&
+        ${chats.length > 0 &&
         html`<button
           type="button"
           className=${'kspace-mob-top-pill' + (mobHistoryOpen ? ' on' : '')}
@@ -1811,13 +1722,13 @@ export function KnowledgeSpaceView({
           }}
         >
           <${Ic} n="clock" s=${14} />
-          <span>Chats (${mobChats.length})</span>
+          <span>Chats (${chats.length})</span>
         </button>`}
         <button
           type="button"
           className="kspace-mob-top-pill is-accent"
           aria-label="New chat"
-          onClick=${startNewMobChat}
+          onClick=${startNewChatView}
         >
           <${Ic} n="plus" s=${14} />
           <span>New</span>
@@ -1836,7 +1747,7 @@ export function KnowledgeSpaceView({
           <div className="kspace-pop-head">
             <div>
               <b>Quick Menu</b>
-              <small>Chats, Standards, Naming Studio & Filters</small>
+              <small>Chats, Bookmarks, Naming Studio & Filters</small>
             </div>
             <button
               type="button"
@@ -1868,7 +1779,6 @@ export function KnowledgeSpaceView({
                 onClick=${() => {
                   const next = f && f.disc === d ? undefined : d;
                   if (setF) setF((prev) => ({ ...prev, disc: next }));
-                  setAiAns(null);
                   setSpaceFilterMode('all');
                   setMobHistoryOpen(false);
                   setMobBrowseOpen(Boolean(next));
@@ -1882,11 +1792,11 @@ export function KnowledgeSpaceView({
           </div>
 
           <div className="kspace-mob-sheet-list">
-            ${(activeMobChat || mobBrowseOpen || mobHistoryOpen) &&
+            ${(activeChat || mobBrowseOpen || mobHistoryOpen) &&
             html`<button
               type="button"
               className="kspace-mob-sheet-row"
-              onClick=${startNewMobChat}
+              onClick=${startNewChatView}
             >
               <${Ic} n="plus" s=${16} />
               <span>New Search Chat</span>
@@ -1902,23 +1812,23 @@ export function KnowledgeSpaceView({
               }}
             >
               <${Ic} n="clock" s=${16} />
-              <span>Saved Searches & Chats (${mobChats.length})</span>
+              <span>Saved Chats (${chats.length})</span>
             </button>
-            <button
+            ${!isGuest &&
+            html`<button
               type="button"
               className="kspace-mob-sheet-row"
               onClick=${() => {
                 setMobMenuOpen(false);
-                setAiAns(null);
                 setMobHistoryOpen(false);
                 setMobBrowseOpen(false);
-                setSpaceFilterMode((m) => (m === 'pinned' ? 'all' : 'pinned'));
+                setSpaceFilterMode((m) => (m === 'bookmarks' ? 'all' : 'bookmarks'));
               }}
             >
               <${Ic} n="star" s=${16} />
-              <span>Pinned & Highlights (${pinnedData.combined.length})</span>
-              ${spaceFilterMode === 'pinned' && html`<span className="kspace-mob-sheet-tag">Active</span>`}
-            </button>
+              <span>Bookmarks (${favs.length})</span>
+              ${spaceFilterMode === 'bookmarks' && html`<span className="kspace-mob-sheet-tag">Active</span>`}
+            </button>`}
             <button
               type="button"
               className="kspace-mob-sheet-row"
@@ -2004,18 +1914,16 @@ export function KnowledgeSpaceView({
       html`<div className="kspace-mob-results">
         <div className="kspace-mob-res-head">
           <div className="kspace-mob-res-title">
-            <b>Saved Searches</b>
-            <span>${mobChats.length}</span>
+            <b>Saved Chats</b>
+            <span>${chats.length}</span>
           </div>
           <div className="kspace-mob-res-acts">
-            ${mobChats.length > 0 &&
+            ${chats.length > 0 &&
+            onClearChats &&
             html`<button
               type="button"
               className="kspace-mini-btn"
-              onClick=${() => {
-                setMobChats([]);
-                setActiveMobChatId(null);
-              }}
+              onClick=${onClearChats}
             >
               Clear all
             </button>`}
@@ -2030,9 +1938,9 @@ export function KnowledgeSpaceView({
         </div>
 
         <div className="kspace-mob-list">
-          ${mobChats.length === 0
+          ${chats.length === 0
             ? html`<div className="kspace-mob-empty">
-                <p>Your search conversations will be saved here automatically.</p>
+                <p>Your conversations across Mobile, Desktop, and Reader are saved here.</p>
                 <button
                   type="button"
                   className="btn p"
@@ -2042,14 +1950,14 @@ export function KnowledgeSpaceView({
                   }}
                 >
                   <${Ic} n="spark" s=${14} />
-                  <span>Start a search</span>
+                  <span>Start a chat</span>
                 </button>
               </div>`
-            : mobChats.map((c) => {
+            : chats.map((c) => {
                 const lastBot = [...(c.messages || [])].reverse().find((m) => m.role === 'assistant');
                 const preview = lastBot && lastBot.text ? plain(lastBot.text).slice(0, 110) : '';
                 const turnCount = (c.messages || []).filter((m) => m.role === 'user').length;
-                const isCur = c.id === activeMobChatId;
+                const isCur = c.id === activeChatId;
                 return html`<div
                   key=${c.id}
                   className=${'kspace-mob-hist-item' + (isCur ? ' on' : '')}
@@ -2058,7 +1966,7 @@ export function KnowledgeSpaceView({
                     type="button"
                     className="kspace-mob-hist-main"
                     onClick=${() => {
-                      setActiveMobChatId(c.id);
+                      onSelectChat && onSelectChat(c.id);
                       setMobHistoryOpen(false);
                       setMobBrowseOpen(false);
                       setSpaceFilterMode('all');
@@ -2076,14 +1984,15 @@ export function KnowledgeSpaceView({
                     <div className="kspace-mob-card-title">${c.title}</div>
                     ${preview && html`<div className="kspace-mob-card-desc">${preview}</div>`}
                   </button>
-                  <button
+                  ${onDeleteChat &&
+                  html`<button
                     type="button"
                     className="kspace-mob-hist-del"
                     aria-label="Delete saved search"
-                    onClick=${() => deleteMobChat(c.id)}
+                    onClick=${() => onDeleteChat(c.id)}
                   >
                     <${Ic} n="trash" s=${14} />
-                  </button>
+                  </button>`}
                 </div>`;
               })}
         </div>
@@ -2096,14 +2005,14 @@ export function KnowledgeSpaceView({
       (() => {
         const showResults =
           mobBrowseOpen ||
-          spaceFilterMode === 'pinned' ||
+          spaceFilterMode === 'bookmarks' ||
           Boolean(f && f.disc) ||
-          (!activeMobChat && Boolean(spaceQuery.trim()));
+          (!activeChat && Boolean(spaceQuery.trim()));
 
         if (showResults) {
           const mobHeading =
-            spaceFilterMode === 'pinned'
-              ? 'Pinned & Highlights'
+            spaceFilterMode === 'bookmarks'
+              ? 'Bookmarks'
               : f && f.disc
               ? f.disc
               : spaceQuery.trim()
@@ -2135,7 +2044,7 @@ export function KnowledgeSpaceView({
                     if (setF && f && f.disc) setF((prev) => ({ ...prev, disc: undefined }));
                   }}
                 >
-                  ${activeMobChat ? 'Back to chat' : 'Close'}
+                  ${activeChat ? 'Back to chat' : 'Close'}
                 </button>
               </div>
             </div>
@@ -2144,15 +2053,27 @@ export function KnowledgeSpaceView({
               ${displayItems.length === 0
                 ? html`<div className="kspace-mob-empty">
                     <p>No matching standards for “${spaceQuery.trim() || mobHeading}”.</p>
-                    ${spaceQuery.trim() &&
-                    html`<button
-                      type="button"
-                      className="btn p"
-                      onClick=${() => runAi(spaceQuery)}
-                    >
-                      <${Ic} n="spark" s=${14} />
-                      <span>Ask Library AI</span>
-                    </button>`}
+                    <div style=${{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                      ${spaceQuery.trim() &&
+                      html`<button
+                        type="button"
+                        className="btn p"
+                        onClick=${() => runAi(spaceQuery)}
+                      >
+                        <${Ic} n="spark" s=${14} />
+                        <span>Ask Datum AI</span>
+                      </button>`}
+                      ${spaceQuery.trim() &&
+                      onFlagGap &&
+                      html`<button
+                        type="button"
+                        className="btn"
+                        onClick=${() => onFlagGap(spaceQuery.trim())}
+                      >
+                        <${Ic} n="plus" s=${14} />
+                        <span>Flag missing standard</span>
+                      </button>`}
+                    </div>
                   </div>`
                 : displayItems.map(
                     (r) => html`<button
@@ -2184,142 +2105,103 @@ export function KnowledgeSpaceView({
           </div>`;
         }
 
-        if (activeMobChat && activeMobChat.messages && activeMobChat.messages.length > 0) {
-          return html`<div className="kspace-mob-chat" role="log" aria-label="Search conversation">
-            ${activeMobChat.messages.map((msg) => {
-              if (msg.role === 'user') {
-                return html`<div key=${msg.id} className="kspace-mob-msg is-user">
-                  <div className="kspace-mob-bubble">${msg.text}</div>
-                </div>`;
-              }
-              const matchedDocs = (msg.matchIds || []).map((id) => poolById.get(id)).filter(Boolean);
-              const isMatchesOpen = mobExpandedTurnId === msg.id;
-              return html`<div key=${msg.id} className="kspace-mob-msg is-assistant">
-                <div className="kspace-mob-msg-head">
-                  <span className="kspace-ai-badge">
-                    <${Ic} n="spark" s=${11} /> Datum AI
-                  </span>
-                </div>
-                <div className="kspace-mob-msg-body">
-                  ${msg.busy && !msg.text
-                    ? html`<div className="dots"><i></i><i></i><i></i></div>`
-                    : html`<p>
-                        ${(msg.text || '').split(CITE).map((x, i) =>
-                          i % 2
-                            ? html`<sup
-                                key=${i}
-                                className="kspace-cite-sup"
-                                onClick=${() => {
-                                  const s = msg.src && msg.src[Number(x) - 1];
-                                  if (s) triggerOpenCard(s.id);
-                                }}
-                              >[${x}]</sup>`
-                            : x
-                        )}
-                      </p>`}
-                </div>
-
-                ${msg.src &&
-                msg.src.length > 0 &&
-                html`<div className="kspace-ai-srcs">
-                  ${msg.src.map(
-                    (s) => html`<button
-                      key=${s.id}
-                      type="button"
-                      className="kspace-src-pill"
-                      onClick=${() => triggerOpenCard(s.id)}
-                    >
-                      <b>${s.index}</b>
-                      <span>${s.title}${s.stale ? ' (Review)' : ''}</span>
-                      <span className="kspace-src-go">↗</span>
-                    </button>`
-                  )}
-                </div>`}
-
-                ${matchedDocs.length > 0 &&
-                !msg.busy &&
-                html`<div className="kspace-mob-turn-matches">
-                  <button
-                    type="button"
-                    className=${'kspace-mini-btn' + (isMatchesOpen ? ' on' : '')}
-                    onClick=${() => setMobExpandedTurnId((cur) => (cur === msg.id ? null : msg.id))}
-                  >
-                    ${isMatchesOpen
-                      ? `Hide matched standards (${matchedDocs.length})`
-                      : `${matchedDocs.length} matching ${matchedDocs.length === 1 ? 'standard' : 'standards'} ▾`}
-                  </button>
-                  ${isMatchesOpen &&
-                  html`<div className="kspace-mob-turn-cards">
-                    ${matchedDocs.map(
-                      (r) => html`<button
-                        key=${r.id}
-                        type="button"
-                        className="kspace-mob-card"
-                        style=${{ '--c': DC[r.disc] || '#0a84ff' }}
-                        onClick=${() => triggerOpenCard(r.id)}
-                      >
-                        <div className="kspace-mob-card-top">
-                          <span className="kspace-mob-disc">
-                            <i className="kspace-mob-dot" />
-                            <span>${r.disc || 'General'}</span>
-                          </span>
-                          <span className="kspace-mob-meta">${TY[r.type] || 'Document'}</span>
-                        </div>
-                        <div className="kspace-mob-card-title">${r.title}</div>
-                      </button>`
-                    )}
-                  </div>`}
-                </div>`}
-              </div>`;
-            })}
-            <div ref=${mobChatEndRef} />
+        if (activeChat && activeChat.messages && activeChat.messages.length > 0) {
+          return html`<div className="kspace-mob-chat">
+            <${ChatMessages}
+              messages=${activeChat.messages}
+              poolById=${poolById}
+              favs=${favs}
+              isGuest=${isGuest}
+              onSelectSource=${openSourceFromChat}
+              onOpenCard=${(id) => triggerOpenCard(id)}
+              onToggleFav=${onToggleFav}
+              onOpenNamingStudio=${onOpenNamingStudio}
+              onFlagGap=${onFlagGap}
+              endRef=${mobChatEndRef}
+            />
           </div>`;
         }
 
-        return html`<div className="kspace-mob-actions" role="group" aria-label="Quick actions">
-          ${mobChats.length > 0 &&
-          html`<button
-            type="button"
-            className="kspace-mob-act"
-            onClick=${() => {
-              setMobHistoryOpen(true);
-              setMobMenuOpen(false);
-            }}
-          >
-            <span className="kspace-mob-act-ico"><${Ic} n="clock" s=${19} /></span>
-            <span>Saved searches (${mobChats.length})</span>
-          </button>`}
-          <button
-            type="button"
-            className="kspace-mob-act"
-            onClick=${() => onCommand && onCommand('view', 'naming')}
-          >
-            <span className="kspace-mob-act-ico"><${Ic} n="sliders" s=${19} /></span>
-            <span>Wall Naming Studio</span>
-          </button>
-          <button
-            type="button"
-            className="kspace-mob-act"
-            onClick=${() => {
-              setKitsOpen(true);
-              setMobMenuOpen(false);
-            }}
-          >
-            <span className="kspace-mob-act-ico"><${Ic} n="folder" s=${19} /></span>
-            <span>Starter Kits (${visibleKits.length})</span>
-          </button>
-          <button
-            type="button"
-            className="kspace-mob-act"
-            onClick=${() => setMobBrowseOpen(true)}
-          >
-            <span className="kspace-mob-act-ico"><${Ic} n="book" s=${19} /></span>
-            <span>Browse Standards (${items.length})</span>
-          </button>
+        return html`<div className="kspace-mob-welcome">
+          <div className="kspace-mob-hero">
+            <span className="kspace-ai-badge"><${Ic} n="spark" s=${12} /> Datum Chat-First</span>
+            <h2>Ask or search standards</h2>
+            <p>13-slot naming rules, wall assemblies & BIM QA — ask in English or Ukrainian.</p>
+            <div className="kspace-mob-hero-chips">
+              ${AI_PROMPTS.slice(0, 3).map(
+                (p) => html`<button
+                  key=${p.label}
+                  type="button"
+                  className="kspace-pchip kspace-pchip-acc"
+                  onClick=${() => {
+                    if (onLogSearch) onLogSearch(p.query, displayItems.length);
+                    runAi(p.query);
+                  }}
+                >
+                  <${Ic} n="spark" s=${11} />
+                  <span>${p.label}</span>
+                </button>`
+              )}
+            </div>
+          </div>
+
+          <div className="kspace-mob-actions" role="group" aria-label="Quick actions">
+            ${chats.length > 0
+              ? html`<button
+                  type="button"
+                  className="kspace-mob-act"
+                  onClick=${() => {
+                    setMobHistoryOpen(true);
+                    setMobMenuOpen(false);
+                  }}
+                >
+                  <span className="kspace-mob-act-ico"><${Ic} n="clock" s=${19} /></span>
+                  <span>Saved chats (${chats.length})</span>
+                </button>`
+              : !isGuest &&
+                html`<button
+                  type="button"
+                  className="kspace-mob-act"
+                  onClick=${() => {
+                    setSpaceFilterMode('bookmarks');
+                    setMobMenuOpen(false);
+                  }}
+                >
+                  <span className="kspace-mob-act-ico"><${Ic} n="star" s=${19} /></span>
+                  <span>Bookmarks (${favs.length})</span>
+                </button>`}
+            <button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => onCommand && onCommand('view', 'naming')}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="sliders" s=${19} /></span>
+              <span>Wall Naming Studio</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => {
+                setKitsOpen(true);
+                setMobMenuOpen(false);
+              }}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="folder" s=${19} /></span>
+              <span>Starter Kits (${visibleKits.length})</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => setMobBrowseOpen(true)}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="book" s=${19} /></span>
+              <span>Browse Standards (${items.length})</span>
+            </button>
+          </div>
         </div>`;
       })()}
 
-      <div ref=${askBarRef} className=${'kspace-ask-bar' + ((aiAns && aiAns.busy) || (isMobile && lastMobMsg && lastMobMsg.busy) ? ' is-busy' : '')}>
+      <div ref=${askBarRef} className=${'kspace-ask-bar' + ((lastChatMsg && lastChatMsg.busy && (desktopChatOpen || isMobile)) ? ' is-busy' : '')}>
         ${isMobile
           ? html`<button
               type="button"
@@ -2344,7 +2226,6 @@ export function KnowledgeSpaceView({
           onChange=${(e) => {
             const val = e.target.value;
             setSpaceQuery(val);
-            if (!isMobile && aiAns && val.trim() !== aiAns.q) setAiAns(null);
             if (spaceFilterMode !== 'all') setSpaceFilterMode('all');
             if (!val.trim() && catalogQ && onCatalogQChange) onCatalogQChange('');
           }}
@@ -2379,17 +2260,19 @@ export function KnowledgeSpaceView({
               e.preventDefault();
               if (spaceQuery.trim() && onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
               runAi(spaceQuery);
-            } else if (e.key === 'Escape' && (spaceQuery || aiAns)) {
+            } else if (e.key === 'Escape' && (spaceQuery || desktopChatOpen || spaceFilterMode !== 'all')) {
               e.preventDefault();
               clearSpaceSearch();
             }
           }}
           placeholder=${isMobile
-            ? activeMobChat
+            ? activeChat
               ? 'Ask follow-up or search…'
-              : 'Search Datum or ask AI…'
-            : 'Search 3D Space, ask Library AI, or press Ctrl+K for commands…'}
-          aria-label="Search 3D Space, ask Library AI, or open commands"
+              : 'Search Datum or ask AI (EN/UA)…'
+            : desktopChatOpen && activeChat
+            ? 'Ask follow-up, paste wall code, or search section…'
+            : 'Search 3D Space, ask Datum AI (EN/UA), or press Ctrl+K…'}
+          aria-label="Search 3D Space, ask Datum AI, or open commands"
         />
         ${hasReactiveFilter &&
         (isMobile
@@ -2406,7 +2289,7 @@ export function KnowledgeSpaceView({
           : html`<span className="kspace-match-pill">
               ${count} ${count === 1 ? 'match' : 'matches'}
             </span>`)}
-        ${(spaceQuery || (!isMobile && aiAns) || spaceFilterMode !== 'all') &&
+        ${(spaceQuery || (!isMobile && desktopChatOpen && activeChat) || spaceFilterMode !== 'all') &&
         html`<button
           type="button"
           className="kspace-ask-clr"
@@ -2431,7 +2314,7 @@ export function KnowledgeSpaceView({
         <button
           type="button"
           className="kspace-ask-btn"
-          aria-label="Ask Library AI"
+          aria-label="Ask Datum AI"
           onClick=${() => {
             if (isMobile && !spaceQuery.trim()) {
               setMobMenuOpen((v) => !v);
@@ -2449,19 +2332,39 @@ export function KnowledgeSpaceView({
 
       <div ref=${dockBarRef} className="kspace-dock-bar">
         <div className="kspace-chips-scroll">
-          ${pinnedData.combined.length > 0 &&
+          ${!isGuest &&
+          favs.length > 0 &&
           html`<button
             type="button"
-            className=${'kspace-pchip kspace-pchip-acc' + (spaceFilterMode === 'pinned' ? ' on' : '')}
+            className=${'kspace-pchip kspace-pchip-acc' + (spaceFilterMode === 'bookmarks' ? ' on' : '')}
             onClick=${() => {
               setKitsOpen(false);
-              setAiAns(null);
-              setSpaceFilterMode((m) => (m === 'pinned' ? 'all' : 'pinned'));
+              setDesktopChatOpen(false);
+              setSpaceFilterMode((m) => (m === 'bookmarks' ? 'all' : 'bookmarks'));
             }}
-            title="Spotlight highlights and pinned standards in 3D Space"
+            title="Spotlight your bookmarked standards in 3D Space"
           >
             <${Ic} n="star" s=${11} f=${true} />
-            <span>Pinned (${pinnedData.combined.length})</span>
+            <span>Bookmarks (${favs.length})</span>
+          </button>`}
+
+          ${!isMobile &&
+          chats.length > 0 &&
+          html`<button
+            type="button"
+            className=${'kspace-pchip kspace-pchip-acc' + (desktopChatOpen ? ' on' : '')}
+            onClick=${() => {
+              setKitsOpen(false);
+              setSpaceFilterMode('all');
+              if (!activeChatId && chats[0] && onSelectChat) {
+                onSelectChat(chats[0].id);
+              }
+              setDesktopChatOpen((v) => !v);
+            }}
+            title="Reopen threaded AI conversations"
+          >
+            <${Ic} n="spark" s=${11} />
+            <span>Chats (${chats.length})</span>
           </button>`}
 
           ${visibleKits.length > 0 &&
@@ -2475,7 +2378,8 @@ export function KnowledgeSpaceView({
             <span>Starter Kits (${visibleKits.length})</span>
           </button>`}
 
-          ${!aiAns &&
+          ${!desktopChatOpen &&
+          !spaceQuery.trim() &&
           AI_PROMPTS.map(
             (prompt) => html`<button
               key=${prompt.label}
@@ -2521,7 +2425,7 @@ export function KnowledgeSpaceView({
               </div>`
             : null}
 
-          <span ref=${hudColRef} className="kspace-hud-col">1/${layout.cols}</span>
+          <span ref=${hudColRef} className=${'kspace-hud-col' + (layout.cols <= 1 || layout.cols > 18 ? ' show' : '')}>1/${layout.cols}</span>
 
           <button
             type="button"
@@ -2532,32 +2436,6 @@ export function KnowledgeSpaceView({
           >
             <${Ic} n="chev" s=${13} />
           </button>
-
-
-
-          <span className="kspace-hud-sep" aria-hidden="true"></span>
-
-          <div className="kspace-zoom-grp" role="group" aria-label="Spatial depth zoom">
-            <button
-              type="button"
-              className="kspace-zoom-btn"
-              aria-label="Zoom out"
-              title="Zoom out (−)"
-              onClick=${() => stepZoom(-65)}
-            >
-              −
-            </button>
-            <span ref=${hudZoomRef} className="kspace-hud-meta">100%</span>
-            <button
-              type="button"
-              className="kspace-zoom-btn"
-              aria-label="Zoom in"
-              title="Zoom in (+)"
-              onClick=${() => stepZoom(65)}
-            >
-              +
-            </button>
-          </div>
 
           <button
             ref=${resetBtnRef}

@@ -964,3 +964,43 @@
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.16);
   }
 }
+
+/* Mobile-First Polish for Naming Studio */
+@media (max-width: 768px) {
+  .nm-wrap {
+    padding: 0 2px;
+  }
+  .nm-hd {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .nm-hd-acts {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .nm-hd-acts::-webkit-scrollbar {
+    display: none;
+  }
+  .nm-presets {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .nm-presets::-webkit-scrollbar {
+    display: none;
+  }
+  .nm-presets > * {
+    flex: none;
+  }
+  .a3d-compact .a3d-stage {
+    min-height: 240px;
+  }
+  .nm-seg-row,
+  .nm-layer-row {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}

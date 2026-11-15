@@ -1,18 +1,19 @@
 // Shared pure-JS Edge logic (Web Standard safe — runs in Next.js Edge Runtime and browser fallback)
 
 import { lookupNamingQuery } from '../features/naming/namingEngine.js';
+import {
+  tokenizeUnique,
+  expandTokens,
+  scoreDocument,
+  hasCyrillic,
+} from '../utils/search.js';
+import {
+  extractMarkdownSections,
+  extractBestExcerpt,
+  detectNamingCodeInText,
+} from '../utils/sections.js';
 
-const SHORT_BIM_TOKENS = new Set([
-  'ch', 'bi', 'ai', 'fi', '0i', '0s', '0g', 'ag', 'gl', 'ar', 'pl',
-  'sr', 'nr', 'oc', '5d', 'bd', '2s', '3s', '4s', '6s', '8s', '2w', '4w', '6w', '8w',
-]);
-
-const tokenize = (s) =>
-  (s || "")
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 || SHORT_BIM_TOKENS.has(w));
+const tokenize = tokenizeUnique;
 
 const plainText = (b) =>
   (b || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/[#>*`|]/g, " ").replace(/\s+/g, " ").trim();
@@ -32,6 +33,66 @@ export function canUserViewInEdge(item, userRole, userName, allowedCategories = 
   return allowedCategories.length === 0 || !item.node || allowedCategories.includes(item.node);
 }
 
+function buildEffectiveQuery(query, history = []) {
+  const q = String(query || "").trim();
+  const baseTokens = tokenizeUnique(q);
+  const recentHistory = Array.isArray(history) ? history.slice(-6) : [];
+  const isFollowUp =
+    recentHistory.length > 0 &&
+    (baseTokens.length <= 3 ||
+      /\b(it|this|that|they|them|more|details|also|what about|це|цей|ця|там|ще|детальніше|також|а якщо|а для)\b/i.test(q));
+
+  const contextDocIds = new Set();
+  const extraParts = [];
+  if (isFollowUp) {
+    for (let i = recentHistory.length - 1; i >= 0; i--) {
+      const m = recentHistory[i];
+      if (!m) continue;
+      if (m.role === "user" && m.text && extraParts.length < 2) {
+        extraParts.push(m.text);
+      }
+      if (Array.isArray(m.src)) {
+        m.src.forEach((s) => s && s.id && contextDocIds.add(s.id));
+      }
+    }
+  }
+
+  const combinedText = extraParts.length ? `${q} ${extraParts.join(" ")}` : q;
+  const combinedTokens = tokenizeUnique(combinedText);
+  const expanded = expandTokens(combinedTokens);
+  return {
+    q,
+    baseTokens,
+    combinedTokens,
+    expandedTerms: expanded.map((x) => x.term),
+    contextDocIds,
+    isFollowUp,
+  };
+}
+
+function pickBestSectionsForItem(item, expandedTerms, limit = 1) {
+  const sections = extractMarkdownSections(item.body || "", item.title || "", item.desc || "");
+  if (!sections.length) {
+    return [{ id: "", title: "", text: item.desc || "" }];
+  }
+
+  const scored = sections.map((sec, idx) => {
+    const titleL = (sec.title || "").toLowerCase();
+    const textL = (sec.text || "").toLowerCase();
+    let score = idx === 0 && sec.text.length > 30 ? 0.5 : 0;
+    for (let i = 0; i < expandedTerms.length; i++) {
+      const t = expandedTerms[i];
+      if (!t) continue;
+      if (titleL.includes(t)) score += 6;
+      if (textL.includes(t)) score += 2;
+    }
+    return { sec, score };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, limit).map((x) => x.sec);
+}
+
 export function runAiEdgeLogic(payload) {
   const {
     action = "qa",
@@ -42,6 +103,9 @@ export function runAiEdgeLogic(payload) {
     directShareIds = [],
     items = [],
     targetItem = null,
+    targetDocId = null,
+    scope = "all",
+    history = [],
     today = "2026-10-22",
   } = payload || {};
 
@@ -65,72 +129,116 @@ export function runAiEdgeLogic(payload) {
   const authorized = items.filter((it) =>
     canUserViewInEdge(it, userRole, userName, allowedCategories, directShareIds)
   );
+  const scopedPool =
+    scope === "doc" && targetDocId != null
+      ? authorized.filter((it) => String(it.id) === String(targetDocId))
+      : authorized;
 
-  const namingNote = lookupNamingQuery(query);
-  const qTokens = tokenize(query);
-  const ranked = authorized
+  const eff = buildEffectiveQuery(query, history);
+  const isUa = hasCyrillic(eff.q);
+  const namingNote = lookupNamingQuery(eff.q) || (eff.isFollowUp ? lookupNamingQuery(eff.expandedTerms.join(" ")) : null);
+
+  const ranked = scopedPool
     .map((r) => {
-      const hay = `${r.title} ${r.desc || ""} ${r.body || ""} ${(r.tags || []).join(" ")} ${r.author || ""}`;
-      const hTokens = tokenize(hay);
-      let score = 0;
-      qTokens.forEach((wt) => {
-        const stem = wt.slice(0, Math.max(3, wt.length - 2));
-        if (r.title.toLowerCase().includes(wt)) score += 4;
-        hTokens.forEach((ht) => {
-          if (ht.startsWith(stem)) score += 1;
-        });
-      });
+      const primary = scoreDocument(r, eff.q, eff.baseTokens);
+      let score = primary.score;
+      if (eff.isFollowUp) {
+        const follow = scoreDocument(r, eff.q, eff.combinedTokens);
+        score = Math.max(score, follow.score * 0.72);
+        if (eff.contextDocIds.has(r.id)) score += 3.5;
+      }
+      if (targetDocId != null && String(r.id) === String(targetDocId)) {
+        score += scope === "doc" ? 20 : 6;
+      }
       return { item: r, score };
     })
-    .filter((x) => x.score > 0)
+    .filter((x) => x.score > 0 || (scope === "doc" && targetDocId != null && String(x.item.id) === String(targetDocId)))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 3);
+    .slice(0, 4);
 
-  const toSource = (item, idx) => {
+  const toSource = (item, idx, secOverride = null) => {
     const cycle = item.reviewDays || 90;
     const age = daysSince(item.verified || item.upd, today);
-    const bodyExcerpt = plainText(item.body || "").slice(0, 160);
+    const sec = secOverride || pickBestSectionsForItem(item, eff.expandedTerms, 1)[0];
+    const secTitle = sec && sec.title && sec.title !== item.title ? sec.title : "";
+    const excerptSource = (sec && sec.text) || item.desc || plainText(item.body || "");
     return {
       index: idx + 1,
       id: item.id,
       title: item.title,
+      sectionId: (sec && sec.id) || "",
+      sectionTitle: secTitle,
+      url: item.url || "",
+      disc: item.disc || "",
+      type: item.type || "doc",
       stale: age > cycle,
       ageDays: age,
-      excerpt: (bodyExcerpt || item.desc || "").trim(),
+      excerpt: extractBestExcerpt(excerptSource, eff.expandedTerms, 230),
     };
   };
 
-  if (!ranked.length) {
+  let sources = [];
+  if (scope === "doc" && ranked.length === 1) {
+    const docItem = ranked[0].item;
+    const topSections = pickBestSectionsForItem(docItem, eff.expandedTerms, 3);
+    sources = topSections.map((sec, idx) => toSource(docItem, idx, sec));
+  } else {
+    sources = ranked.map((x, idx) => toSource(x.item, idx));
+  }
+
+  const detectedCode =
+    detectNamingCodeInText(eff.q) ||
+    detectNamingCodeInText(namingNote || "") ||
+    (sources[0] && detectNamingCodeInText(`${sources[0].title} ${sources[0].excerpt}`));
+
+  const actions = {
+    namingCode: detectedCode || null,
+    suggestNamingStudio: Boolean(namingNote || detectedCode),
+    noResultsGap: !sources.length && !namingNote,
+    lang: isUa ? "uk" : "en",
+  };
+
+  if (!sources.length) {
     if (namingNote) {
       const namingDoc = authorized.find((r) => r.id === 137) || authorized.find((r) => r.id === 107);
-      const sources = namingDoc ? [toSource(namingDoc, 0)] : [];
+      const fallbackSrc = namingDoc ? [toSource(namingDoc, 0)] : [];
       return {
-        answer: `[Rule Spec${namingDoc ? ` #${namingDoc.id}` : ''}] ${namingNote}${sources.length ? ' [1]' : ''}`,
-        sources,
+        answer: `[Rule Spec${namingDoc ? ` #${namingDoc.id}` : ""}] ${namingNote}${fallbackSrc.length ? " [1]" : ""}`,
+        sources: fallbackSrc,
+        actions: { ...actions, noResultsGap: false },
         authorizedCount: authorized.length,
+        ragChunks: fallbackSrc,
       };
     }
     return {
-      answer: "This topic is not covered in the current published library accessible to your role.",
+      answer: isUa
+        ? "У доступній для твоєї ролі базі не знайдено точного стандарту за цим запитом. Ти можеш зафіксувати прогалину для BIM/VDC-ліда, щоб додати цю інструкцію."
+        : "No exact published standard matched this query in your accessible library. You can flag this gap for a BIM/VDC lead.",
       sources: [],
+      actions,
       authorizedCount: authorized.length,
+      ragChunks: [],
     };
   }
 
-  const sources = ranked.map((x, idx) => toSource(x.item, idx));
+  const bulletLines = sources.map((s) => {
+    const loc = s.sectionTitle ? ` (§ ${s.sectionTitle})` : "";
+    const text = s.excerpt || s.title;
+    return `• ${s.title}${loc}: ${text}${/[.!?…]$/.test(text) ? "" : "."} [${s.index}]`;
+  });
 
-  const rankedSummary = sources
-    .map((s) => `${s.excerpt}${s.excerpt.endsWith(".") ? "" : "."} [${s.index}]`)
-    .join(" ");
+  const prefix = namingNote
+    ? `${authorized.some((r) => r.id === 137) ? "[Rule Spec #137]" : "[Rule Spec]"} ${namingNote}\n`
+    : "";
 
-  const answer = namingNote
-    ? `${authorized.some((r) => r.id === 137) ? '[Rule Spec #137]' : '[Rule Spec]'} ${namingNote} — ${rankedSummary}`
-    : rankedSummary;
+  const answer = prefix + bulletLines.join("\n");
 
   return {
     answer,
     sources,
+    actions,
     authorizedCount: authorized.length,
+    ragChunks: sources,
   };
 }
 

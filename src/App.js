@@ -1,7 +1,7 @@
 'use client';
 
 import { html, Fragment, useState, useMemo, useEffect, useRef } from './lib/react.js';
-import { TODAY, KB, ST, TY, STG, DISC, DC, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
+import { TODAY, KB, ST, TY, STG, DISC, DC, RD, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, NOTES, USERS, SEED_TEAMS, SEED_COLLECTIONS, SEED_ACTIVITIES } from './data/seed.js';
 import { db } from './lib/db.js';
@@ -15,7 +15,15 @@ import {
   makeGooglePhotoFallback,
 } from './lib/auth.js';
 import { fmt, pl } from './utils/format.js';
-import { hay } from './utils/search.js';
+import { hay, scoreDocument, tokenizeUnique } from './utils/search.js';
+import {
+  loadChats,
+  saveChats,
+  loadActiveChatId,
+  saveActiveChatId,
+  createPendingChatTurn,
+  resolvePendingChatTurn,
+} from './utils/chats.js';
 import { docxImport } from './utils/docx.js';
 import { Ic, DatumMark } from './components/Icon.js';
 import { Pill, VisPill } from './components/Badge.js';
@@ -23,7 +31,6 @@ import { FilterPopover, SortPopover, UserSwitcher } from './components/Select.js
 import { Node } from './components/SpaceTree.js';
 import { Pal } from './components/CommandPalette.js';
 import { Drawer } from './components/ResourceDrawer.js';
-import { AI } from './components/AiDrawer.js';
 import { PublicPreviewModal } from './components/PublicPreviewModal.js';
 import { RevitLinkModal, parseRevitLinkUrl } from './components/RevitLinkModal.js';
 import { LoginView } from './components/LoginView.js';
@@ -40,13 +47,14 @@ import { TeamView } from './features/team/TeamView.js';
 const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
   "kb2-res", "kb2-tree", "kb2-cols", "kb2-acts", "kb2-notes",
-  "kb2-pins", "kb2-fav", "kb2-watch", "kb2-req", "kb2-ack",
+  "kb2-pins", "kb2-fav", "kb2-req", "kb2-ack",
   "kb2-hist", "kb2-chk", "kb2-img", "kb2-users", "kb2-teams",
 ];
 
 function ensureDatasetVersion() {
   if (typeof window === "undefined") return;
   try {
+    localStorage.removeItem("kb2-watch");
     if (localStorage.getItem("kb2-dataset-ver") !== DATASET_VER) {
       RESET_KEYS_ON_CUTOVER.forEach((k) => localStorage.removeItem(k));
       localStorage.setItem("kb2-dataset-ver", DATASET_VER);
@@ -100,7 +108,6 @@ export function App() {
   const [pinned, setPinned] = useState(() => db.load("kb2-pins", null) || [100, 113, 129, 132]);
 
   const [favs, setFavs] = useState(() => db.load("kb2-fav", null) || [102, 118, 123]);
-  const [watch, setWatch] = useState(() => db.load("kb2-watch", null) || [113, 129, 131]);
   const [notes, setNotes] = useState(() => db.load("kb2-notes", null) || NOTES);
 
   const [view, setView] = useState("kb");
@@ -138,10 +145,11 @@ export function App() {
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
   const [sel, setSel] = useState(null);
-  const [ai, setAi] = useState(false);
   const [bell, setBell] = useState(false);
   const [nav, setNav] = useState(false);
-  const [sbCol, setSbCol] = useState(() => db.load("kb2-sb-col", false));
+  const [spaceChatSig, setSpaceChatSig] = useState(0);
+  const navRef = useRef(false);
+  navRef.current = nav;
 
   const [pubTarget, setPubTarget] = useState(null);
   const [acks, setAcks] = useState(() => db.load("kb2-ack", null) || {});
@@ -153,6 +161,7 @@ export function App() {
   const [aq, setAq] = useState(null);
   const [hf, setHf] = useState(0);
   const [read, setRead] = useState(null);
+  const [readSection, setReadSection] = useState(null);
   const [imgs, setImgs] = useState(() => ({ ...IMG0, ...(db.load("kb2-img", null) || {}) }));
   const [sort, setSort] = useState("new");
   const PAGE_SIZE = 24;
@@ -239,7 +248,6 @@ export function App() {
   useEffect(() => { db.save("kb2-flags", flaggedIds); }, [flaggedIds]);
   useEffect(() => { db.save("kb2-pins", pinned); }, [pinned]);
   useEffect(() => { db.save("kb2-fav", favs); }, [favs]);
-  useEffect(() => { db.save("kb2-watch", watch); }, [watch]);
   useEffect(() => { db.save("kb2-notes", notes); }, [notes]);
   useEffect(() => { db.save("kb2-ack", acks); }, [acks]);
   useEffect(() => { db.save("kb2-req", req); }, [req]);
@@ -256,15 +264,17 @@ export function App() {
       alive = false;
     };
   }, []);
-  useEffect(() => { db.save("kb2-sb-col", sbCol); }, [sbCol]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const sp = new URLSearchParams(window.location.search);
     const qView = sp.get("view");
     const qAsm = sp.get("assembly");
-    const qRead = sp.get("read");
+    const qRead = sp.get("doc") || sp.get("read");
     const qType = sp.get("type");
+    const qQuery = sp.get("q");
+    const qAsk = sp.get("ask");
+    const hashSec = (window.location.hash || "").match(/^#(s\d+|impact-graph)$/i);
     if (qView === "naming") {
       if (qType) setNamingTypeSeed(qType);
       setView("naming");
@@ -296,9 +306,22 @@ export function App() {
       });
       setView("type");
     }
+    if (qQuery) {
+      setQ(qQuery);
+    }
+    if (qAsk) {
+      setKbDisplay("space");
+      setView("kb");
+      setAq({ q: qAsk, n: Date.now() });
+    }
     if (qRead) {
       const docId = Number(qRead);
-      if (!Number.isNaN(docId)) setRead(docId);
+      if (!Number.isNaN(docId)) {
+        setRead(docId);
+        if (hashSec) {
+          setReadSection({ docId, sectionId: hashSec[1], n: Date.now() });
+        }
+      }
     }
   }, []);
 
@@ -457,7 +480,11 @@ export function App() {
       }
       if ((e.metaKey || e.ctrlKey) && e.key === "\\") {
         e.preventDefault();
-        setSbCol((v) => !v);
+        setNav((v) => !v);
+      }
+      if (e.key === "Escape" && navRef.current) {
+        e.preventDefault();
+        setNav(false);
       }
     };
     document.addEventListener("keydown", k);
@@ -563,10 +590,14 @@ export function App() {
     },
   };
 
-  const rd = (id) => {
+  const rd = (id, opts = {}) => {
     setRead(id);
+    if (opts && opts.sectionId) {
+      setReadSection({ docId: id, sectionId: opts.sectionId, n: Date.now() });
+    } else {
+      setReadSection(null);
+    }
     setSel(null);
-    setAi(false);
     setBell(false);
     window.scrollTo({ top: 0 });
   };
@@ -592,7 +623,7 @@ export function App() {
         status: "Draft",
         vis: (catObj && catObj.vis) || "Internal",
         stage: STG[0],
-        disc: (catObj && RD[catObj.path[0]]) || "VDC",
+        disc: (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
         tags: initial.tags || [],
         links: [],
         c: [],
@@ -642,7 +673,6 @@ export function App() {
     edgeClient.clearAiCache();
     setRes((rs) => rs.filter((x) => x.id !== id).map((x) => ({ ...x, links: x.links.filter((l) => l[0] !== id) })));
     setFavs((a) => a.filter((x) => x !== id));
-    setWatch((a) => a.filter((x) => x !== id));
     setPinned((a) => a.filter((x) => x !== id));
     setRead(null);
     flash("Item deleted");
@@ -716,9 +746,9 @@ export function App() {
     }
   };
 
-  const pa = (k, a) => {
+  const pa = (k, a, b) => {
     setPal(false);
-    if (k === "read") rd(a);
+    if (k === "read") rd(a, b ? { sectionId: b } : undefined);
     else if (k === "new") createNewDoc();
     else if (k === "home") goHome();
     else if (k === "kits") {
@@ -790,11 +820,148 @@ export function App() {
     return filterNodes(tree);
   }, [tree, flatCats, role, userName, userTeams]);
 
+  const allowedCatIds = useMemo(
+    () => flatCats.filter((c) => can.viewCat(c, role, userName, userTeams)).map((c) => c.id),
+    [flatCats, role, userName, userTeams]
+  );
+
+  const chatOwnerKey = sessionEmail || activeUser.id || "";
+  const [chats, setChats] = useState(() => loadChats(chatOwnerKey));
+  const [activeChatId, setActiveChatId] = useState(() => loadActiveChatId(chatOwnerKey));
+  const chatsRef = useRef(chats);
+  chatsRef.current = chats;
+  const activeChatIdRef = useRef(activeChatId);
+  activeChatIdRef.current = activeChatId;
+
+  useEffect(() => {
+    saveChats(chats, chatOwnerKey);
+  }, [chats, chatOwnerKey]);
+
+  useEffect(() => {
+    saveActiveChatId(activeChatId, chatOwnerKey);
+  }, [activeChatId, chatOwnerKey]);
+
+  // Reload user-scoped chats cleanly when switching account/session
+  const loadedChatKeyRef = useRef(chatOwnerKey);
+  useEffect(() => {
+    if (loadedChatKeyRef.current === chatOwnerKey) return;
+    loadedChatKeyRef.current = chatOwnerKey;
+    setChats(loadChats(chatOwnerKey));
+    setActiveChatId(loadActiveChatId(chatOwnerKey));
+  }, [chatOwnerKey]);
+
+  // Sync URL ?doc=#section when reading/closing a standard (keeps /open Revit links untouched)
+  const didInitDocSyncRef = useRef(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!didInitDocSyncRef.current) {
+      didInitDocSyncRef.current = true;
+      return;
+    }
+    if (window.location.pathname === "/open" || revitLinkCtx) return;
+    try {
+      const sp = new URLSearchParams(window.location.search || "");
+      sp.delete("read");
+      if (read != null) sp.set("doc", String(read));
+      else sp.delete("doc");
+      const qs = sp.toString();
+      const nextHash = read != null && readSection && String(readSection.docId) === String(read) && readSection.sectionId
+        ? "#" + readSection.sectionId
+        : "";
+      const nextUrl = window.location.pathname + (qs ? "?" + qs : "") + nextHash;
+      window.history.replaceState(null, "", nextUrl);
+    } catch {}
+  }, [read, readSection, revitLinkCtx]);
+
+  const sendUnifiedChat = async ({ query: rawQuery, scopeDocId = null, scopeDocTitle = "", scope = "all", forceNew = false } = {}) => {
+    const cleanQ = String(rawQuery || "").trim();
+    if (!cleanQ) return null;
+
+    const searchPool = scope === "doc" && scopeDocId != null
+      ? visibleRes.filter((r) => String(r.id) === String(scopeDocId))
+      : visibleRes;
+    const tokens = tokenizeUnique(cleanQ);
+    const matchIds = searchPool
+      .map((r) => ({ id: r.id, ...scoreDocument(r, cleanQ, tokens) }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.matched - a.matched || b.score - a.score)
+      .slice(0, 8)
+      .map((x) => x.id);
+
+    const turn = createPendingChatTurn({
+      chats: chatsRef.current,
+      activeChatId: forceNew ? null : activeChatIdRef.current,
+      query: cleanQ,
+      matchIds,
+      scopeDocId,
+      scopeDocTitle,
+    });
+
+    chatsRef.current = turn.nextChats;
+    activeChatIdRef.current = turn.targetChatId;
+    setChats(turn.nextChats);
+    setActiveChatId(turn.targetChatId);
+
+    const directShareIds = shares.filter((s) => s.grantee === userName).map((s) => s.targetId);
+    const out = await edgeClient.ai({
+      action: "qa",
+      query: cleanQ,
+      userRole: role,
+      userName,
+      allowedCategories: allowedCatIds,
+      directShareIds,
+      items: visibleRes,
+      targetDocId: scopeDocId,
+      scope,
+      history: turn.historyBeforeTurn,
+      today: TODAY,
+    });
+
+    const hasHits = (out && Array.isArray(out.sources) && out.sources.length > 0) || matchIds.length > 0;
+    logSearch(cleanQ, hasHits ? Math.max(matchIds.length, (out && out.sources && out.sources.length) || 0) : 0);
+
+    setChats((prev) => resolvePendingChatTurn(prev, turn.targetChatId, turn.botMsgId, out));
+    return { chatId: turn.targetChatId, result: out };
+  };
+
+  const startNewChat = () => {
+    setActiveChatId(null);
+  };
+
+  const deleteChatThread = (chatId) => {
+    setChats((prev) => {
+      const next = prev.filter((c) => c.id !== chatId);
+      if (activeChatIdRef.current === chatId) {
+        setActiveChatId(next[0] ? next[0].id : null);
+      }
+      return next;
+    });
+  };
+
+  const clearAllChats = () => {
+    setChats([]);
+    setActiveChatId(null);
+  };
+
+  const flagMissingStandard = (topic) => {
+    const clean = String(topic || "").trim();
+    if (!clean) return;
+    logSearch(clean, 0);
+    logAct("Requested Standard", "gap", clean.toLowerCase().slice(0, 48), clean, "Flagged from Datum AI");
+    push(`Knowledge gap flagged: “${clean}”`, null);
+  };
+
+  const openNamingFromChat = (typeCode = "") => {
+    if (typeCode) setNamingTypeSeed(typeCode);
+    setRead(null);
+    goV("naming");
+  };
+
   const tags = useMemo(() => [...new Set(visibleRes.flatMap((r) => r.tags))].sort(), [visibleRes]);
 
   const list = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const isCategoryScope = view === "lib" && !["all", "fav", "watch", "drafts", "recent"].includes(cur);
+    const isCategoryScope = view === "lib" && !["all", "fav", "drafts", "recent"].includes(cur);
     const catNode = isCategoryScope ? flatCats.find((c) => c.id === cur) : null;
     const ids = catNode ? sub(catNode) : null;
 
@@ -803,7 +970,6 @@ export function App() {
       if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "res" && !isResType(r.type)) return false;
       if (view === "lib") {
         if (cur === "fav" && !favs.includes(r.id)) return false;
-        if (cur === "watch" && !watch.includes(r.id)) return false;
         if (cur === "drafts" && !(r.author === userName && r.status !== "Approved")) return false;
         if (cur === "recent" && !hist.some((h) => h.id === r.id)) return false;
         if (ids && !ids.includes(r.node)) return false;
@@ -817,7 +983,7 @@ export function App() {
       if (s && !hay(r).includes(s)) return false;
       return true;
     });
-  }, [visibleRes, q, view, cur, catFilter, f, favs, watch, hist, userName, flatCats]);
+  }, [visibleRes, q, view, cur, catFilter, f, favs, hist, userName, flatCats]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -839,7 +1005,6 @@ export function App() {
 
   const pick = (id) => {
     setSel(id);
-    setAi(false);
     setBell(false);
   };
 
@@ -877,7 +1042,7 @@ export function App() {
     onDeleteCat: (n) => setCatModal({ mode: "delete", cat: byId(n.id, tree) || n }),
   };
 
-  const curCat = view === "lib" && !["all", "fav", "watch", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
+  const curCat = view === "lib" && !["all", "fav", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
   const isSpaceView =
     catFilter !== "kits" &&
     (view === "space" || (kbDisplay === "space" && (view === "lib" || view === "kb" || view === "home" || view === "reslib")));
@@ -912,8 +1077,6 @@ export function App() {
         ? "All Catalog Items"
         : cur === "fav"
         ? "Bookmarks"
-        : cur === "watch"
-        ? "Watching"
         : cur === "drafts"
         ? "My Drafts"
         : cur === "recent"
@@ -1128,59 +1291,196 @@ export function App() {
     </${Fragment}>`;
   }
 
-  return html`<div className=${"app" + (sbCol ? " sb-col" : "")}>
-    ${nav && html`<div className="ov" style=${{ zIndex: 57 }} onClick=${() => setNav(false)}></div>`}
+  const draftCount = visibleRes.filter((r) => r.author === userName && r.status !== "Approved").length;
+  const activeUserCount = users.filter((u) => u.status === "active").length;
+  const drawerKb = String(KB || "").includes("⌘") ? "⌘\\" : "Ctrl+\\";
+  const activeSwitcherKey =
+    view === "kb" && catFilter === "kits"
+      ? "kits"
+      : view === "naming" || view === "team" || view === "admin"
+      ? view
+      : view === "lib" && (cur === "fav" || cur === "drafts" || cur === "recent")
+      ? cur
+      : "kb-space";
 
-    <aside className=${"side" + (nav ? " open" : "")}>
+  const handleNavSwitch = (key) => {
+    setNav(false);
+    if (key === "kb-space") {
+      setRead(null);
+      setActiveKitId(null);
+      setCatFilter("all");
+      setCur("all");
+      setKbDisplay("space");
+      goV("kb");
+    } else if (key === "kits") {
+      setRead(null);
+      setActiveKitId(null);
+      setCatFilter("kits");
+      goV("kb");
+    } else if (key === "naming" || key === "team" || key === "admin") {
+      goV(key);
+    } else if (key === "fav" || key === "drafts" || key === "recent") {
+      go(key);
+    }
+  };
+
+  const selectChatFromDrawer = (chatId) => {
+    setActiveChatId(chatId);
+    setRead(null);
+    setActiveKitId(null);
+    setCatFilter("all");
+    setCur("all");
+    setKbDisplay("space");
+    setView("kb");
+    setSpaceChatSig((n) => n + 1);
+    setNav(false);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
+
+  const startNewChatFromDrawer = () => {
+    setActiveChatId(null);
+    setRead(null);
+    setActiveKitId(null);
+    setCatFilter("all");
+    setCur("all");
+    setKbDisplay("space");
+    setView("kb");
+    setNav(false);
+    setHf((n) => n + 1);
+    if (typeof window !== "undefined") window.scrollTo({ top: 0 });
+  };
+
+  return html`<div className="app">
+    ${nav && html`<div className="ov side-ov" onClick=${() => setNav(false)}></div>`}
+
+    <aside className=${"side" + (nav ? " open" : "")} aria-label="Chats and Workspace Navigation" aria-hidden=${!nav}>
       <div className="logo">
-        <div className="logo-b" onClick=${() => sbCol && setSbCol(false)} title=${sbCol ? "Expand sidebar" : "Datum"}>
-          <${DatumMark} s=${26} />
+        <div className="logo-b">
+          <${DatumMark} s=${24} />
           <span>Datum</span>
         </div>
         <button
           type="button"
           className="sb-tgl"
-          title=${(sbCol ? "Expand" : "Collapse") + " sidebar (Ctrl+\\)"}
-          aria-label=${sbCol ? "Expand sidebar" : "Collapse sidebar"}
-          onClick=${() => setSbCol((v) => !v)}
+          title=${`Close drawer (${drawerKb})`}
+          aria-label="Close navigation drawer"
+          onClick=${() => setNav(false)}
         >
-          <${Ic} n="sidebar" s=${16} />
+          <${Ic} n="x" s=${15} />
         </button>
       </div>
 
+      <div className="side-chats">
+        <div className="sec-row">
+          <div className="sec" style=${{ margin: 0, padding: "10px 8px 6px 10px" }}>Chats</div>
+          <button
+            type="button"
+            className="side-new-chat"
+            title="Start a new AI search thread"
+            onClick=${startNewChatFromDrawer}
+          >
+            <${Ic} n="plus" s=${11} />
+            <span>New</span>
+          </button>
+        </div>
+        ${chats.length > 0
+          ? html`<div className="side-chat-list">
+              ${chats.slice(0, 8).map((c) => {
+                const isCurChat = c.id === activeChatId && isSpaceDockActive;
+                const turnCount = (c.messages || []).filter((m) => m.role === "user").length;
+                return html`<div key=${c.id} className=${"side-chat-row" + (isCurChat ? " on" : "")}>
+                  <button
+                    type="button"
+                    className="side-chat-pick"
+                    title=${c.title}
+                    onClick=${() => selectChatFromDrawer(c.id)}
+                  >
+                    <span className="side-ico"><${Ic} n="spark" s=${13} /></span>
+                    <span className="side-chat-title">${c.title}</span>
+                    <span className="ct">${turnCount}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="side-chat-del"
+                    title="Delete chat"
+                    aria-label=${`Delete ${c.title}`}
+                    onClick=${(e) => {
+                      e.stopPropagation();
+                      deleteChatThread(c.id);
+                    }}
+                  >
+                    <${Ic} n="trash" s=${12} />
+                  </button>
+                </div>`;
+              })}
+            </div>`
+          : html`<button type="button" className="side-chat-empty" onClick=${startNewChatFromDrawer}>
+              <${Ic} n="spark" s=${13} />
+              <span>Ask Datum AI (EN/UA)…</span>
+            </button>`}
+      </div>
+
+      <div className="sec">Workspace</div>
       <button
-        className=${"ti" + (view === "kb" || view === "home" || view === "space" || (view === "lib" && cur === "all") ? " on" : "")}
+        type="button"
+        className=${"ti" + (activeSwitcherKey === "kb-space" ? " on" : "")}
         style=${{ paddingLeft: 10 }}
-        title="Knowledge Base & 3D Space"
-        onClick=${() => {
-          setRead(null);
-          setActiveKitId(null);
-          setCatFilter("all");
-          setCur("all");
-          goV("kb");
-        }}
+        onClick=${() => handleNavSwitch("kb-space")}
       >
-        <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="globe" s=${14} /></span>
-        <span className="tn">Knowledge Base</span>
+        <span className="side-ico"><${Ic} n="globe" s=${15} /></span>
+        <span className="tn">Knowledge Space</span>
         <span className="ct">${visibleRes.length}</span>
       </button>
 
-      ${!isGuest &&
-      html`<button className=${"ti" + (view === "team" ? " on" : "")} style=${{ paddingLeft: 10 }} title="People & Teams" onClick=${() => goV("team")}>
-        <span className="tile" style=${{ "--c": "#ff9f0a" }}><${Ic} n="teams" s=${14} /></span>
-        <span className="tn">People & Teams</span>
-        <span className="ct">${users.filter((u) => u.status === "active").length}</span>
-      </button>`}
-
-      <button className=${"ti" + (view === "naming" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Naming Studio" onClick=${() => goV("naming")}>
-        <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="sliders" s=${14} /></span>
+      <button
+        type="button"
+        className=${"ti" + (view === "naming" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("naming")}
+      >
+        <span className="side-ico"><${Ic} n="sliders" s=${15} /></span>
         <span className="tn">Naming Studio</span>
       </button>
 
+      <button
+        type="button"
+        className=${"ti" + (activeSwitcherKey === "kits" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("kits")}
+      >
+        <span className="side-ico"><${Ic} n="folder" s=${15} /></span>
+        <span className="tn">Starter Kits</span>
+        <span className="ct">${visibleCols.length}</span>
+      </button>
+
       ${!isGuest &&
-      html`<div>
+      html`<button
+        type="button"
+        className=${"ti" + (view === "team" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("team")}
+      >
+        <span className="side-ico"><${Ic} n="teams" s=${15} /></span>
+        <span className="tn">People & Teams</span>
+        <span className="ct">${activeUserCount}</span>
+      </button>`}
+
+      ${isGovCapable &&
+      html`<button
+        type="button"
+        className=${"ti" + (view === "admin" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => goV("admin")}
+      >
+        <span className="side-ico"><${Ic} n="shield" s=${15} /></span>
+        <span className="tn">Administration</span>
+        ${pendingApprovalCount > 0 && html`<span className="ct" style=${{ color: "#ff9f0a", fontWeight: 600 }}>${pendingApprovalCount}</span>`}
+      </button>`}
+
+      ${!isGuest &&
+      html`<div className="side-cats">
         <div className="sec-row">
-          <div className="sec" style=${{ margin: 0, padding: "18px 8px 6px 10px" }}>Categories</div>
+          <div className="sec" style=${{ margin: 0, padding: "16px 8px 6px 10px" }}>Categories</div>
           ${can.admin(role) &&
           html`<button
             type="button"
@@ -1197,92 +1497,108 @@ export function App() {
 
       ${!isGuest &&
       html`<div>
-        <div className="sec">Personal Workspace</div>
-        <button className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Bookmarks" onClick=${() => go("fav")}>
-          <span className="tile" style=${{ "--c": "#ff9f0a" }}><${Ic} n="star" s=${14} f=${true} /></span>
+        <div className="sec">Personal</div>
+        <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
+          <span className="side-ico"><${Ic} n="star" s=${15} /></span>
           <span className="tn">Bookmarks</span>
           <span className="ct">${favs.length}</span>
         </button>
-        <button className=${"ti" + (view === "lib" && cur === "watch" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Watching" onClick=${() => go("watch")}>
-          <span className="tile" style=${{ "--c": "#bf5af2" }}><${Ic} n="eye" s=${14} /></span>
-          <span className="tn">Watching</span>
-          <span className="ct">${watch.length}</span>
-        </button>
         ${can.createDraft(role) &&
-        html`<button className=${"ti" + (view === "lib" && cur === "drafts" ? " on" : "")} style=${{ paddingLeft: 10 }} title="My Drafts" onClick=${() => go("drafts")}>
-          <span className="tile" style=${{ "--c": "#8e8e93" }}><${Ic} n="pencil" s=${14} /></span>
+        html`<button type="button" className=${"ti" + (view === "lib" && cur === "drafts" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("drafts")}>
+          <span className="side-ico"><${Ic} n="pencil" s=${15} /></span>
           <span className="tn">My Drafts</span>
-          <span className="ct">${visibleRes.filter((r) => r.author === userName && r.status !== "Approved").length}</span>
+          <span className="ct">${draftCount}</span>
         </button>`}
-        <button className=${"ti" + (view === "lib" && cur === "recent" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Recently Viewed" onClick=${() => go("recent")}>
-          <span className="tile" style=${{ "--c": "#64d2ff" }}><${Ic} n="clock" s=${14} /></span>
+        <button type="button" className=${"ti" + (view === "lib" && cur === "recent" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("recent")}>
+          <span className="side-ico"><${Ic} n="clock" s=${15} /></span>
           <span className="tn">Recently Viewed</span>
           <span className="ct">${hist.length}</span>
         </button>
       </div>`}
 
-      ${isGovCapable &&
-      html`<div>
-        <div className="sec">Governance</div>
-        <button className=${"ti" + (view === "admin" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Administration" onClick=${() => goV("admin")}>
-          <span className="tile" style=${{ "--c": "#ff6482" }}><${Ic} n="shield" s=${14} /></span>
-          <span className="tn">Administration</span>
-          ${pendingApprovalCount > 0 && html`<span className="ct" style=${{ color: "#ff9f0a", fontWeight: 600 }}>${pendingApprovalCount}</span>`}
-        </button>
-      </div>`}
-
       <${UserSwitcher}
+        variant="drawer"
+        className="side-mobile-user"
         users=${users}
         activeUserId=${activeUser.id}
         activeUser=${activeUser}
         authClaims=${sessionClaims}
+        onToggleTheme=${theme}
         onLogout=${handleLogout}
       />
     </aside>
 
     <div className="main">
-      <div className=${"bar" + (sc ? " sc" : "") + (pal ? " pal-open" : "")}>
+      ${can.createDraft(role) &&
+      html`<input
+        ref=${dxr}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        hidden
+        onChange=${async (e) => {
+          const file = e.target.files[0];
+          e.target.value = "";
+          if (!file) return;
+          if (!/\.docx$/i.test(file.name)) {
+            flash("A .docx file is required");
+            return;
+          }
+          flash("Importing “" + file.name + "”…");
+          try {
+            const r = await docxImport(file);
+            setImgs((o) => ({ ...o, ...r.imgs }));
+            createNewDoc({ title: r.title, desc: r.desc, body: r.body });
+            flash("Document imported into live editor");
+            db.uploadImagesMap(r.imgs).then((uploaded) => {
+              if (uploaded && Object.keys(uploaded).length) {
+                setImgs((o) => ({ ...o, ...uploaded }));
+              }
+            });
+          } catch (x) {
+            flash("Could not read the .docx");
+          }
+        }}
+      />`}
+
+      <div className=${"bar" + (sc ? " sc" : "") + (pal ? " pal-open" : "") + (isSpaceDockActive ? " bar-space" : "")}>
         <div className="bar-l">
-          <button className="ib menu" aria-label="Menu" onClick=${() => setNav(true)}>${html`<${Ic} n="menu" s=${18} />`}</button>
-          <nav className="bar-crumb" aria-label="Breadcrumb">
+          <button
+            type="button"
+            className="ib menu nav-drawer-btn"
+            title=${`Chats & Categories (${drawerKb})`}
+            aria-label="Open Chats and Navigation Drawer"
+            onClick=${() => {
+              setBell(false);
+              setNav((v) => !v);
+            }}
+          >
+            ${html`<${Ic} n="sidebar" s=${16} />`}
+          </button>
+          <button
+            type="button"
+            className="nav-brand-btn"
+            title="Knowledge Space"
+            onClick=${() => handleNavSwitch("kb-space")}
+          >
+            <${DatumMark} s=${20} />
+            <span className="nav-brand-label">${rr ? "Datum" : pageTitle}</span>
+          </button>
+          ${rr &&
+          html`<nav className="bar-crumb" aria-label="Breadcrumb">
+            <span className="bar-crumb-sep">/</span>
             <button
               type="button"
               className="bar-crumb-btn"
               onClick=${() => {
-                if (rr) setRead(null);
-                else goHome();
+                setRead(null);
+                if (rr.node) go(rr.node);
               }}
             >
-              Datum
+              ${(byId(rr.node, tree) && byId(rr.node, tree).name) || pageTitle}
             </button>
-            ${rr
-              ? html`<${Fragment}>
-                  <span className="bar-crumb-sep">/</span>
-                  <button
-                    type="button"
-                    className="bar-crumb-btn"
-                    onClick=${() => {
-                      setRead(null);
-                      if (rr.node) go(rr.node);
-                    }}
-                  >
-                    ${(byId(rr.node, tree) && byId(rr.node, tree).name) || pageTitle}
-                  </button>
-                  <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${rr.title}</span>
-                <//>`
-              : curCat && curCat.path && curCat.path.length > 1
-              ? html`<${Fragment}>
-                  <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-btn" style=${{ pointerEvents: "none" }}>${curCat.path[0]}</span>
-                  <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${pageTitle}</span>
-                <//>`
-              : html`<${Fragment}>
-                  <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${pageTitle}</span>
-                <//>`}
-          </nav>
+            <span className="bar-crumb-sep">/</span>
+            <span className="bar-crumb-cur">${rr.title}</span>
+          </nav>`}
         </div>
 
         <${Pal}
@@ -1300,9 +1616,10 @@ export function App() {
           role=${role}
           userName=${userName}
           cols=${visibleCols}
-          pinned=${pinned}
+          favs=${favs}
           recentSearches=${recentSearches}
           onLogSearch=${logSearch}
+          onOpenNamingStudio=${openNamingFromChat}
           act=${pa}
         />
 
@@ -1317,46 +1634,22 @@ export function App() {
             <${Ic} n="plus" s=${16} /><span>Create</span>
           </button>
 
-          <input
-            ref=${dxr}
-            type="file"
-            accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            hidden
-            onChange=${async (e) => {
-              const file = e.target.files[0];
-              e.target.value = "";
-              if (!file) return;
-              if (!/\.docx$/i.test(file.name)) {
-                flash("A .docx file is required");
-                return;
-              }
-              flash("Importing “" + file.name + "”…");
-              try {
-                const r = await docxImport(file);
-                setImgs((o) => ({ ...o, ...r.imgs }));
-                createNewDoc({ title: r.title, desc: r.desc, body: r.body });
-                flash("Document imported into live editor");
-                db.uploadImagesMap(r.imgs).then((uploaded) => {
-                  if (uploaded && Object.keys(uploaded).length) {
-                    setImgs((o) => ({ ...o, ...uploaded }));
-                  }
-                });
-              } catch (x) {
-                flash("Could not read the .docx");
-              }
-            }}
-          />
-          <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current.click()}>
+          <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current && dxr.current.click()}>
             ${html`<${Ic} n="doc" s=${18} />`}
           </button>`}
           ${!isGuest &&
-          html`<button className="ib" title="Edge AI assistant" aria-label="AI assistant" onClick=${() => setAi(true)}>
-            ${html`<${Ic} n="spark" s=${18} />`}
-          </button>`}
-          ${!isGuest &&
-          html`<button className="ib" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
+          html`<button className="ib bar-r-bell" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
             ${html`<${Ic} n="bell" s=${18} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
           </button>`}
+          <${UserSwitcher}
+            variant="topbar"
+            users=${users}
+            activeUserId=${activeUser.id}
+            activeUser=${activeUser}
+            authClaims=${sessionClaims}
+            onToggleTheme=${theme}
+            onLogout=${handleLogout}
+          />
         </div>
       </div>
 
@@ -1364,6 +1657,7 @@ export function App() {
       html`<${Reader}
         key=${rr.id}
         r=${rr}
+        initialSection=${readSection && String(readSection.docId) === String(rr.id) ? readSection : null}
         bridgeRef=${readerBridgeRef}
         res=${visibleRes}
         tree=${tree}
@@ -1373,10 +1667,9 @@ export function App() {
         userName=${userName}
         userAvatar=${activeUser.avatar || ""}
         fav=${favs.includes(rr.id)}
-        watch=${watch.includes(rr.id)}
+        favs=${favs}
         pinned=${pinned.includes(rr.id)}
         tf=${(id) => tgl(setFavs, id)}
-        tw=${(id) => tgl(setWatch, id)}
         onTogglePin=${(id) => tgl(setPinned, id)}
         back=${() => setRead(null)}
         go=${rd}
@@ -1393,6 +1686,13 @@ export function App() {
         onSaveSnapshot=${saveSnapshot}
         onDelete=${delItem}
         flash=${flash}
+        chats=${chats}
+        activeChatId=${activeChatId}
+        onSelectChat=${setActiveChatId}
+        onNewChat=${startNewChat}
+        onSendChat=${sendUnifiedChat}
+        onOpenNamingStudio=${openNamingFromChat}
+        onFlagGap=${flagMissingStandard}
         onFlagOutdated=${(id) => {
           if (!flaggedIds.includes(id)) setFlaggedIds((fl) => [...fl, id]);
           flash("Flagged for Category Owner review");
@@ -1405,24 +1705,6 @@ export function App() {
         ${(view === "home" || view === "lib" || view === "kb" || view === "space" || view === "reslib") &&
         (() => {
           const catalogToolbarControls = html`<${Fragment}>
-            <div className="seg kview-seg" role="group" aria-label="Knowledge Base view mode">
-              <button
-                type="button"
-                className=${catFilter !== "kits" && !isSpaceView && kbDisplay !== "graph" ? "on" : ""}
-                aria-pressed=${catFilter !== "kits" && !isSpaceView && kbDisplay !== "graph"}
-                onClick=${() => switchKbDisplay("grid")}
-              >
-                <${Ic} n="layout" s=${13} /><span>Grid</span>
-              </button>
-              <button
-                type="button"
-                className=${isSpaceView ? "on" : ""}
-                aria-pressed=${isSpaceView}
-                onClick=${() => switchKbDisplay("space")}
-              >
-                <${Ic} n="globe" s=${13} /><span>Space</span>
-              </button>
-            </div>
             <${FilterPopover}
               view=${view}
               curCat=${curCat}
@@ -1434,6 +1716,8 @@ export function App() {
               setKitTier=${setKitTier}
               f=${f}
               setF=${setF}
+              disciplines=${DISC}
+              discColors=${DC}
               canFilterStatus=${can.createDraft(role)}
               statuses=${Object.entries(ST).map(([k, v]) => [k, v[0]])}
               types=${Object.entries(TY)}
@@ -1458,6 +1742,63 @@ export function App() {
             </button>`}
           <//>`;
 
+          const spaceLeftNav = html`<${Fragment}>
+            <button
+              type="button"
+              className="nav-drawer-btn kspace-head-drawer-btn"
+              title=${`Menu, Chats & Categories (${drawerKb})`}
+              aria-label="Open Navigation Drawer"
+              onClick=${() => {
+                setBell(false);
+                setNav((v) => !v);
+              }}
+            >
+              <${Ic} n="sidebar" s=${15} />
+            </button>
+            <button
+              type="button"
+              className="nav-brand-btn"
+              title="Knowledge Space"
+              onClick=${() => handleNavSwitch("kb-space")}
+            >
+              <${DatumMark} s=${20} />
+              <span className="nav-brand-label">${pageTitle}</span>
+            </button>
+          </${Fragment}>`;
+
+          const spaceHeaderActions = html`<${Fragment}>
+            ${can.createDraft(role) &&
+            html`<button
+              type="button"
+              className="kspace-create-btn"
+              title="Create Document or Resource"
+              aria-label="Create Document or Resource"
+              onClick=${() => createNewDoc()}
+            >
+              <${Ic} n="plus" s=${15} />
+            </button>`}
+            ${!isGuest &&
+            html`<button
+              type="button"
+              className="kspace-bell-btn"
+              title="Notifications"
+              aria-label="Notifications"
+              onClick=${() => setBell(!bell)}
+            >
+              <${Ic} n="bell" s=${15} />
+              ${unread > 0 && html`<span className="dot">${unread}</span>`}
+            </button>`}
+            <${UserSwitcher}
+              variant="topbar"
+              users=${users}
+              activeUserId=${activeUser.id}
+              activeUser=${activeUser}
+              authClaims=${sessionClaims}
+              onToggleTheme=${theme}
+              onLogout=${handleLogout}
+            />
+          </${Fragment}>`;
+
           if (isSpaceView) {
             return html`<${KnowledgeSpaceView}
               items=${shown}
@@ -1472,6 +1813,7 @@ export function App() {
               cols=${cols}
               aq=${aq}
               focusSignal=${hf}
+              openChatSignal=${spaceChatSig}
               catalogQ=${q}
               onCatalogQChange=${setQ}
               onOpenKit=${(kitId) => {
@@ -1485,9 +1827,7 @@ export function App() {
                 setView("kb");
               }}
               favs=${favs}
-              watch=${watch}
               onToggleFav=${(id) => tgl(setFavs, id)}
-              onToggleWatch=${(id) => tgl(setWatch, id)}
               onRead=${rd}
               onInspect=${pick}
               isGuest=${isGuest}
@@ -1497,14 +1837,27 @@ export function App() {
                 setQ("");
                 setCatFilter("all");
               }}
+              onClearCategory=${() => goHome()}
               f=${f}
               setF=${setF}
               toolbarRight=${catalogToolbarControls}
+              spaceLeftNav=${spaceLeftNav}
+              spaceActions=${spaceHeaderActions}
+              onImportDocx=${can.createDraft(role) ? () => dxr.current && dxr.current.click() : null}
               active=${isSpaceDockActive}
               cmdOpen=${pal && isSpaceDockActive}
               onSetCmdOpen=${setPal}
               recentSearches=${recentSearches}
               onLogSearch=${logSearch}
+              chats=${chats}
+              activeChatId=${activeChatId}
+              onSelectChat=${setActiveChatId}
+              onNewChat=${startNewChat}
+              onDeleteChat=${deleteChatThread}
+              onClearChats=${clearAllChats}
+              onSendChat=${sendUnifiedChat}
+              onOpenNamingStudio=${openNamingFromChat}
+              onFlagGap=${flagMissingStandard}
               onCommand=${pa}
               kb=${KB}
               omniRectRef=${omniRectRef}
@@ -1582,16 +1935,6 @@ export function App() {
                             >
                               ${!isGuest &&
                               html`<div className="acts">
-                                <button
-                                  className=${watch.includes(r.id) ? "on" : ""}
-                                  aria-label="Watch"
-                                  onClick=${(e) => {
-                                    e.stopPropagation();
-                                    tgl(setWatch, r.id);
-                                  }}
-                                >
-                                  ${html`<${Ic} n="eye" s=${16} />`}
-                                </button>
                                 <button
                                   className=${favs.includes(r.id) ? "on" : ""}
                                   aria-label="Bookmark"
@@ -1779,13 +2122,11 @@ export function App() {
       users=${users}
       shares=${shares}
       fav=${favs.includes(sr.id)}
-      watch=${watch.includes(sr.id)}
       pinned=${pinned.includes(sr.id)}
       isReq=${req.includes(sr.id)}
       isCurrentDoc=${Boolean(rr && rr.id === sr.id)}
       bridgeRef=${readerBridgeRef}
       tf=${(id) => tgl(setFavs, id)}
-      tw=${(id) => tgl(setWatch, id)}
       onTogglePin=${(id) => tgl(setPinned, id)}
       onToggleReq=${togReq}
       onInlineUpdate=${autoSaveItem}
@@ -1835,6 +2176,5 @@ export function App() {
       flash=${flash}
     />`}
     ${toast && html`<div className="toast" role="status">${toast}</div>`}
-    ${ai && html`<${AI} res=${visibleRes} tree=${tree} role=${role} userName=${userName} close=${() => setAi(false)} pick=${pick} />`}
   </div>`;
 }

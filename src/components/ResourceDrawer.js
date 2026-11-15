@@ -436,14 +436,6 @@ export function Drawer(p) {
                 onToggle=${() => p.tf && p.tf(r.id)}
               />`}
 
-              ${!isGuest &&
-              html`<${SwitchRow}
-                label="Watch Updates"
-                hint="Notify on edits or comments"
-                checked=${p.watch}
-                onToggle=${() => p.tw && p.tw(r.id)}
-              />`}
-
               ${can.createDraft(role) &&
               p.onTogglePin &&
               html`<${SwitchRow}

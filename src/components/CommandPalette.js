@@ -1,7 +1,7 @@
 import { html, useState, useEffect, useLayoutEffect, useRef, useMemo } from '../lib/react.js';
 import { DC, TODAY, CITE, can } from '../config/constants.js';
 import { byId, buildFlat } from '../data/spaces.js';
-import { hay } from '../utils/search.js';
+import { hay, scoreDocument, tokenizeUnique } from '../utils/search.js';
 import { plain } from '../utils/markdown.js';
 import { edgeClient } from '../lib/edgeClient.js';
 import { Ic } from './Icon.js';
@@ -139,6 +139,7 @@ export function Pal(p) {
       q: t,
       src: out.sources || [],
       text: out.answer || '',
+      actions: out.actions || null,
       busy: false,
     });
   };
@@ -156,8 +157,15 @@ export function Pal(p) {
 
   const arts = (
     s
-      ? p.res.filter((r) => hay(r).toLowerCase().includes(s))
-      : [...p.res].sort((a, b) => b.upd.localeCompare(a.upd))
+      ? (() => {
+          const tokens = tokenizeUnique(s);
+          return (p.res || [])
+            .map((r) => ({ r, ...scoreDocument(r, s, tokens) }))
+            .filter((x) => x.score > 0 || hay(x.r).includes(s))
+            .sort((a, b) => b.matched - a.matched || b.score - a.score)
+            .map((x) => x.r);
+        })()
+      : [...(p.res || [])].sort((a, b) => (b.upd || '').localeCompare(a.upd || ''))
   ).slice(0, 6);
 
   const snip = (r) => {
@@ -245,7 +253,7 @@ export function Pal(p) {
     }
   };
 
-  const pinnedCount = Array.isArray(p.pinned) ? p.pinned.length : 0;
+  const bookmarksCount = Array.isArray(p.favs) ? p.favs.length : 0;
   const kitsCount = Array.isArray(p.cols)
     ? p.cols.filter((c) => c.tier === 'official' || c.tier === 'shared').length
     : 0;
@@ -362,8 +370,20 @@ export function Pal(p) {
                 p.act("kb-space");
               }}
             >
+              <${Ic} n="globe" s=${11} />
+              <span>3D Space</span>
+            </button>
+            <button
+              type="button"
+              tabIndex=${p.open ? 0 : -1}
+              className="sw-chip"
+              onClick=${() => {
+                recordTopbarRect();
+                p.act("go", "fav");
+              }}
+            >
               <${Ic} n="star" s=${11} f=${true} />
-              <span>3D Space${pinnedCount ? ` (${pinnedCount} pinned)` : ""}</span>
+              <span>Bookmarks${bookmarksCount ? ` (${bookmarksCount})` : ""}</span>
             </button>
             <button
               type="button"
@@ -418,7 +438,7 @@ export function Pal(p) {
                             className="sw-cite"
                             onClick=${() => {
                               const src = aiAns.src[Number(x) - 1];
-                              if (src) p.act("read", src.id);
+                              if (src) p.act("read", src.id, src.sectionId);
                             }}
                           >[${x}]</sup>`
                         : x
@@ -430,26 +450,41 @@ export function Pal(p) {
               <div className="sw-ai-srcs">
                 ${aiAns.src.map(
                   (src) => html`<button
-                    key=${src.id}
+                    key=${`${src.id}-${src.sectionId || ''}`}
                     type="button"
                     className="sw-src-pill"
-                    onClick=${() => p.act("read", src.id)}
+                    onClick=${() => p.act("read", src.id, src.sectionId)}
                   >
                     <b>${src.index}</b>
-                    <span>${src.title}</span>
+                    <span>${src.title}${src.sectionTitle ? ` · § ${src.sectionTitle}` : ''}</span>
                   </button>`
                 )}
               </div>
-              <button
-                type="button"
-                className="sw-ai-space"
-                onClick=${() => {
-                  recordTopbarRect();
-                  p.act("ask", aiAns.q);
-                }}
-              >
-                Spotlight in 3D Space ↗
-              </button>
+              <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                ${aiAns.actions &&
+                aiAns.actions.suggestNamingStudio &&
+                p.onOpenNamingStudio &&
+                html`<button
+                  type="button"
+                  className="sw-ai-space"
+                  onClick=${() => {
+                    p.close && p.close();
+                    p.onOpenNamingStudio(aiAns.actions.namingCode || '');
+                  }}
+                >
+                  Naming Studio ↗
+                </button>`}
+                <button
+                  type="button"
+                  className="sw-ai-space"
+                  onClick=${() => {
+                    recordTopbarRect();
+                    p.act("ask", aiAns.q);
+                  }}
+                >
+                  Continue in Space Chat ↗
+                </button>
+              </div>
             </div>`}
           </div>`}
 

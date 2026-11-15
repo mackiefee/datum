@@ -284,13 +284,12 @@ CREATE TABLE IF NOT EXISTS collections (
 CREATE INDEX IF NOT EXISTS idx_collections_owner_tier ON collections(owner_id, tier);
 
 -- ----------------------------------------------------------------------------
--- Personal Bookmarks, Watching, Reading Progress & Required Acknowledgments
+-- Personal Bookmarks, Reading Progress & Required Acknowledgments
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS bookmarks (
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   item_id BIGINT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
   is_favorite BOOLEAN NOT NULL DEFAULT false,
-  is_watching BOOLEAN NOT NULL DEFAULT false,
   is_pinned BOOLEAN NOT NULL DEFAULT false,
   reading_progress_pct SMALLINT NOT NULL DEFAULT 0 CHECK (reading_progress_pct BETWEEN 0 AND 100),
   acknowledged_at TIMESTAMPTZ,

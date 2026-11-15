@@ -27,7 +27,8 @@ function computeMenuPos(rect, minWidth, preferUp = false, maxWidth = 320, maxHei
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   const w = Math.min(Math.max(rect.width, minWidth), vw - 16, maxWidth);
-  let left = rect.left;
+  const clampedRight = rect.left + w > vw - 8;
+  let left = clampedRight ? Math.max(8, rect.right - w) : rect.left;
   if (left + w > vw - 8) left = Math.max(8, vw - w - 8);
   if (left < 8) left = 8;
 
@@ -43,7 +44,7 @@ function computeMenuPos(rect, minWidth, preferUp = false, maxWidth = 320, maxHei
       bottom: vh - rect.top + 6,
       top: "auto",
       maxHeight: Math.min(maxHeight, Math.max(140, spaceAbove - 8)),
-      origin: "bottom",
+      origin: clampedRight ? "bottom right" : "bottom left",
     };
   }
   return {
@@ -53,7 +54,7 @@ function computeMenuPos(rect, minWidth, preferUp = false, maxWidth = 320, maxHei
     top: rect.bottom + 6,
     bottom: "auto",
     maxHeight: Math.min(maxHeight, Math.max(140, spaceBelow - 8)),
-    origin: "top",
+    origin: clampedRight ? "top right" : "top left",
   };
 }
 
@@ -170,7 +171,7 @@ export function Select(p) {
           minWidth: pos.minWidth + "px",
           maxWidth: pos.maxWidth + "px",
           maxHeight: pos.maxHeight + "px",
-          transformOrigin: pos.origin === "bottom" ? "bottom left" : "top left",
+          transformOrigin: pos.origin,
         }}
       >
         ${items.map((opt) => {
@@ -283,7 +284,7 @@ function menuStyleFromPos(pos) {
     minWidth: pos.minWidth + "px",
     maxWidth: pos.maxWidth + "px",
     maxHeight: pos.maxHeight + "px",
-    transformOrigin: pos.origin === "bottom" ? "bottom left" : "top left",
+    transformOrigin: pos.origin,
   };
 }
 
@@ -301,6 +302,8 @@ export function FilterPopover({
   setKitTier,
   f = {},
   setF,
+  disciplines = [],
+  discColors = {},
   canFilterStatus = false,
   statuses = [],
   types = [],
@@ -309,7 +312,7 @@ export function FilterPopover({
   const { open, pos, btnRef, menuRef, toggle } = usePopover({
     minWidth: 310,
     maxWidth: 350,
-    maxHeight: 440,
+    maxHeight: 480,
   });
 
   const isKbLike = view === "kb" || view === "space";
@@ -331,13 +334,14 @@ export function FilterPopover({
       <div className="lpop-sec-lbl">${label}</div>
       <div className=${"lpop-chips" + (extraCls ? " " + extraCls : "")}>
         ${opts.map(
-          ([k, txt]) => html`<button
+          ([k, txt, dotColor]) => html`<button
             key=${String(k)}
             type="button"
             className=${"lpop-chip" + (currentVal === k ? " on" : "")}
             onClick=${() => onSelect(k)}
           >
-            ${txt}
+            ${dotColor && html`<i className="lpop-dot" style=${{ "--dc": dotColor }} aria-hidden="true" />`}
+            <span>${txt}</span>
           </button>`
         )}
       </div>
@@ -367,8 +371,8 @@ export function FilterPopover({
       aria-expanded=${open}
       onClick=${toggle}
     >
-      <${Ic} n="sliders" s=${14} />
-      <span className="asel-lb">${catFilter === "kits" ? "Filter · Kits" : "Filter"}</span>
+      <${Ic} n="sliders" s=${13} />
+      <span className="asel-lb">${catFilter === "kits" ? "Kits" : "Filter"}</span>
       ${activeCount > 0 && html`<span className="lpop-cnt">${activeCount}</span>`}
       ${activeCount > 0 &&
       html`<span
@@ -427,6 +431,13 @@ export function FilterPopover({
               (k) => setKitTier && setKitTier(k)
             )
           : html`<${Fragment}>
+              ${disciplines.length > 0 &&
+              renderChipGroup(
+                "Discipline",
+                [["", "All"], ...disciplines.map((d) => [d, d, discColors[d]])],
+                f.disc || "",
+                (k) => setF({ ...f, disc: !k || f.disc === k ? undefined : k })
+              )}
               ${types.length > 0 &&
               renderChipGroup(
                 "Type",
@@ -458,7 +469,7 @@ export function FilterPopover({
 }
 
 /**
- * Linear-style unified Sort & View Display Popover
+ * Linear-style unified Display View & Sort Popover
  */
 export function SortPopover({
   view,
@@ -480,17 +491,19 @@ export function SortPopover({
   const isKbLike = view === "kb" || view === "space";
   const isKits = isKbLike && catFilter === "kits";
   const effectiveDisplay = view === "space" && kbDisplay !== "graph" ? "space" : kbDisplay;
+  const currentView = isKits ? "kits" : effectiveDisplay || "grid";
   const isActive = isKits || effectiveDisplay === "graph" || sort !== "new";
-  const icoName = isKits ? "folder" : effectiveDisplay === "graph" ? "graph" : "swap";
-  const label = isKits
-    ? "View: Kits"
-    : effectiveDisplay === "graph"
-    ? "View: Graph"
-    : sort === "az"
-    ? "Sort: A–Z"
-    : sort === "links"
-    ? "Sort: Links"
-    : "Sort";
+  const icoName =
+    currentView === "space"
+      ? "globe"
+      : currentView === "graph"
+      ? "graph"
+      : currentView === "kits"
+      ? "folder"
+      : "layout";
+  const viewNames = { grid: "Grid", space: "Space", graph: "Graph", kits: "Kits" };
+  const sortSuffix = sort === "az" ? " · A–Z" : sort === "links" ? " · Links" : "";
+  const label = `${viewNames[currentView] || "Grid"}${sortSuffix}`;
 
   const chooseLayout = (mode) => {
     if (mode === "kits") {
@@ -508,12 +521,12 @@ export function SortPopover({
       ref=${btnRef}
       type="button"
       className=${"asel asel-pill" + (isActive ? " asel-active" : "") + (open ? " open" : "")}
-      aria-label="Sort and view options"
+      aria-label="View layout and sort options"
       aria-haspopup="dialog"
       aria-expanded=${open}
       onClick=${toggle}
     >
-      <${Ic} n=${icoName} s=${14} />
+      <${Ic} n=${icoName} s=${13} />
       <span className="asel-lb">${label}</span>
       <span className="asel-ar"><${Ic} n="chev" s=${11} /></span>
     </button>
@@ -591,18 +604,39 @@ export function SortPopover({
   <//>`;
 }
 
+function readResolvedTheme() {
+  if (typeof document === "undefined") return "dark";
+  const ds = document.documentElement.dataset.theme;
+  if (ds === "dark" || ds === "light") return ds;
+  return typeof window !== "undefined" && window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+}
+
 /**
- * Apple-style Sidebar Account & Role Switcher
+ * Apple-style Account, Appearance & Session Switcher
+ * Variants: "topbar" (compact circular avatar in top-right) | "drawer" (full card row in overlay drawer footer)
  */
-export function UserSwitcher({ users = [], activeUserId, activeUser, authClaims, onLogout }) {
+export function UserSwitcher({
+  users = [],
+  activeUserId,
+  activeUser,
+  authClaims,
+  onLogout,
+  onToggleTheme,
+  variant = "topbar",
+  className = "",
+}) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
+  const [themeMode, setThemeMode] = useState(() => readResolvedTheme());
   const btnRef = useRef(null);
   const menuRef = useRef(null);
 
   const activeUsers = users.filter((u) => u.status === "active");
   const cur = activeUser || activeUsers.find((u) => u.id === activeUserId) || activeUsers[0] || users[0];
   const curRole = cur ? normRole(cur.role) : "Member";
+  const isDrawer = variant === "drawer";
 
   const toggle = () => {
     if (!btnRef.current) return;
@@ -610,8 +644,9 @@ export function UserSwitcher({ users = [], activeUserId, activeUser, authClaims,
       setOpen(false);
       return;
     }
+    setThemeMode(readResolvedTheme());
     const r = btnRef.current.getBoundingClientRect();
-    setPos(computeMenuPos(r, Math.max(264, r.width), true, 130, 440));
+    setPos(computeMenuPos(r, Math.max(256, r.width), isDrawer, 310, 440));
     setOpen(true);
   };
 
@@ -638,12 +673,73 @@ export function UserSwitcher({ users = [], activeUserId, activeUser, authClaims,
 
   if (!cur) return null;
 
-  return html`<div className="me-wrap">
+  const menuEl =
+    open &&
+    pos &&
+    typeof document !== "undefined" &&
+    createPortal(
+      html`<div
+        ref=${menuRef}
+        className="asel-menu asel-usr-menu"
+        role="listbox"
+        aria-label="Account menu and appearance"
+        style=${{
+          left: pos.left + "px",
+          top: pos.top === "auto" ? "auto" : pos.top + "px",
+          bottom: pos.bottom === "auto" ? "auto" : pos.bottom + "px",
+          minWidth: pos.minWidth + "px",
+          maxWidth: pos.maxWidth + "px",
+          maxHeight: pos.maxHeight + "px",
+          transformOrigin: pos.origin,
+        }}
+      >
+        <div className="usr-pop-card">
+          <${Avatar} user=${cur} />
+          <div className="asel-tx">
+            <b>${cur.name}</b>
+            <small>${cur.email || (authClaims && authClaims.email) || ROLES[curRole]}</small>
+          </div>
+          ${cur.emailVerified && html`<span className="tm-gbadge" title="Google OAuth Verified">G</span>`}
+        </div>
+        <div className="usr-role-row">
+          <span className="usr-role-pill">${ROLES[curRole] || curRole}</span>
+        </div>
+        <div className="ctx-div"></div>
+        ${onToggleTheme &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          onClick=${() => {
+            onToggleTheme();
+            setThemeMode(readResolvedTheme());
+          }}
+        >
+          <${Ic} n="spark" s=${14} />
+          <span className="asel-tx"><span>Appearance</span></span>
+          <span className="usr-theme-tag">${themeMode === "light" ? "Light" : "Dark"}</span>
+        </button>`}
+        <button
+          type="button"
+          className="asel-opt ctx-dng"
+          onClick=${() => {
+            setOpen(false);
+            onLogout && onLogout();
+          }}
+        >
+          <${Ic} n="lock" s=${14} />
+          <span>Sign out</span>
+        </button>
+      </div>`,
+      document.body
+    );
+
+  if (isDrawer) {
+    return html`<div className=${"me-wrap " + className}>
       <button
         ref=${btnRef}
         type="button"
         className=${"me-btn" + (open ? " open" : "")}
-        aria-label="Account and session switcher"
+        aria-label="Account and session menu"
         aria-haspopup="listbox"
         aria-expanded=${open}
         onClick=${toggle}
@@ -655,47 +751,23 @@ export function UserSwitcher({ users = [], activeUserId, activeUser, authClaims,
         </div>
         <span className="me-chv"><${Ic} n="chev" s=${13} /></span>
       </button>
-      ${open &&
-      pos &&
-      typeof document !== "undefined" &&
-      createPortal(
-        html`<div
-          ref=${menuRef}
-          className="asel-menu asel-usr-menu"
-          role="listbox"
-          aria-label="Account menu and persona switcher"
-          style=${{
-            left: pos.left + "px",
-            top: pos.top === "auto" ? "auto" : pos.top + "px",
-            bottom: pos.bottom === "auto" ? "auto" : pos.bottom + "px",
-            minWidth: pos.minWidth + "px",
-            maxWidth: pos.maxWidth + "px",
-            maxHeight: pos.maxHeight + "px",
-            transformOrigin: "bottom left",
-          }}
-        >
-          <div className="usr-pop-card">
-            <${Avatar} user=${cur} />
-            <div className="asel-tx">
-              <b>${cur.name}</b>
-              <small>${cur.email || (authClaims && authClaims.email) || ""}</small>
-            </div>
-            ${cur.emailVerified && html`<span className="tm-gbadge" title="Google OAuth Verified">G</span>`}
-          </div>
-          <div className="ctx-div"></div>
-          <button
-            type="button"
-            className="asel-opt ctx-dng"
-            onClick=${() => {
-              setOpen(false);
-              onLogout && onLogout();
-            }}
-          >
-            <${Ic} n="lock" s=${14} />
-            <span>Sign out</span>
-          </button>
-        </div>`,
-        document.body
-      )}
+      ${menuEl}
     </div>`;
+  }
+
+  return html`<div className=${"usr-tb-wrap " + className}>
+    <button
+      ref=${btnRef}
+      type="button"
+      className=${"usr-tb-btn" + (open ? " open" : "")}
+      title=${`${cur.name} · ${ROLES[curRole] || curRole}`}
+      aria-label=${`Account menu (${cur.name})`}
+      aria-haspopup="listbox"
+      aria-expanded=${open}
+      onClick=${toggle}
+    >
+      <${Avatar} user=${cur} size="sm" />
+    </button>
+    ${menuEl}
+  </div>`;
 }

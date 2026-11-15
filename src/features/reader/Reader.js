@@ -12,6 +12,7 @@ import { db } from '../../lib/db.js';
 import { EW_TBL, EW_SL, EW_CL, TURN, BLOCK_LABELS, TEXT_COLORS, HL_COLORS, AI_ACTIONS, BlockGlyph } from '../editor/editorConfig.js';
 import { createDocCollabSession } from '../../lib/realtimeCollab.js';
 import { LocalImpactGraph } from '../graph/LocalImpactGraph.js';
+import { ChatMessages } from '../../components/ChatMessages.js';
 
 function clampMenuPos(x, y, width, estHeight) {
   if (typeof window === 'undefined') return { left: x, top: y };
@@ -63,6 +64,45 @@ export function Reader(p) {
   const [sl, setSl] = useState(null);
   const [hd, setHd] = useState(null);
   const [bm, setBm] = useState(null);
+
+  // Embedded Ask AI state (shares unified multi-turn threads with Space)
+  const [readerChatOpen, setReaderChatOpen] = useState(false);
+  const [readerChatScope, setReaderChatScope] = useState('doc'); // 'doc' | 'all'
+  const [readerChatInput, setReaderChatInput] = useState('');
+  const readerChatEndRef = useRef(null);
+
+  const poolById = useMemo(() => new Map((res || []).map((item) => [item.id, item])), [res]);
+  const activeChat = useMemo(
+    () => (p.activeChatId && p.chats ? p.chats.find((c) => c.id === p.activeChatId) || null : null),
+    [p.chats, p.activeChatId]
+  );
+
+  useEffect(() => {
+    if (readerChatOpen && activeChat && readerChatEndRef.current) {
+      readerChatEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }
+  }, [readerChatOpen, activeChat?.id, activeChat?.messages?.length]);
+
+  useEffect(() => {
+    const secId = p.initialSection && p.initialSection.sectionId;
+    if (!secId) return undefined;
+    let flashTimer = 0;
+    const scrollTimer = setTimeout(() => {
+      const el = document.getElementById(secId);
+      if (!el) return;
+      clickLockRef.current = Date.now() + 700;
+      setAct(secId);
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.remove('rd-sec-flash');
+      void el.offsetWidth;
+      el.classList.add('rd-sec-flash');
+      flashTimer = setTimeout(() => el.classList.remove('rd-sec-flash'), 2200);
+    }, 90);
+    return () => {
+      clearTimeout(scrollTimer);
+      clearTimeout(flashTimer);
+    };
+  }, [r.id, p.initialSection?.sectionId, p.initialSection?.n]);
   const [dp, setDp] = useState(null);
   const [tb, setTb] = useState(null);
   const [lk, setLk] = useState(null);
@@ -1832,6 +1872,36 @@ export function Reader(p) {
     e.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const sendReaderChat = async (question) => {
+    const q = String(question || '').trim();
+    if (!q || !p.onSendChat) return;
+    setReaderChatInput('');
+    await p.onSendChat({
+      query: q,
+      scopeDocId: readerChatScope === 'doc' ? r.id : null,
+      scopeDocTitle: readerChatScope === 'doc' ? r.title : '',
+      scope: readerChatScope,
+    });
+  };
+
+  const handleReaderSource = (s) => {
+    if (!s || !s.id) return;
+    if (String(s.id) === String(r.id)) {
+      if (s.sectionId) {
+        goToId(s.sectionId);
+        const el = document.getElementById(s.sectionId);
+        if (el) {
+          el.classList.remove('rd-sec-flash');
+          void el.offsetWidth;
+          el.classList.add('rd-sec-flash');
+          setTimeout(() => el.classList.remove('rd-sec-flash'), 2200);
+        }
+      }
+      return;
+    }
+    p.go && p.go(s.id, s.sectionId ? { sectionId: s.sectionId } : undefined);
+  };
+
   const updateMetaField = (patch) => {
     commitInlinePatch(patch);
     collabRef.current && collabRef.current.broadcastPatch({ kind: 'field', field: 'meta', meta: patch });
@@ -2020,6 +2090,17 @@ export function Reader(p) {
             Submit
           </button>`}
 
+          <button
+            type="button"
+            className=${'btn sm rd-ai-btn' + (readerChatOpen ? ' on' : '')}
+            onClick=${() => setReaderChatOpen((v) => !v)}
+            title="Ask Datum AI about this standard or the whole library"
+            aria-expanded=${readerChatOpen}
+          >
+            <${Ic} n="spark" s=${13} />
+            <span>Ask AI</span>
+          </button>
+
           ${!isGuest &&
           html`<button
             type="button"
@@ -2160,7 +2241,7 @@ export function Reader(p) {
       </div>`}
     </header>
 
-    <div className=${'rdl' + (tocItems.length > 1 ? '' : ' one')}>
+    <div className=${'rdl' + (readerChatOpen ? ' has-ai' : tocItems.length > 1 ? '' : ' one')}>
       <div className="rd-main">
         ${tocItems.length > 1 && html`<details className="mtoc"><summary>Contents</summary>${tocItems.map(TL)}</details>`}
 
@@ -2347,11 +2428,120 @@ export function Reader(p) {
         <${LocalImpactGraph} item=${r} res=${res} onRead=${p.go} onInfo=${p.info} />
       </div>
 
-      ${tocItems.length > 1 &&
+      ${!readerChatOpen &&
+      tocItems.length > 1 &&
       html`<nav className="toc" aria-label="Contents">
         <b>Contents</b>
         ${tocItems.map(TL)}
       </nav>`}
+
+      ${readerChatOpen &&
+      html`<${Fragment}>
+        <div
+          className="rd-chat-scrim"
+          aria-hidden="true"
+          onClick=${() => setReaderChatOpen(false)}
+        />
+        <aside className="rd-chat-panel" role="complementary" aria-label="Document AI Assistant">
+          <div className="rd-chat-head">
+            <span className="kspace-ai-badge"><${Ic} n="spark" s=${12} /> Datum AI</span>
+            <div className="seg" role="group" aria-label="Search scope">
+              <button
+                type="button"
+                className=${readerChatScope === 'doc' ? 'on' : ''}
+                onClick=${() => setReaderChatScope('doc')}
+              >
+                This doc
+              </button>
+              <button
+                type="button"
+                className=${readerChatScope === 'all' ? 'on' : ''}
+                onClick=${() => setReaderChatScope('all')}
+              >
+                All library
+              </button>
+            </div>
+            <div className="rd-chat-acts">
+              ${p.onNewChat &&
+              html`<button
+                type="button"
+                className="kspace-mini-btn"
+                onClick=${() => p.onNewChat()}
+                title="New conversation"
+              >
+                + New
+              </button>`}
+              <button
+                type="button"
+                className="kspace-pop-x"
+                aria-label="Close AI panel"
+                onClick=${() => setReaderChatOpen(false)}
+              >
+                <${Ic} n="x" s=${13} />
+              </button>
+            </div>
+          </div>
+
+          <div className="rd-chat-prompts">
+            ${[
+              ['Summarize', `Summarize ${r.title}`],
+              ['Key rules', `What are the key rules and tolerances in ${r.title}?`],
+              ['Checklist', `List checklist items in ${r.title}`],
+            ].map(
+              ([label, q]) => html`<button
+                key=${label}
+                type="button"
+                className="kspace-pchip"
+                onClick=${() => sendReaderChat(q)}
+              >
+                ${label}
+              </button>`
+            )}
+          </div>
+
+          <div className="rd-chat-body">
+            ${activeChat && activeChat.messages && activeChat.messages.length > 0
+              ? html`<${ChatMessages}
+                  messages=${activeChat.messages}
+                  poolById=${poolById}
+                  favs=${p.favs || []}
+                  isGuest=${isGuest}
+                  compact=${true}
+                  onSelectSource=${handleReaderSource}
+                  onOpenCard=${(id) => handleReaderSource({ id })}
+                  onToggleFav=${p.tf}
+                  onOpenNamingStudio=${p.onOpenNamingStudio}
+                  onFlagGap=${p.onFlagGap}
+                  endRef=${readerChatEndRef}
+                />`
+              : html`<div className="rd-chat-empty">
+                  <b>Ask about this standard</b>
+                  <p>Jump straight to matching sections (${'§'}), verify naming rules, or switch scope to search the whole library.</p>
+                </div>`}
+          </div>
+
+          <form
+            className="rd-chat-form"
+            onSubmit=${(e) => {
+              e.preventDefault();
+              sendReaderChat(readerChatInput);
+            }}
+          >
+            <input
+              type="text"
+              value=${readerChatInput}
+              onChange=${(e) => setReaderChatInput(e.target.value)}
+              placeholder=${readerChatScope === 'doc'
+                ? 'Ask about sections in this doc…'
+                : 'Ask across all Datum standards…'}
+              aria-label="Ask Datum AI"
+            />
+            <button type="submit" className="btn p sm" disabled=${!readerChatInput.trim()}>
+              Ask
+            </button>
+          </form>
+        </aside>
+      </${Fragment}>`}
     </div>
 
     ${canEditItem &&

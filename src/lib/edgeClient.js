@@ -9,6 +9,9 @@ const projectAiItem = (r) => ({
   id: r.id,
   title: r.title,
   desc: r.desc || '',
+  url: r.url || '',
+  disc: r.disc || '',
+  type: r.type || 'doc',
   body: stripImagesFromBody(r.body),
   tags: r.tags || [],
   author: r.author || '',
@@ -71,11 +74,16 @@ function aiCacheKey(payload) {
     if (items[i].upd && items[i].upd > maxUpd) maxUpd = items[i].upd;
   }
   const target = payload.targetItem;
+  const hist = Array.isArray(payload.history) ? payload.history : [];
+  const lastTurn = hist.length ? `${hist.length}:${(hist[hist.length - 1] && hist[hist.length - 1].text) || ''}`.slice(0, 64) : '';
   return [
     payload.action || 'qa',
     payload.query || '',
     payload.userRole || '',
     payload.userName || '',
+    payload.targetDocId || '',
+    payload.scope || '',
+    lastTurn,
     items.length,
     maxUpd,
     target ? `${target.id}:${target.upd || ''}` : '',
@@ -111,6 +119,13 @@ export const edgeClient = {
           ...payload,
           items: Array.isArray(payload.items) ? payload.items.map(projectAiItem) : undefined,
           targetItem: payload.targetItem ? projectAiItem(payload.targetItem) : null,
+          history: Array.isArray(payload.history)
+            ? payload.history.slice(-6).map((m) => ({
+                role: m.role,
+                text: String(m.text || '').slice(0, 320),
+                src: Array.isArray(m.src) ? m.src.map((s) => ({ id: s.id, title: s.title })) : [],
+              }))
+            : undefined,
         }
       : payload;
 
