@@ -360,3 +360,20 @@
   line-height: 1.5;
   color: var(--fg);
 }
+
+.a3d-specs-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--sub);
+}
+
+.a3d-specs-inline strong {
+  color: var(--text);
+  font-weight: 600;
+}

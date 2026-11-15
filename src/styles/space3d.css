@@ -10,11 +10,11 @@
   }
 }
 
-.app:has(.pad-space) .bar {
+.app:has(.pad-space:not([hidden])) .bar {
   background: var(--bg);
 }
 
-.app:has(.pad-space) .bar::before {
+.app:has(.pad-space:not([hidden])) .bar::before {
   display: none;
 }
 
@@ -48,6 +48,17 @@
   outline: none;
   transition: background 0.45s ease;
   animation: kspaceStageIn 0.38s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.kspace-stage.is-hero {
+  background:
+    radial-gradient(
+      ellipse 44% 32% at 50% 48%,
+      color-mix(in srgb, var(--env-accent) 10%, transparent) 0%,
+      color-mix(in srgb, var(--env-accent) 4%, transparent) 44%,
+      transparent 72%
+    ),
+    #000000;
 }
 
 @keyframes kspaceStageIn {
@@ -356,6 +367,11 @@
   overflow: hidden;
 }
 
+.kspace-stage.is-hero .kspace-viewport {
+  cursor: default;
+  pointer-events: none;
+}
+
 .kspace-viewport.is-grid {
   perspective: none;
   cursor: default;
@@ -538,7 +554,7 @@
   flex: none;
   margin-top: auto;
   padding-top: 7px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .card.kspace-card .pill {
@@ -577,6 +593,19 @@
 
 .kspace-date {
   color: rgba(235, 235, 245, 0.62);
+  opacity: 0;
+  transition: opacity 0.16s ease;
+}
+
+.card.kspace-card:hover .kspace-date,
+.card.kspace-card:focus-visible .kspace-date {
+  opacity: 0.78;
+}
+
+@media (hover: none) {
+  .kspace-date {
+    opacity: 0.65;
+  }
 }
 
 .kspace-empty {
@@ -611,10 +640,10 @@
 }
 
 .kspace-dock.is-hero {
-  top: clamp(136px, calc(50vh - 118px), 44vh);
+  top: calc(50vh - 44px);
   bottom: auto;
-  width: min(760px, calc(100% - 48px));
-  gap: 12px;
+  width: min(620px, calc(100% - 48px));
+  gap: 10px;
 }
 
 .kspace-dock > * {
@@ -1419,7 +1448,7 @@
 }
 
 :root[data-theme="light"] .card.kspace-card .row {
-  border-top-color: rgba(0, 0, 0, .06);
+  border-top-color: rgba(0, 0, 0, .04);
   color: #6e6e73;
 }
 
@@ -1793,7 +1822,7 @@
   }
 
   :root:not([data-theme="dark"]) .card.kspace-card .row {
-    border-top-color: rgba(0, 0, 0, .06);
+    border-top-color: rgba(0, 0, 0, .04);
     color: #6e6e73;
   }
 
@@ -2064,7 +2093,7 @@
 
 /* Mobile Space Redesign (Phone <= 768px): calm line-first Datum canvas, zero 3D cylinder */
 @media (max-width: 768px) {
-  .app:has(.pad-space) .bar {
+  .app:has(.pad-space:not([hidden])) .bar {
     position: fixed;
     top: 0;
     left: 0;
@@ -2082,13 +2111,13 @@
     pointer-events: none;
   }
 
-  .app:has(.pad-space) .bar-l,
-  .app:has(.pad-space) .bar-r {
+  .app:has(.pad-space:not([hidden])) .bar-l,
+  .app:has(.pad-space:not([hidden])) .bar-r {
     pointer-events: auto;
   }
 
-  .app:has(.pad-space) .bar-l .menu,
-  .app:has(.pad-space) .bar-r > .bar-r-bell {
+  .app:has(.pad-space:not([hidden])) .bar-l .menu,
+  .app:has(.pad-space:not([hidden])) .bar-r > .bar-r-bell {
     width: 40px;
     height: 40px;
     border-radius: 999px;
@@ -2099,12 +2128,12 @@
     -webkit-backdrop-filter: blur(18px);
   }
 
-  .app:has(.pad-space) .bar-r > :not(.bar-r-bell) {
+  .app:has(.pad-space:not([hidden])) .bar-r > :not(.bar-r-bell) {
     display: none !important;
   }
 
-  :root[data-theme="light"] .app:has(.pad-space) .bar-l .menu,
-  :root[data-theme="light"] .app:has(.pad-space) .bar-r > .bar-r-bell {
+  :root[data-theme="light"] .app:has(.pad-space:not([hidden])) .bar-l .menu,
+  :root[data-theme="light"] .app:has(.pad-space:not([hidden])) .bar-r > .bar-r-bell {
     background: rgba(255, 255, 255, 0.88);
     border-color: rgba(0, 0, 0, 0.09);
     box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
@@ -2118,8 +2147,8 @@
     overflow-x: clip;
   }
 
-  .app:has(.pad-space),
-  .app:has(.pad-space) .main {
+  .app:has(.pad-space:not([hidden])),
+  .app:has(.pad-space:not([hidden])) .main {
     max-width: 100%;
     overflow-x: clip;
   }
@@ -2638,8 +2667,8 @@
     border-left-color: rgba(0, 0, 0, 0.07);
   }
 
-  :root:not([data-theme="dark"]) .app:has(.pad-space) .bar-l .menu,
-  :root:not([data-theme="dark"]) .app:has(.pad-space) .bar-r > .bar-r-bell {
+  :root:not([data-theme="dark"]) .app:has(.pad-space:not([hidden])) .bar-l .menu,
+  :root:not([data-theme="dark"]) .app:has(.pad-space:not([hidden])) .bar-r > .bar-r-bell {
     background: rgba(255, 255, 255, 0.88);
     border-color: rgba(0, 0, 0, 0.09);
     box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
@@ -2680,10 +2709,10 @@
   .bar.bar-space {
     display: none;
   }
-  .app:has(.pad-space) .kspace-stage {
+  .app:has(.pad-space:not([hidden])) .kspace-stage {
     height: 100vh;
   }
-  .app:has(.pad-space) .pop {
+  .app:has(.pad-space:not([hidden])) .pop {
     top: 54px;
     right: 20px;
   }
@@ -3347,32 +3376,49 @@
   }
 }
 
-/* Minimalist Chat-First Hero Intro */
-.kspace-hero-head {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-  animation: kspaceMobFadeUp 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+/* Ultra-Minimalist Chat-First Hero State */
+.kspace-dock.is-hero .kspace-ask-bar {
+  background: rgba(16, 16, 18, 0.88);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 14px 42px rgba(0, 0, 0, 0.65);
+  animation: none;
 }
 
-.kspace-hero-title {
-  margin: 0;
-  font-size: clamp(24px, 3vw, 35px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
-  color: #f5f5f7;
+.kspace-dock.is-hero .kspace-ask-bar:hover,
+.kspace-dock.is-hero .kspace-ask-bar:focus-within,
+.kspace-dock.is-hero .kspace-ask-bar.has-q,
+.kspace-dock.is-hero .kspace-ask-bar.is-busy {
+  border-color: transparent;
+  background:
+    linear-gradient(rgba(14, 14, 14, 0.94), rgba(8, 8, 8, 0.96)) padding-box,
+    linear-gradient(
+      120deg,
+      rgba(56, 189, 248, 0.68),
+      rgba(129, 140, 248, 0.68),
+      rgba(192, 132, 252, 0.68),
+      rgba(244, 114, 182, 0.62),
+      rgba(251, 146, 60, 0.62),
+      rgba(56, 189, 248, 0.68)
+    ) border-box;
+  background-size: 100% 100%, 240% 240%;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 18px 48px rgba(0, 0, 0, 0.72),
+    0 0 32px rgba(99, 102, 241, 0.24);
+  animation: kspaceAskFlow 4s ease infinite;
 }
 
-.kspace-hero-sub {
-  margin: 0;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: rgba(235, 235, 245, 0.6);
-  max-width: 540px;
+.kspace-dock.is-hero .kspace-ask-bar:not(.has-q):not(:focus-within):not(.is-busy) .kspace-ask-btn {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(235, 235, 245, 0.76);
+  box-shadow: none;
+}
+
+.kspace-dock.is-hero .kspace-ask-bar:not(.has-q):not(:focus-within):not(.is-busy) .kspace-ask-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
 }
 
 .kspace-dock.is-hero .kspace-dock-bar {
@@ -3381,19 +3427,29 @@
 
 .kspace-dock.is-hero .kspace-chips-scroll {
   justify-content: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 2px 0;
+  -webkit-mask-image: none;
+  mask-image: none;
 }
 
-.kspace-pchip-hero {
-  background: rgba(10, 132, 255, 0.2);
-  border-color: rgba(10, 132, 255, 0.45);
-  color: #70b7ff;
-  font-weight: 600;
+.kspace-pchip-ghost {
+  height: 28px;
+  padding: 0 10px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-color: transparent;
+  color: rgba(235, 235, 245, 0.56);
+  font-size: 12px;
+  font-weight: 500;
+  box-shadow: none;
 }
 
-.kspace-pchip-hero:hover {
-  background: rgba(10, 132, 255, 0.3);
-  border-color: rgba(10, 132, 255, 0.72);
+.kspace-pchip-ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
   color: #ffffff;
 }
 
@@ -4031,7 +4087,6 @@
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.14);
 }
 
-:root[data-theme="light"] .kspace-hero-title,
 :root[data-theme="light"] .kspace-kits-head h2,
 :root[data-theme="light"] .kspace-kit-pack h3,
 :root[data-theme="light"] .kspace-kit-crumb-t,
@@ -4039,7 +4094,6 @@
   color: #1d1d1f;
 }
 
-:root[data-theme="light"] .kspace-hero-sub,
 :root[data-theme="light"] .kspace-kits-head p,
 :root[data-theme="light"] .kspace-kit-pack p,
 :root[data-theme="light"] .kspace-kit-pack-foot,
@@ -4053,10 +4107,46 @@
   color: #6e6e73;
 }
 
-:root[data-theme="light"] .kspace-pchip-hero {
-  background: rgba(0, 113, 227, 0.12);
-  border-color: rgba(0, 113, 227, 0.34);
-  color: #0071e3;
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1.5px solid rgba(0, 0, 0, 0.1);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04), inset 0 1px 0 #ffffff;
+  animation: none;
+}
+
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar:hover,
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar:focus-within,
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar.has-q,
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar.is-busy {
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(95deg, rgba(168, 85, 247, 0.55), rgba(0, 113, 227, 0.65), rgba(236, 72, 153, 0.48), rgba(245, 158, 11, 0.5), rgba(0, 113, 227, 0.6)) border-box;
+  border-color: transparent;
+  box-shadow: 0 14px 36px rgba(0, 113, 227, 0.14), 0 0 0 3px rgba(0, 113, 227, 0.12), inset 0 1px 0 #ffffff;
+}
+
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar:not(.has-q):not(:focus-within):not(.is-busy) .kspace-ask-btn {
+  background: rgba(0, 0, 0, 0.06);
+  color: #515156;
+  box-shadow: none;
+}
+
+:root[data-theme="light"] .kspace-dock.is-hero .kspace-ask-bar:not(.has-q):not(:focus-within):not(.is-busy) .kspace-ask-btn:hover {
+  background: rgba(0, 0, 0, 0.11);
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-pchip-ghost {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  color: #6e6e73;
+}
+
+:root[data-theme="light"] .kspace-pchip-ghost:hover {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: transparent;
+  color: #1d1d1f;
 }
 
 :root[data-theme="light"] .kspace-graph-edge path {
@@ -4143,17 +4233,47 @@
     background: #ffffff;
     color: #1d1d1f;
   }
-  :root:not([data-theme="dark"]) .kspace-hero-title,
   :root:not([data-theme="dark"]) .kspace-kits-head h2,
   :root:not([data-theme="dark"]) .kspace-kit-pack h3,
   :root:not([data-theme="dark"]) .kspace-kit-crumb-t,
   :root:not([data-theme="dark"]) .kspace-gs-node b {
     color: #1d1d1f;
   }
-  :root:not([data-theme="dark"]) .kspace-hero-sub,
   :root:not([data-theme="dark"]) .kspace-kits-head p,
   :root:not([data-theme="dark"]) .kspace-kit-pack p {
     color: #6e6e73;
+  }
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar {
+    background: rgba(255, 255, 255, 0.94);
+    border: 1.5px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08), 0 2px 6px rgba(15, 23, 42, 0.04), inset 0 1px 0 #ffffff;
+    animation: none;
+  }
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar:hover,
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar:focus-within,
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar.has-q,
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar.is-busy {
+    background:
+      linear-gradient(#ffffff, #ffffff) padding-box,
+      linear-gradient(95deg, rgba(168, 85, 247, 0.55), rgba(0, 113, 227, 0.65), rgba(236, 72, 153, 0.48), rgba(245, 158, 11, 0.5), rgba(0, 113, 227, 0.6)) border-box;
+    border-color: transparent;
+    box-shadow: 0 14px 36px rgba(0, 113, 227, 0.14), 0 0 0 3px rgba(0, 113, 227, 0.12), inset 0 1px 0 #ffffff;
+  }
+  :root:not([data-theme="dark"]) .kspace-dock.is-hero .kspace-ask-bar:not(.has-q):not(:focus-within):not(.is-busy) .kspace-ask-btn {
+    background: rgba(0, 0, 0, 0.06);
+    color: #515156;
+    box-shadow: none;
+  }
+  :root:not([data-theme="dark"]) .kspace-pchip-ghost {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    color: #6e6e73;
+  }
+  :root:not([data-theme="dark"]) .kspace-pchip-ghost:hover {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: transparent;
+    color: #1d1d1f;
   }
   :root:not([data-theme="dark"]) .kspace-graph-selbar,
   :root:not([data-theme="dark"]) .kspace-graph-opts-pop,
@@ -4214,7 +4334,6 @@
   .kspace-chat-panel,
   .kspace-quick-hits,
   .kspace-kits-pop,
-  .kspace-hero-head,
   .kspace-kits-showcase,
   .kspace-kit-pack,
   .kspace-graph-selbar,

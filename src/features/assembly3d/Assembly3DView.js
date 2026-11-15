@@ -332,26 +332,34 @@ export function Assembly3DView({
               </g>`;
             })}
           </svg>
-          <div className="a3d-hud">
-            <span className="a3d-hud-pill">Drag to Orbit · Click Layer to Inspect</span>
-            ${!compact && html`<span className="a3d-hud-pill">Revit Type: ${assembly.revitType}</span>`}
-          </div>
+          ${!compact &&
+          html`<div className="a3d-hud">
+            <span className="a3d-hud-pill">Revit Type: ${assembly.revitType}</span>
+          </div>`}
         </div>
 
-        <div className="a3d-specs">
-          <div className="a3d-spec">
-            <span>Fire Rating</span>
-            <strong>${assembly.fireRating}</strong>
-          </div>
-          <div className="a3d-spec">
-            <span>Acoustic</span>
-            <strong>${assembly.stc}</strong>
-          </div>
-          <div className="a3d-spec">
-            <span>Total Thickness</span>
-            <strong>${assembly.thickness}</strong>
-          </div>
-        </div>
+        ${compact
+          ? html`<div className="a3d-specs-inline">
+              <span>Fire <strong>${assembly.fireRating}</strong></span>
+              <span>·</span>
+              <span>Acoustic <strong>${assembly.stc}</strong></span>
+              <span>·</span>
+              <span>Thickness <strong>${assembly.thickness}</strong></span>
+            </div>`
+          : html`<div className="a3d-specs">
+              <div className="a3d-spec">
+                <span>Fire Rating</span>
+                <strong>${assembly.fireRating}</strong>
+              </div>
+              <div className="a3d-spec">
+                <span>Acoustic</span>
+                <strong>${assembly.stc}</strong>
+              </div>
+              <div className="a3d-spec">
+                <span>Total Thickness</span>
+                <strong>${assembly.thickness}</strong>
+              </div>
+            </div>`}
       </div>
 
       ${!compact &&

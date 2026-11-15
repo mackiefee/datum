@@ -2027,13 +2027,15 @@ export function Reader(p) {
         </div>
 
         <div className="rd-topbar-r">
-          <div className="collab-bar">
+          ${(peers.length > 0 || syncState === 'Saving…') &&
+          html`<div className="collab-bar">
             <span className="collab-status" title=${collabStatus === 'live' ? 'Supabase Realtime connected + local multi-tab sync' : 'Local multi-tab sync active'}>
               <span className=${'collab-dot ' + (collabStatus === 'live' ? 'live' : 'local')}></span>
               <span>${syncState}</span>
             </span>
 
-            <div className="collab-avs" aria-label="Active collaborators">
+            ${peers.length > 0 &&
+            html`<div className="collab-avs" aria-label="Active collaborators">
               <span className="collab-av self" title=${`${userName} (You)`} style=${{ '--pc': 'var(--blue)' }}>
                 ${p.userAvatar ? html`<img src=${p.userAvatar} alt="" />` : userName.split(' ').map((w) => w[0]).join('').slice(0, 2)}
               </span>
@@ -2047,8 +2049,8 @@ export function Reader(p) {
                   ${peer.avatar ? html`<img src=${peer.avatar} alt="" />` : peer.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}
                 </span>`
               )}
-            </div>
-          </div>
+            </div>`}
+          </div>`}
 
           ${canEditItem &&
           html`<div className="rd-mode-pill" role="group" aria-label="Page mode">
@@ -2216,23 +2218,11 @@ export function Reader(p) {
         ${r.vis && r.vis !== 'Internal' && html`<${VisPill} v=${r.vis} />`}
         <span className="rd-meta-disc"><i className="dd" style=${{ background: DC[r.disc] }}></i> ${r.disc || 'VDC'}</span>
         <span>·</span>
-        <span>${r.stage || STG[0]}</span>
-        <span>·</span>
         <span>${r.author}</span>
         <span>·</span>
         <span>Updated ${fmt(r.upd)}</span>
-        <span>·</span>
-        <span>v${(r.v || []).length || 1}</span>
-        <span>·</span>
-        <span>${min} min</span>
-        <span>·</span>
-        <span className=${isStale ? 'stale' : 'fresh'}>${isStale ? `Review (${ageDays}d)` : 'Up to date'}</span>
+        ${isStale && html`<span>·</span><span className="stale">Review (${ageDays}d)</span>`}
         ${p.req.includes(r.id) && html`<span className="pill" style=${{ '--c': '#ff3b30' }}>Required</span>`}
-        ${!isGuest &&
-        html`<button type="button" className="rd-meta-props" onClick=${() => p.info(r.id)}>
-          <${Ic} n="sliders" s=${12} />
-          <span>Properties</span>
-        </button>`}
       </div>
 
       ${r.status === 'Archived' &&
@@ -2425,7 +2415,7 @@ export function Reader(p) {
             : html`<button type="button" className="rd-tag-add" onClick=${() => setAddingTag(true)}>+ Tag</button>`)}
         </div>
 
-        <${LocalImpactGraph} item=${r} res=${res} onRead=${p.go} onInfo=${p.info} />
+        <${LocalImpactGraph} item=${r} res=${res} collapsedByDefault=${true} onRead=${p.go} onInfo=${p.info} />
       </div>
 
       ${!readerChatOpen &&
@@ -2444,7 +2434,7 @@ export function Reader(p) {
         />
         <aside className="rd-chat-panel" role="complementary" aria-label="Document AI Assistant">
           <div className="rd-chat-head">
-            <span className="kspace-ai-badge"><${Ic} n="spark" s=${12} /> Datum AI</span>
+            <span className="rd-chat-title"><${Ic} n="spark" s=${13} /> Ask AI</span>
             <div className="seg" role="group" aria-label="Search scope">
               <button
                 type="button"
@@ -2482,23 +2472,6 @@ export function Reader(p) {
             </div>
           </div>
 
-          <div className="rd-chat-prompts">
-            ${[
-              ['Summarize', `Summarize ${r.title}`],
-              ['Key rules', `What are the key rules and tolerances in ${r.title}?`],
-              ['Checklist', `List checklist items in ${r.title}`],
-            ].map(
-              ([label, q]) => html`<button
-                key=${label}
-                type="button"
-                className="kspace-pchip"
-                onClick=${() => sendReaderChat(q)}
-              >
-                ${label}
-              </button>`
-            )}
-          </div>
-
           <div className="rd-chat-body">
             ${activeChat && activeChat.messages && activeChat.messages.length > 0
               ? html`<${ChatMessages}
@@ -2516,7 +2489,23 @@ export function Reader(p) {
                 />`
               : html`<div className="rd-chat-empty">
                   <b>Ask about this standard</b>
-                  <p>Jump straight to matching sections (${'§'}), verify naming rules, or switch scope to search the whole library.</p>
+                  <p>Jump to matching sections (${'§'}), check naming rules, or search the library.</p>
+                  <div className="rd-chat-prompts">
+                    ${[
+                      ['Summarize', `Summarize ${r.title}`],
+                      ['Key rules', `What are the key rules and tolerances in ${r.title}?`],
+                      ['Checklist', `List checklist items in ${r.title}`],
+                    ].map(
+                      ([label, q]) => html`<button
+                        key=${label}
+                        type="button"
+                        className="kspace-pchip"
+                        onClick=${() => sendReaderChat(q)}
+                      >
+                        ${label}
+                      </button>`
+                    )}
+                  </div>
                 </div>`}
           </div>
 

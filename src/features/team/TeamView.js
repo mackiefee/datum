@@ -125,12 +125,8 @@ export function TeamView({
   };
 
   return html`<div>
-    <div className="pdl-top">
+    <div className="pdl-top pdl-top-sub">
       <div className="pdl-top-l">
-        <h1>People & Teams</h1>
-        <span className="pdl-cnt">${tab === "people" ? filteredUsers.length : teams.length}</span>
-      </div>
-      <div className="pdl-top-r">
         <div className="seg">
           ${[
             ["people", `People (${activeUsers.length})`],
@@ -138,6 +134,10 @@ export function TeamView({
             ["roles", "Roles"],
           ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
         </div>
+        ${tab !== "roles" &&
+        html`<span className="pdl-cnt">${tab === "people" ? filteredUsers.length : teams.length}</span>`}
+      </div>
+      <div className="pdl-top-r">
         ${tab === "people" &&
         html`<input
           className="inp"
@@ -246,36 +246,25 @@ export function TeamView({
         document.body
       )}
 
-      <div className="tm-grid">
+      <div className="hc tm-list">
         ${filteredUsers.map((u) => {
           const rKey = normRole(u.role);
           const ownedCount = res.filter((r) => r.author === u.name && r.status !== "Archived").length;
           const catOwnedCount = flatCats.filter((c) => c.owner === u.name).length;
-          return html`<div key=${u.id} className="hc tm-card">
-            <div className="tm-top">
-              <${Avatar} user=${u} size="lg" />
-              <div className="tm-meta">
-                <div className="pdl-row" style=${{ gap: 6 }}>
-                  <b>${u.name}</b>
-                  ${u.provider === "google" &&
-                  html`<span className="tm-gbadge" title="Verified Google Identity">G</span>`}
-                </div>
-                <span className="tm-title">${u.title || ROLES[rKey]}</span>
-                <small>${u.email}</small>
-              </div>
+          const teamText = [u.dept, ...(u.teams || []).filter((t) => t !== u.dept)].filter(Boolean).join(" · ");
+          return html`<div key=${u.id} className="li tm-row">
+            <${Avatar} user=${u} size="md" />
+            <div className="tm-row-main">
+              <b>${u.name}</b>
+              <small>${u.title || ROLES[rKey]} · ${u.email}</small>
             </div>
-            <div className="row" style=${{ marginTop: 12 }}>
-              <span className="pill" style=${{ "--c": ROLE_COL[rKey] || "#8e8e93" }}>${ROLES[rKey]}</span>
-              <span className="pill" style=${{ background: "var(--fill)" }}>${u.dept}</span>
-              ${(u.teams || [])
-                .filter((t) => t !== u.dept)
-                .map((t) => html`<span key=${t} className="pill" style=${{ background: "var(--fill)" }}>${t}</span>`)}
-            </div>
-            <div className="tm-foot">
-              <small>${ownedCount} items · ${catOwnedCount} spaces</small>
+            <div className="tm-row-dept">${teamText}</div>
+            <span className="pill tm-row-role" style=${{ "--c": ROLE_COL[rKey] || "#8e8e93" }}>${ROLES[rKey]}</span>
+            <div className="tm-row-end">
+              <small className="tm-row-cnt">${ownedCount} items · ${catOwnedCount} spaces</small>
               <button
                 type="button"
-                className="mn"
+                className="mn tm-row-act"
                 onClick=${() => onFilterByOwner && onFilterByOwner(u.name)}
               >
                 View items ›
@@ -443,8 +432,7 @@ export function TeamView({
 
     ${tab === "roles" &&
     html`<div className="hc" style=${{ marginTop: 8 }}>
-      <h3>5-Tier Access Control & Google Auth Policy</h3>
-      <p className="lead sm">Roles enforce least privilege across Knowledge Base, Resource Library, Edge AI, and PostgreSQL RLS.</p>
+      <h3>5-Tier Access Control</h3>
       <div className="tw" style=${{ marginTop: 14 }}>
         <table>
           <thead>
@@ -472,10 +460,6 @@ export function TeamView({
             )}
           </tbody>
         </table>
-      </div>
-      <div className="box" style=${{ marginTop: 18 }}>
-        <b>Conflict Resolution Security Rules</b>
-        Item Restricted overrides an Open Category · Direct Pinpoint Share unlocks an item without exposing its Restricted parent category name · Public documents strip non-cleared attachments and disable links to Internal targets · Google Auth verifies email ownership and blocks deactivated sessions across Supabase RLS.
       </div>
     </div>`}
   </div>`;

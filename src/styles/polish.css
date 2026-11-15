@@ -154,19 +154,37 @@ mark{background:color-mix(in srgb,#ffd60a 50%,transparent);color:inherit;border-
 .usr-pop-card{display:flex;align-items:center;gap:10px;padding:8px 10px 6px}
 .usr-pop-card b{font-size:14px}
 
-/* People & Teams Directory */
-.tm-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px;margin-top:14px}
-.tm-card{display:flex;flex-direction:column}
-.tm-top{display:flex;align-items:center;gap:12px}
-.tm-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.tm-meta b{font-size:16px;font-weight:600}
-.tm-title{font-size:13px;color:var(--text);opacity:.86}
-.tm-meta small{font-size:12px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.tm-gbadge{width:17px;height:17px;border-radius:50%;background:color-mix(in srgb,#34c759 18%,transparent);color:#34c759;font-size:11px;font-weight:700;display:inline-grid;place-items:center;flex:none}
+/* People & Teams Directory — Clean Linear-style List */
+.tm-list{padding:6px 0;margin-top:8px}
+.tm-row{display:grid;grid-template-columns:auto minmax(180px,1.35fr) minmax(120px,1fr) auto auto;gap:12px 16px;align-items:center;padding:11px 16px;min-height:56px}
+.tm-row-main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.tm-row-main b{font-size:14.5px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-row-main small{font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-row-dept{font-size:12.5px;color:var(--sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tm-row-role{justify-self:start}
+.tm-row-end{display:inline-flex;align-items:center;gap:10px;justify-self:end;white-space:nowrap}
+.tm-row-cnt{font-size:12px;color:var(--sub);font-variant-numeric:tabular-nums}
+.tm-row-act{opacity:0;transition:opacity .15s ease}
+.tm-row:hover .tm-row-act,.tm-row:focus-within .tm-row-act{opacity:1}
+@media(hover:none){.tm-row-act{opacity:1}}
+@media(max-width:900px){
+  .tm-row{grid-template-columns:auto minmax(0,1fr) auto;gap:6px 12px;padding:12px 14px}
+  .tm-row-dept{grid-column:2 / 4;order:3}
+  .tm-row-role{grid-column:3;grid-row:1;justify-self:end}
+  .tm-row-end{grid-column:2 / 4;order:4;justify-self:start}
+}
+
+/* Tag Governance Hover Actions */
+.pdl-tag-li .pdl-hover-acts{opacity:0;transition:opacity .15s ease}
+.pdl-tag-li:hover .pdl-hover-acts,.pdl-tag-li:focus-within .pdl-hover-acts{opacity:1}
+@media(hover:none){.pdl-tag-li .pdl-hover-acts{opacity:1}}
 
 /* Compact Single-Line Page Header & Toolbar */
 .pdl-top{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;margin:0 0 20px;min-height:36px}
+.pdl-top.pdl-top-sub{margin:0 0 16px}
 .pdl-top-l{display:flex;align-items:center;gap:8px;min-width:0;flex:none}
+.pdl-top-l .seg{margin-top:0;height:36px;border-radius:999px;padding:3px}
+.pdl-top-l .seg button{height:30px;padding:0 13px;font-size:13px;border-radius:999px}
 .pdl-top h1{font-size:clamp(21px,2.1vw,26px);margin:0;letter-spacing:-.03em;line-height:1.15;white-space:nowrap}
 .pdl-cnt{font-size:12px;font-weight:600;color:var(--sub);background:var(--fill);height:24px;display:inline-flex;align-items:center;padding:0 10px;border-radius:999px;font-variant-numeric:tabular-nums;flex:none}
 .pdl-top-r{margin-left:auto;display:flex;align-items:center;gap:6px;flex-wrap:nowrap;min-width:0;overflow:visible}
@@ -329,8 +347,9 @@ mark{background:color-mix(in srgb,#ffd60a 50%,transparent);color:inherit;border-
 .bar-r{display:flex;align-items:center;gap:8px;justify-self:end;flex:none}
 @media(max-width:860px){
   .bar{display:flex;gap:10px;padding:10px 14px}
+  .bar-l{width:auto;flex:none}
   .bar-crumb{display:none}
-  .bar .sw{flex:1;width:auto}
+  .bar .sw{flex:1;min-width:0;width:auto}
   .sw.open .sw-morph{position:fixed;top:calc(10px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);width:calc(100vw - 24px)}
 }
 

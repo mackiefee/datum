@@ -1486,13 +1486,12 @@ export function App() {
       <div className="sec">Workspace</div>
       <button
         type="button"
-        className=${"ti" + (activeSwitcherKey === "kb-space" ? " on" : "")}
+        className=${"ti" + (activeSwitcherKey === "kb-space" || activeSwitcherKey === "kits" ? " on" : "")}
         style=${{ paddingLeft: 10 }}
         onClick=${() => handleNavSwitch("kb-space")}
       >
         <span className="side-ico"><${Ic} n="globe" s=${15} /></span>
         <span className="tn">Knowledge Space</span>
-        <span className="ct">${visibleRes.length}</span>
       </button>
 
       <button
@@ -1505,17 +1504,6 @@ export function App() {
         <span className="tn">Naming Studio</span>
       </button>
 
-      <button
-        type="button"
-        className=${"ti" + (activeSwitcherKey === "kits" ? " on" : "")}
-        style=${{ paddingLeft: 10 }}
-        onClick=${() => handleNavSwitch("kits")}
-      >
-        <span className="side-ico"><${Ic} n="folder" s=${15} /></span>
-        <span className="tn">Starter Kits</span>
-        <span className="ct">${visibleCols.length}</span>
-      </button>
-
       ${!isGuest &&
       html`<button
         type="button"
@@ -1525,7 +1513,6 @@ export function App() {
       >
         <span className="side-ico"><${Ic} n="teams" s=${15} /></span>
         <span className="tn">People & Teams</span>
-        <span className="ct">${activeUserCount}</span>
       </button>`}
 
       ${isGovCapable &&
@@ -1564,18 +1551,15 @@ export function App() {
         <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
           <span className="side-ico"><${Ic} n="star" s=${15} /></span>
           <span className="tn">Bookmarks</span>
-          <span className="ct">${favs.length}</span>
         </button>
         ${can.createDraft(role) &&
         html`<button type="button" className=${"ti" + (view === "lib" && cur === "drafts" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("drafts")}>
           <span className="side-ico"><${Ic} n="pencil" s=${15} /></span>
           <span className="tn">My Drafts</span>
-          <span className="ct">${draftCount}</span>
         </button>`}
         <button type="button" className=${"ti" + (view === "lib" && cur === "recent" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("recent")}>
           <span className="side-ico"><${Ic} n="clock" s=${15} /></span>
           <span className="tn">Recently Viewed</span>
-          <span className="ct">${hist.length}</span>
         </button>
       </div>`}
 

@@ -139,16 +139,13 @@ export function AdminView(p) {
   const activeUsers = users.filter((u) => u.status === "active");
 
   return html`<div>
-    <div className="pdl-top">
+    <div className="pdl-top pdl-top-sub">
       <div className="pdl-top-l">
-        <h1>Administration</h1>
-      </div>
-      <div className="pdl-top-r">
         <div className="seg">
           ${[
             ["gov", `Governance (${inReview.length + staleItems.length})`],
             ["cats", "Categories & Tags"],
-            ["users", "Users & Teams"],
+            ["users", "Users"],
             ["pub", `External (${publicItems.length + publicCols.length})`],
             ["anl", "Analytics & Audit"],
           ].map(([k, lb]) => html`<button key=${k} className=${tab === k ? "on" : ""} onClick=${() => setTab(k)}>${lb}</button>`)}
@@ -343,9 +340,8 @@ export function AdminView(p) {
 
       <section className="hc">
         <h3>Tag Governance (${allTags.length} tags)</h3>
-        <p className="lead sm">Rename or merge duplicate tags across all Documents and Resources.</p>
         ${allTags.map(
-          ([t, cnt]) => html`<div key=${t} className="li">
+          ([t, cnt]) => html`<div key=${t} className="li pdl-tag-li">
             <div className="t">
               <b>#${t}</b>
               <small>${cnt} items</small>
@@ -369,7 +365,7 @@ export function AdminView(p) {
                   </button>
                   <button className="btn sm" onClick=${() => setEditTag(null)}>Cancel</button>
                 </div>`
-              : html`<div className="pdl-row">
+              : html`<div className="pdl-row pdl-hover-acts">
                   <button
                     className="btn sm"
                     onClick=${() => {
@@ -397,14 +393,13 @@ export function AdminView(p) {
     html`<div>
       <section className="hc" style=${{ marginTop: 16 }}>
         <h3>Users & Access Lifecycle</h3>
-        <p className="lead sm">Deactivating a user immediately revokes access and requires ownership handover so zero content becomes orphaned.</p>
         ${users.map((u) => {
           const ownedCount = res.filter((r) => r.author === u.name).length;
           return html`<div key=${u.id} className="li">
             <div className="av">${u.name[0]}</div>
             <div className="t">
               <b>${u.name} ${u.status === "deactivated" ? "(Deactivated)" : ""}</b>
-              <small>${u.email} · ${u.dept}${(u.teams || []).length ? " · Teams: " + u.teams.join(", ") : ""} · Owns ${ownedCount} items</small>
+              <small>${u.email} · ${u.dept} · Owns ${ownedCount} items</small>
             </div>
             ${isAdmin && u.status === "active"
               ? html`<div className="pdl-row">
@@ -492,7 +487,6 @@ export function AdminView(p) {
       <div className="pdl-grid2">
         <section className="hc">
           <h3>Zero-Result Search Gaps</h3>
-          <p className="lead sm">Queries employees searched for that returned nothing — strong candidates for new guides or resources.</p>
           ${zeroSearches.length
             ? zeroSearches.map(
                 (l, idx) => html`<div key=${idx} className="li">

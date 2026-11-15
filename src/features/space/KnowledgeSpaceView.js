@@ -1916,9 +1916,9 @@ export function KnowledgeSpaceView({
         </div>
       </div>
 
-      ${(toolbarRight || spaceActions) &&
+      ${((!isHeroMode && toolbarRight) || spaceActions) &&
       html`<div className="kspace-controls">
-        ${toolbarRight}
+        ${!isHeroMode && toolbarRight}
         ${spaceActions}
       </div>`}
     </div>
@@ -1944,7 +1944,6 @@ export function KnowledgeSpaceView({
         </span>
         <strong className="kspace-kit-crumb-t">${activeKit.name}</strong>
         <span className="kspace-kit-crumb-cnt">${sourceBaseItems.length} ${sourceBaseItems.length === 1 ? 'item' : 'items'}</span>
-        ${activeKit.desc && html`<span className="kspace-kit-crumb-d">${activeKit.desc}</span>`}
       </div>
       <div className="kspace-kit-crumb-acts">
         ${canEditActiveKit &&
@@ -2027,7 +2026,6 @@ export function KnowledgeSpaceView({
       <div className="kspace-kits-head">
         <div>
           <h2>Starter Kits & Playbooks</h2>
-          <p>Curated onboarding sequences & QA packs — open any pack to explore in Space, Grid, or Graph.</p>
         </div>
         <div className="kspace-kits-tools">
           <div className="seg" role="group" aria-label="Filter kits by tier">
@@ -2308,7 +2306,7 @@ export function KnowledgeSpaceView({
                       html`<span className="kspace-kit-step-inline">#${String(r._kitStep).padStart(2, '0')}</span>`}
                       <span>${r.disc || 'VDC'}</span>
                     </b>
-                    <small>${catName ? `${TY[r.type] || 'Document'} · ${catName}` : TY[r.type] || 'Document'}</small>
+                    <small>${catName || TY[r.type] || 'Document'}</small>
                   </span>
                 </div>
 
@@ -2319,7 +2317,6 @@ export function KnowledgeSpaceView({
                 <div className="row">
                   <${Pill} s=${r.status} />
                   ${r.vis && r.vis !== 'Internal' && activeFormation !== 'graph' && html`<${VisPill} v=${r.vis} />`}
-                  <span>v${(r.v && r.v.length) || 1}</span>
                   ${activeFormation === 'graph' &&
                   gDeg > 0 &&
                   html`<span className="kspace-graph-deg" style=${{ marginLeft: 'auto' }}>${gDeg} links</span>`}
@@ -2443,15 +2440,6 @@ export function KnowledgeSpaceView({
           <span>↵ open / run</span>
           <span>esc close</span>
         </div>
-      </div>`}
-
-      ${isHeroMode &&
-      !cmdOpen &&
-      !desktopChatOpen &&
-      html`<div className="kspace-hero-head">
-        <span className="kspace-ai-badge"><${Ic} n="spark" s=${12} /> Datum Knowledge · Chat-First</span>
-        <h1 className="kspace-hero-title">Ask standards, explore spatial knowledge</h1>
-        <p className="kspace-hero-sub">Start typing to bloom matching tiles in 3D, ask Datum AI, or choose a formation below.</p>
       </div>`}
 
       ${!isMobile &&
@@ -3315,7 +3303,12 @@ export function KnowledgeSpaceView({
         </div>`;
       })()}
 
-      <div ref=${askBarRef} className=${'kspace-ask-bar' + ((lastChatMsg && lastChatMsg.busy && (desktopChatOpen || isMobile)) ? ' is-busy' : '')}>
+      <div
+        ref=${askBarRef}
+        className=${'kspace-ask-bar' +
+          (spaceQuery.trim() ? ' has-q' : '') +
+          (lastChatMsg && lastChatMsg.busy && (desktopChatOpen || isMobile) ? ' is-busy' : '')}
+      >
         ${isMobile
           ? html`<button
               type="button"
@@ -3386,7 +3379,7 @@ export function KnowledgeSpaceView({
             : desktopChatOpen && activeChat
             ? 'Ask follow-up, paste wall code, or search section…'
             : isHeroMode
-            ? 'Ask Datum AI anything or type to reveal 3D Space (EN/UA)…'
+            ? 'Ask Datum AI or search…'
             : isKitsOverview
             ? 'Search Starter Kits or ask Datum AI…'
             : activeFormation === 'graph'
@@ -3421,15 +3414,16 @@ export function KnowledgeSpaceView({
         >
           <${Ic} n="x" s=${13} />
         </button>`}
-        <button
+        ${cmdOpen &&
+        html`<button
           type="button"
-          className=${'kspace-ask-kbd' + (cmdOpen ? ' on' : '')}
-          title=${`Quick commands & instant hits (${kb})`}
-          aria-expanded=${cmdOpen}
-          onClick=${() => onSetCmdOpen && onSetCmdOpen(!cmdOpen)}
+          className="kspace-ask-kbd on"
+          title="Close quick commands (Esc)"
+          aria-expanded=${true}
+          onClick=${() => onSetCmdOpen && onSetCmdOpen(false)}
         >
-          ${cmdOpen ? 'Esc' : kb}
-        </button>
+          Esc
+        </button>`}
         <button
           type="button"
           className="kspace-ask-btn"
@@ -3437,6 +3431,10 @@ export function KnowledgeSpaceView({
           onClick=${() => {
             if (isMobile && !spaceQuery.trim()) {
               setMobMenuOpen((v) => !v);
+              return;
+            }
+            if (!isMobile && !spaceQuery.trim()) {
+              askInputRef.current && askInputRef.current.focus();
               return;
             }
             if (spaceQuery.trim() && onLogSearch) onLogSearch(spaceQuery.trim(), displayItems.length);
@@ -3450,118 +3448,93 @@ export function KnowledgeSpaceView({
 
       <div ref=${dockBarRef} className="kspace-dock-bar">
         <div className="kspace-chips-scroll">
-          ${!isMobile &&
-          isHeroMode &&
-          html`<${Fragment}>
-            <button
-              type="button"
-              className="kspace-pchip kspace-pchip-hero"
-              onClick=${() => {
-                ensureStageOpen();
-                onSelectViewMode && onSelectViewMode('space');
-              }}
-              title="Bloom all standards into 3D Space"
-            >
-              <${Ic} n="globe" s=${12} />
-              <span>Explore Space (${allCount || items.length})</span>
-            </button>
-            <button
-              type="button"
-              className="kspace-pchip"
-              onClick=${() => {
-                ensureStageOpen();
-                onSelectViewMode && onSelectViewMode('grid');
-              }}
-              title="Open flat card matrix"
-            >
-              <${Ic} n="layout" s=${11} />
-              <span>Grid</span>
-            </button>
-            <button
-              type="button"
-              className="kspace-pchip"
-              onClick=${() => {
-                ensureStageOpen();
-                onSelectViewMode && onSelectViewMode('graph');
-              }}
-              title="Open live dependency graph"
-            >
-              <${Ic} n="graph" s=${11} />
-              <span>Graph</span>
-            </button>
-          </${Fragment}>`}
+          ${!isMobile && isHeroMode
+            ? html`<${Fragment}>
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('space');
+                  }}
+                  title="Open 3D Space"
+                >
+                  <${Ic} n="globe" s=${12} />
+                  <span>Space</span>
+                </button>
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('grid');
+                  }}
+                  title="Open Grid"
+                >
+                  <${Ic} n="layout" s=${12} />
+                  <span>Grid</span>
+                </button>
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('graph');
+                  }}
+                  title="Open Graph"
+                >
+                  <${Ic} n="graph" s=${12} />
+                  <span>Graph</span>
+                </button>
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    onSelectKit && onSelectKit(null);
+                    onSelectViewMode && onSelectViewMode('kits');
+                  }}
+                  title="Open Starter Kits"
+                >
+                  <${Ic} n="folder" s=${12} />
+                  <span>Kits</span>
+                </button>
+              </${Fragment}>`
+            : html`<${Fragment}>
+                ${!isGuest &&
+                favs.length > 0 &&
+                html`<button
+                  type="button"
+                  className=${'kspace-pchip kspace-pchip-acc' + (spaceFilterMode === 'bookmarks' ? ' on' : '')}
+                  onClick=${() => {
+                    ensureStageOpen();
+                    setDesktopChatOpen(false);
+                    setSpaceFilterMode((m) => (m === 'bookmarks' ? 'all' : 'bookmarks'));
+                  }}
+                  title="Spotlight your bookmarked standards"
+                >
+                  <${Ic} n="star" s=${11} f=${true} />
+                  <span>Bookmarks (${favs.length})</span>
+                </button>`}
 
-          ${!isGuest &&
-          favs.length > 0 &&
-          html`<button
-            type="button"
-            className=${'kspace-pchip kspace-pchip-acc' + (spaceFilterMode === 'bookmarks' ? ' on' : '')}
-            onClick=${() => {
-              ensureStageOpen();
-              setDesktopChatOpen(false);
-              setSpaceFilterMode((m) => (m === 'bookmarks' ? 'all' : 'bookmarks'));
-            }}
-            title="Spotlight your bookmarked standards"
-          >
-            <${Ic} n="star" s=${11} f=${true} />
-            <span>Bookmarks (${favs.length})</span>
-          </button>`}
-
-          ${!isMobile &&
-          chats.length > 0 &&
-          html`<button
-            type="button"
-            className=${'kspace-pchip kspace-pchip-acc' + (desktopChatOpen ? ' on' : '')}
-            onClick=${() => {
-              ensureStageOpen();
-              setSpaceFilterMode('all');
-              if (!activeChatId && chats[0] && onSelectChat) {
-                onSelectChat(chats[0].id);
-              }
-              setDesktopChatOpen((v) => !v);
-            }}
-            title="Reopen threaded AI conversations"
-          >
-            <${Ic} n="spark" s=${11} />
-            <span>Chats (${chats.length})</span>
-          </button>`}
-
-          ${visibleKits.length > 0 &&
-          html`<button
-            type="button"
-            className=${'kspace-pchip kspace-pchip-kit' + (isKitsOverview || activeKit ? ' on' : '')}
-            onClick=${() => {
-              if (isKitsOverview) {
-                ensureStageOpen();
-                onSelectViewMode && onSelectViewMode('space');
-              } else {
-                onSelectKit && onSelectKit(null);
-                onSelectViewMode && onSelectViewMode('kits');
-              }
-            }}
-            title="Starter Kits & Playbooks"
-          >
-            <${Ic} n="folder" s=${11} />
-            <span>Starter Kits (${visibleKits.length})</span>
-          </button>`}
-
-          ${!desktopChatOpen &&
-          !spaceQuery.trim() &&
-          !isKitsOverview &&
-          AI_PROMPTS.map(
-            (prompt) => html`<button
-              key=${prompt.label}
-              type="button"
-              className="kspace-pchip"
-              title=${prompt.query}
-              onClick=${() => {
-                setSpaceQuery(prompt.query);
-                runAi(prompt.query);
-              }}
-            >
-              ${prompt.label}
-            </button>`
-          )}
+                ${!isMobile &&
+                chats.length > 0 &&
+                html`<button
+                  type="button"
+                  className=${'kspace-pchip kspace-pchip-acc' + (desktopChatOpen ? ' on' : '')}
+                  onClick=${() => {
+                    ensureStageOpen();
+                    setSpaceFilterMode('all');
+                    if (!activeChatId && chats[0] && onSelectChat) {
+                      onSelectChat(chats[0].id);
+                    }
+                    setDesktopChatOpen((v) => !v);
+                  }}
+                  title="Reopen threaded AI conversations"
+                >
+                  <${Ic} n="spark" s=${11} />
+                  <span>Chats (${chats.length})</span>
+                </button>`}
+              </${Fragment}>`}
         </div>
 
         ${!isMobile &&

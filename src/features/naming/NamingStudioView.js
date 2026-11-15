@@ -323,9 +323,9 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
   const filteredRefQ = refQuery.trim().toLowerCase();
 
   return html`<div className="nm-wrap">
-    <div className="pdl-top" style=${{ marginBottom: 0 }}>
+    <div className="pdl-top pdl-top-sub" style=${{ marginBottom: 0 }}>
       <div className="pdl-top-l">
-        <h1>${activeCustomSchema ? activeCustomSchema.name : 'Naming Studio'}</h1>
+        ${activeCustomSchema && html`<span style=${{ fontSize: 15, fontWeight: 650, color: 'var(--text)' }}>${activeCustomSchema.name}</span>`}
         <span className="pdl-cnt">
           ${activeCustomSchema ? `${activeCustomSchema.slots.length} slots` : `${liveAssembly.thickness.split(' ')[0]} mm`}
         </span>
@@ -365,6 +365,11 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
             Batch Audit${batchStats.error > 0 ? ` (${batchStats.error})` : ''}
           </button>
         </div>
+
+        ${onReadDoc &&
+        html`<button type="button" className="btn" onClick=${() => onReadDoc(137)}>
+          Spec #137 ↗
+        </button>`}
 
         <button
           type="button"
@@ -488,7 +493,6 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
         </div>`}
 
         <div className="nm-quick-row">
-          <span className="nm-quick-lbl">Presets:</span>
           ${QUICK_PRESETS.map((pr) => {
             const prName = buildWallTypeName(pr.state).name;
             return html`<button
@@ -500,10 +504,6 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
               ${pr.label}
             </button>`;
           })}
-          ${onReadDoc &&
-          html`<button type="button" className="nm-quick-chip" onClick=${() => onReadDoc(137)}>
-            Spec #137 ↗
-          </button>`}
         </div>
       </div>
 
@@ -800,7 +800,6 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
       <div className="nm-out-top">
         <div>
           <h3 className="nm-sec-title">Batch Schedule Audit</h3>
-          <p className="nm-sub">Paste Revit type names or CSV/TSV rows to detect Cyrillic homoglyphs, missing 0I/0OC/0S tokens, or format bugs.</p>
         </div>
         <div className="nm-seg-row">
           <input ref=${batchFileRef} type="file" accept=".csv,.tsv,.txt" hidden onChange=${handleBatchUpload} />

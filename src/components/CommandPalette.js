@@ -348,15 +348,14 @@ export function Pal(p) {
           <${Ic} n="spark" s=${11} />
           <span>Ask</span>
         </button>
-        <kbd
+        ${p.open &&
+        html`<kbd
           onClick=${(e) => {
-            if (p.open) {
-              e.stopPropagation();
-              p.close && p.close();
-            }
+            e.stopPropagation();
+            p.close && p.close();
           }}
-          style=${{ cursor: p.open ? "pointer" : "default" }}
-        >${p.open ? "Esc" : p.kb || "Ctrl K"}</kbd>
+          style=${{ cursor: "pointer" }}
+        >Esc</kbd>`}
       </div>
       <div className="sw-body" aria-hidden=${!p.open}>
         <div className="sw-body-in">

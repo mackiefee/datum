@@ -182,8 +182,6 @@ export function Drawer(p) {
         <div className="insp-sub">
           <${Pill} s=${r.status} />
           ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
-          <span>v${(r.v || []).length || 1}</span>
-          <span>·</span>
           <span>Verified ${fmt(r.verified || r.upd || TODAY)}</span>
           ${!p.isCurrentDoc &&
           html`<button type="button" className="btn sm p insp-open-btn" onClick=${() => p.read(r.id)}>Open</button>`}

@@ -1,4 +1,4 @@
-import { html, useMemo } from '../../lib/react.js';
+import { html, useMemo, useState } from '../../lib/react.js';
 import { Assembly3DView } from '../assembly3d/Assembly3DView.js';
 import { DetailWall } from '../wall/DetailWall.js';
 import { LocalImpactGraph } from '../graph/LocalImpactGraph.js';
@@ -144,17 +144,13 @@ export function RevitTypeView({
   const typeName = (ctx && ctx.typeName) || 'Selected Revit Type';
 
   const paramEntries = useMemo(() => {
-    const out = [
-      ['Category', category],
-      ['Family', family],
-      ['Type Name', typeName],
-    ];
+    const out = [];
     if (ctx && ctx.fire) out.push(['Fire Rating', ctx.fire]);
     if (ctx && ctx.func) out.push(['Function', ctx.func]);
     if (ctx && ctx.width) out.push(['Width', ctx.width]);
     if (ctx && ctx.acoustic) out.push(['Acoustic Rating', ctx.acoustic]);
     return out;
-  }, [ctx, category, family, typeName]);
+  }, [ctx]);
 
   const liveAssembly = useMemo(() => buildLiveAssemblyFromCtx(ctx), [ctx]);
 
@@ -196,6 +192,8 @@ export function RevitTypeView({
   };
 
   const initialZone = useMemo(() => inferInitialZone(category), [category]);
+  const [rtTab, setRtTab] = useState(relatedDocs.length > 0 ? 'standards' : 'details');
+  const activeRtTab = rtTab === 'standards' && relatedDocs.length === 0 ? 'details' : rtTab;
 
   return html`<div className="rt-wrap">
     <section className="rt-hero">
@@ -225,14 +223,15 @@ export function RevitTypeView({
           </button>`}
         </div>
       </div>
-      <div className="rt-params">
+      ${paramEntries.length > 0 &&
+      html`<div className="rt-params">
         ${paramEntries.map(
           ([k, v]) => html`<div key=${k} className="rt-param">
             <small>${k}</small>
             <b>${v}</b>
           </div>`
         )}
-      </div>
+      </div>`}
     </section>
 
     ${namingAudit &&
@@ -299,33 +298,58 @@ export function RevitTypeView({
           </p>`}
     </section>`}
 
-    <section className="rt-sec">
+    ${liveAssembly &&
+    html`<section className="rt-sec">
       <div className="rt-sec-head">
         <h2>Live 3D Model</h2>
         <span className="rt-pill">
-          ${liveAssembly ? `${liveAssembly.layers.length} real Revit layers · ${liveAssembly.thickness}` : 'From Revit Selection'}
+          ${liveAssembly.layers.length} real Revit layers · ${liveAssembly.thickness}
         </span>
       </div>
-      ${liveAssembly
-        ? html`<${Assembly3DView}
-            embedded=${true}
-            customAssembly=${liveAssembly}
-            onRead=${onRead}
-            onToast=${onToast}
-          />`
-        : html`<div className="rt-hero">
-            <p className="rt-sub" style=${{ margin: 0 }}>
-              Select an element in Revit and press <b>Ctrl+K</b> to inspect its live 3D layers.
-            </p>
-          </div>`}
-    </section>
+      <${Assembly3DView}
+        embedded=${true}
+        customAssembly=${liveAssembly}
+        onRead=${onRead}
+        onToast=${onToast}
+      />
+    </section>`}
 
-    ${relatedDocs.length > 0 &&
-    html`<section className="rt-sec">
-      <div className="rt-sec-head">
-        <h2>Relative Standards</h2>
-        <span className="rt-pill">${relatedDocs.length} linked</span>
+    <div className="rt-tabs-bar">
+      <div className="nm-seg-pill rt-tabs" role="tablist" aria-label="Revit type references">
+        ${relatedDocs.length > 0 &&
+        html`<button
+          type="button"
+          role="tab"
+          aria-selected=${activeRtTab === 'standards'}
+          className=${activeRtTab === 'standards' ? 'on' : ''}
+          onClick=${() => setRtTab('standards')}
+        >
+          Standards (${relatedDocs.length})
+        </button>`}
+        <button
+          type="button"
+          role="tab"
+          aria-selected=${activeRtTab === 'impact'}
+          className=${activeRtTab === 'impact' ? 'on' : ''}
+          onClick=${() => setRtTab('impact')}
+        >
+          Impact Map
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected=${activeRtTab === 'details'}
+          className=${activeRtTab === 'details' ? 'on' : ''}
+          onClick=${() => setRtTab('details')}
+        >
+          2D Details · ${initialZone}
+        </button>
       </div>
+    </div>
+
+    ${activeRtTab === 'standards' &&
+    relatedDocs.length > 0 &&
+    html`<section className="rt-sec rt-sec-tab">
       <div className="rt-grid">
         ${relatedDocs.map(
           (doc) => html`<button
@@ -345,20 +369,18 @@ export function RevitTypeView({
       </div>
     </section>`}
 
-    <section className="rt-sec">
+    ${activeRtTab === 'impact' &&
+    html`<section className="rt-sec rt-sec-tab">
       <${LocalImpactGraph}
         revitCtx=${{ category, family, typeName }}
         relatedDocs=${relatedDocs}
         res=${res}
         onRead=${onRead}
       />
-    </section>
+    </section>`}
 
-    <section className="rt-sec">
-      <div className="rt-sec-head">
-        <h2>Relative 2D Details</h2>
-        <span className="rt-pill">${initialZone}</span>
-      </div>
+    ${activeRtTab === 'details' &&
+    html`<section className="rt-sec rt-sec-tab">
       <${DetailWall}
         embedded=${true}
         initialZone=${initialZone}
@@ -369,6 +391,6 @@ export function RevitTypeView({
         onToggleFav=${onToggleFav}
         onRead=${onRead}
       />
-    </section>
+    </section>`}
   </div>`;
 }

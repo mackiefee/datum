@@ -82,10 +82,7 @@ export function LoginView({ users = [], onSignedIn }) {
           <${DatumMark} s=${30} />
           <span>Datum</span>
         </div>
-        <h1>Sign in to your workspace</h1>
-        <p className="lead" style=${{ fontSize: 15 }}>
-          Centralized BIM standards, SOPs, corporate tools, and team knowledge protected by Google Identity & Row-Level Security.
-        </p>
+        <h1>Sign in</h1>
       </div>
 
       ${err &&
@@ -115,17 +112,6 @@ export function LoginView({ users = [], onSignedIn }) {
           <${GoogleMark} />
           <span>${busy ? "Redirecting to Google…" : "Continue with Google"}</span>
         </button>
-      </div>
-
-      <div className="lgn-sec">
-        <div className="lgn-sec-row">
-          <${Ic} n="lock" s=${14} />
-          <span>HMAC-SHA256 Signed Edge Session · Email Verification Required</span>
-        </div>
-        <div className="lgn-sec-row">
-          <${Ic} n="shield" s=${14} />
-          <span>PostgreSQL RLS Policy · ${hasSupabaseAuth ? "Supabase OAuth Connected" : "Local Verification Sandbox"}</span>
-        </div>
       </div>
     </div>
 

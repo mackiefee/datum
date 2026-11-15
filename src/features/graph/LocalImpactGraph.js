@@ -1,4 +1,4 @@
-import { html, useMemo, useState } from '../../lib/react.js';
+import { html, useEffect, useMemo, useState } from '../../lib/react.js';
 import { DC, ST, TY } from '../../config/constants.js';
 import { Ic } from '../../components/Icon.js';
 import { Graph } from './GraphView.js';
@@ -72,8 +72,13 @@ function ImpactList({ title, subtitle, entries, emptyText, onRead }) {
   </div>`;
 }
 
-export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], onRead, onInfo }) {
+export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], collapsedByDefault = false, onRead, onInfo }) {
   const [mode, setMode] = useState('flow');
+  const [expanded, setExpanded] = useState(!collapsedByDefault);
+
+  useEffect(() => {
+    setExpanded(!collapsedByDefault);
+  }, [item?.id, revitCtx?.typeName, collapsedByDefault]);
 
   const model = useMemo(() => {
     if (item) {
@@ -164,6 +169,22 @@ export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], o
 
   if (!model || model.totalCount === 0) return null;
 
+  if (!expanded) {
+    return html`<section className="lig-wrap lig-wrap-collapsed" id="impact-graph">
+      <button type="button" className="lig-collapsed-bar" onClick=${() => setExpanded(true)}>
+        <span className="lig-collapsed-l">
+          <${Ic} n="graph" s=${14} />
+          <b>Dependencies & Impact Map</b>
+          <span className="lig-collapsed-meta">${model.upstream.length} upstream · ${model.outEntries.length} downstream</span>
+        </span>
+        <span className="lig-collapsed-act">
+          <span>Show</span>
+          <${Ic} n="chev" s=${14} />
+        </span>
+      </button>
+    </section>`;
+  }
+
   return html`<section className="lig-wrap" id="impact-graph">
     <div className="lig-head">
       <div className="lig-head-l">
@@ -191,6 +212,16 @@ export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], o
         onInfo &&
         html`<button type="button" className="btn sm" onClick=${() => onInfo(item.id)}>
           <${Ic} n="layers" s=${14} /> Manage links
+        </button>`}
+        ${collapsedByDefault &&
+        html`<button
+          type="button"
+          className="btn sm lig-collapse-btn"
+          title="Collapse dependencies"
+          aria-label="Collapse dependencies"
+          onClick=${() => setExpanded(false)}
+        >
+          <${Ic} n="chev" s=${14} />
         </button>`}
       </div>
     </div>
