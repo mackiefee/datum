@@ -1,22 +1,154 @@
-import { html, useState, useEffect, useRef } from '../lib/react.js';
-import { DC, can } from '../config/constants.js';
-import { byId } from '../data/spaces.js';
+import { html, useState, useEffect, useLayoutEffect, useRef, useMemo } from '../lib/react.js';
+import { DC, TODAY, CITE, can } from '../config/constants.js';
+import { byId, buildFlat } from '../data/spaces.js';
 import { hay } from '../utils/search.js';
 import { plain } from '../utils/markdown.js';
+import { edgeClient } from '../lib/edgeClient.js';
 import { Ic } from './Icon.js';
+
+const PAL_PROMPTS = [
+  { label: 'Model naming', query: 'How should model files be named?' },
+  { label: 'Clash detection', query: 'When is clash detection run?' },
+  { label: 'BEP template', query: 'What is the BEP template?' },
+];
 
 export function Pal(p) {
   const [q, setQ] = useState("");
   const [i, setI] = useState(0);
+  const [aiAns, setAiAns] = useState(null);
   const ref = useRef(null);
+  const rootRef = useRef(null);
+  const morphRef = useRef(null);
+  const headRef = useRef(null);
+  const animRef = useRef(null);
+  const wasDockedRef = useRef(Boolean(p.isSpaceDockActive));
   const s = q.trim().toLowerCase();
+
+  const flatCats = useMemo(() => buildFlat(p.tree || []), [p.tree]);
+  const allowedCats = useMemo(
+    () => flatCats.filter((c) => can.viewCat(c, p.role, p.userName)).map((c) => c.id),
+    [flatCats, p.role, p.userName]
+  );
+
+  const recordTopbarRect = () => {
+    if (!p.omniRectRef || p.isSpaceDockActive) return;
+    const targetEl = (!p.open && rootRef.current) || headRef.current;
+    if (!targetEl) return;
+    const r = targetEl.getBoundingClientRect();
+    if (r.width > 10 && r.height > 10) {
+      p.omniRectRef.current = {
+        x: r.left + r.width / 2,
+        y: r.top + r.height / 2,
+        w: r.width,
+        h: r.height,
+        mode: 'topbar',
+      };
+    }
+  };
+
+  useEffect(() => {
+    if (p.isSpaceDockActive) return undefined;
+    recordTopbarRect();
+    const ro = typeof ResizeObserver !== 'undefined' && rootRef.current ? new ResizeObserver(recordTopbarRect) : null;
+    if (ro && rootRef.current) ro.observe(rootRef.current);
+    window.addEventListener('resize', recordTopbarRect, { passive: true });
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', recordTopbarRect);
+    };
+  }, [p.isSpaceDockActive, p.open]);
+
+  // FLIP flight from Bottom Spatial Dock -> Topbar Center Pill when leaving 3D Space
+  useLayoutEffect(() => {
+    const isDocked = Boolean(p.isSpaceDockActive);
+    const wasDocked = wasDockedRef.current;
+    wasDockedRef.current = isDocked;
+    if (isDocked || !wasDocked || !morphRef.current) return;
+
+    const reduceMotion =
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) {
+      recordTopbarRect();
+      return;
+    }
+
+    const prev =
+      p.omniRectRef && p.omniRectRef.current && p.omniRectRef.current.mode === 'space'
+        ? p.omniRectRef.current
+        : {
+            x: window.innerWidth / 2,
+            y: window.innerHeight - 76,
+            w: Math.min(860, window.innerWidth - 96),
+            h: 48,
+          };
+
+    const t = morphRef.current.getBoundingClientRect();
+    if (t.width > 0 && t.height > 0 && morphRef.current.animate) {
+      const dx = prev.x - (t.left + t.width / 2);
+      const dy = prev.y - (t.top + t.height / 2);
+      const sx = Math.min(2.4, Math.max(1, prev.w / t.width));
+      const sy = Math.min(1.5, Math.max(1, prev.h / t.height));
+
+      if (animRef.current) animRef.current.cancel();
+      const anim = morphRef.current.animate(
+        [
+          {
+            transform: `translateX(-50%) translate3d(${dx.toFixed(1)}px, ${dy.toFixed(1)}px, 0) scale(${sx.toFixed(3)}, ${sy.toFixed(3)})`,
+            boxShadow: '0 18px 48px rgba(0, 0, 0, 0.65), 0 0 32px rgba(99, 102, 241, 0.45)',
+          },
+          {
+            transform: 'translateX(-50%) translate3d(0, -2px, 0) scale(0.985, 0.98)',
+            offset: 0.8,
+          },
+          {
+            transform: 'translateX(-50%) translate3d(0, 0, 0) scale(1, 1)',
+          },
+        ],
+        {
+          duration: 480,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+        }
+      );
+      animRef.current = anim;
+      anim.onfinish = () => {
+        animRef.current = null;
+        recordTopbarRect();
+      };
+    } else {
+      recordTopbarRect();
+    }
+  }, [p.isSpaceDockActive]);
+
+  const runInlineAi = async (question) => {
+    const t = String(question || '').trim();
+    if (!t) return;
+    if (!p.open && p.onOpen) p.onOpen();
+    setAiAns({ q: t, src: [], text: '', busy: true });
+    const out = await edgeClient.ai({
+      action: 'qa',
+      query: t,
+      userRole: p.role,
+      userName: p.userName,
+      allowedCategories: allowedCats,
+      items: p.res || [],
+      today: TODAY,
+    });
+    setAiAns({
+      q: t,
+      src: out.sources || [],
+      text: out.answer || '',
+      busy: false,
+    });
+  };
 
   const A = [
     ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
-    ["Dashboard (Home)", "home", "home"],
-    ["Knowledge Base", "doc", "view", "kb"],
-    ["Playbooks & Kits (Knowledge Base)", "folder", "kits"],
-    ["Dependency Graph (Knowledge Base)", "graph", "kb-graph"],
+    ["Knowledge Space (3D)", "globe", "kb-space"],
+    ["Knowledge Base (Grid)", "layout", "view", "kb"],
+    ["Playbooks & Kits", "folder", "kits"],
+    ["Dependency Graph", "graph", "kb-graph"],
     ...(can.admin(p.role) ? [["Administration & Governance", "shield", "view", "admin"]] : []),
     ["Change theme", "spark", "theme"],
   ];
@@ -52,24 +184,28 @@ export function Pal(p) {
       t: a[0],
       d: "Navigation / Action",
       n: a[1],
-      run: () => p.act(a[2], a[3]),
+      run: () => {
+        recordTopbarRect();
+        p.act(a[2], a[3]);
+      },
     })),
     ...(s
       ? [
-          { t: "Ask AI: “" + q.trim() + "”", d: "Permission-filtered answer", n: "spark", c: "#bf5af2", run: () => p.act("ask", q.trim()) },
+          { t: "Ask AI: “" + q.trim() + "”", d: "Permission-filtered inline answer", n: "spark", c: "#bf5af2", run: () => runInlineAi(q.trim()) },
           { t: "All results for “" + q.trim() + "”", d: "Search full catalog", n: "search", run: () => p.act("all", q.trim()) },
         ]
       : []),
   ];
 
   useEffect(() => {
-    if (p.open) {
+    if (p.open && !p.isSpaceDockActive) {
       if (p.catalogQ && !q) setQ(p.catalogQ);
       ref.current && ref.current.focus();
     } else {
       ref.current && ref.current.blur();
+      if (!p.open) setAiAns(null);
     }
-  }, [p.open]);
+  }, [p.open, p.isSpaceDockActive]);
   useEffect(() => {
     setI(0);
   }, [q]);
@@ -87,6 +223,11 @@ export function Pal(p) {
       }
       return;
     }
+    if (e.key === "Enter" && e.shiftKey && q.trim()) {
+      e.preventDefault();
+      runInlineAi(q.trim());
+      return;
+    }
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setI((x) => Math.min(x + 1, it.length - 1));
@@ -98,46 +239,65 @@ export function Pal(p) {
       it[i] && it[i].run();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      p.close && p.close();
+      if (aiAns) setAiAns(null);
+      else p.close && p.close();
     }
   };
 
-  return html`<div className=${"sw" + (p.open ? " open" : "")}>
+  const pinnedCount = Array.isArray(p.pinned) ? p.pinned.length : 0;
+  const kitsCount = Array.isArray(p.cols)
+    ? p.cols.filter((c) => c.tier === 'official' || c.tier === 'shared').length
+    : 0;
+  const isDocked = Boolean(p.isSpaceDockActive);
+
+  return html`<div
+    ref=${rootRef}
+    className=${"sw" + (p.open ? " open" : "") + (isDocked ? " sw-docked" : "")}
+    aria-hidden=${isDocked ? "true" : undefined}
+  >
     <div
       className=${"sw-ov" + (p.open ? " on" : "")}
       onClick=${p.close}
       aria-hidden="true"
     ></div>
     <div
+      ref=${morphRef}
       className="sw-morph"
       role=${p.open ? "dialog" : "search"}
       aria-expanded=${p.open}
       aria-modal=${p.open ? "true" : undefined}
     >
       <div
+        ref=${headRef}
         className="sw-head"
         onClick=${() => {
-          if (!p.open && p.onOpen) p.onOpen();
+          if (!isDocked && !p.open && p.onOpen) p.onOpen();
         }}
       >
-        <span className="sw-ico"><${Ic} n="search" s=${16} /></span>
+        <span className=${"sw-ico" + (aiAns ? " ai" : "")}>
+          <${Ic} n=${aiAns ? "spark" : "search"} s=${16} />
+        </span>
         <input
           ref=${ref}
+          tabIndex=${isDocked ? -1 : 0}
           value=${p.open ? q : p.catalogQ || q}
           onFocus=${() => {
-            if (!p.open && p.onOpen) p.onOpen();
+            if (!isDocked && !p.open && p.onOpen) p.onOpen();
           }}
           onChange=${(e) => {
+            if (isDocked) return;
             if (!p.open && p.onOpen) p.onOpen();
             setQ(e.target.value);
+            if (aiAns && e.target.value.trim() !== aiAns.q) setAiAns(null);
           }}
           onKeyDown=${key}
-          placeholder=${p.open ? "Search documents, resources, collections & actions…" : "Search docs, resources, tags…"}
-          aria-label="Search"
+          placeholder=${p.open ? "Search docs, ask Library AI, or run a command…" : "Search or ask AI…"}
+          aria-label="Search or ask Library AI"
         />
         ${!p.open && (p.catalogQ || q)
           ? html`<button
               type="button"
+              tabIndex=${isDocked ? -1 : 0}
               className="sw-clr"
               onClick=${(e) => {
                 e.stopPropagation();
@@ -150,16 +310,35 @@ export function Pal(p) {
           : p.open && q
           ? html`<button
               type="button"
+              tabIndex=${isDocked ? -1 : 0}
               className="sw-clr"
               onClick=${(e) => {
                 e.stopPropagation();
                 setQ("");
+                setAiAns(null);
                 ref.current && ref.current.focus();
               }}
               title="Clear query"
               aria-label="Clear query"
             >×</button>`
           : null}
+        <button
+          type="button"
+          tabIndex=${isDocked ? -1 : 0}
+          className=${"sw-ask-btn" + (aiAns && aiAns.busy ? " busy" : "")}
+          title="Ask Library AI inline (Shift+Enter)"
+          onClick=${(e) => {
+            e.stopPropagation();
+            if (isDocked) return;
+            if (!p.open && p.onOpen) p.onOpen();
+            const activeQ = (p.open ? q : p.catalogQ || q).trim();
+            if (activeQ) runInlineAi(activeQ);
+            else ref.current && ref.current.focus();
+          }}
+        >
+          <${Ic} n="spark" s=${11} />
+          <span>Ask</span>
+        </button>
         <kbd
           onClick=${(e) => {
             if (p.open) {
@@ -172,6 +351,107 @@ export function Pal(p) {
       </div>
       <div className="sw-body" aria-hidden=${!p.open}>
         <div className="sw-body-in">
+          <div className="sw-chips">
+            <button
+              type="button"
+              tabIndex=${p.open ? 0 : -1}
+              className="sw-chip sw-chip-acc"
+              onClick=${() => {
+                recordTopbarRect();
+                p.act("kb-space");
+              }}
+            >
+              <${Ic} n="star" s=${11} f=${true} />
+              <span>3D Space${pinnedCount ? ` (${pinnedCount} pinned)` : ""}</span>
+            </button>
+            <button
+              type="button"
+              tabIndex=${p.open ? 0 : -1}
+              className="sw-chip sw-chip-kit"
+              onClick=${() => {
+                recordTopbarRect();
+                p.act("kits");
+              }}
+            >
+              <${Ic} n="folder" s=${11} />
+              <span>Starter Kits${kitsCount ? ` (${kitsCount})` : ""}</span>
+            </button>
+            ${PAL_PROMPTS.map(
+              (prompt) => html`<button
+                key=${prompt.label}
+                type="button"
+                tabIndex=${p.open ? 0 : -1}
+                className="sw-chip"
+                title=${prompt.query}
+                onClick=${() => {
+                  setQ(prompt.query);
+                  runInlineAi(prompt.query);
+                }}
+              >
+                <${Ic} n="spark" s=${10} />
+                <span>${prompt.label}</span>
+              </button>`
+            )}
+          </div>
+
+          ${aiAns &&
+          html`<div className="sw-ai-card" role="region" aria-label="Library AI Answer">
+            <div className="sw-ai-head">
+              <span className="sw-ai-badge"><${Ic} n="spark" s=${11} /> Library AI</span>
+              <span className="sw-ai-q">${aiAns.q}</span>
+              <button
+                type="button"
+                className="sw-ai-x"
+                aria-label="Close AI answer"
+                onClick=${() => setAiAns(null)}
+              >×</button>
+            </div>
+            <div className="sw-ai-body">
+              ${aiAns.busy && !aiAns.text
+                ? html`<div className="dots"><i></i><i></i><i></i></div>`
+                : html`<p>
+                    ${aiAns.text.split(CITE).map((x, idx) =>
+                      idx % 2
+                        ? html`<sup
+                            key=${idx}
+                            className="sw-cite"
+                            onClick=${() => {
+                              const src = aiAns.src[Number(x) - 1];
+                              if (src) p.act("read", src.id);
+                            }}
+                          >[${x}]</sup>`
+                        : x
+                    )}
+                  </p>`}
+            </div>
+            ${!aiAns.busy &&
+            html`<div className="sw-ai-foot">
+              <div className="sw-ai-srcs">
+                ${aiAns.src.map(
+                  (src) => html`<button
+                    key=${src.id}
+                    type="button"
+                    className="sw-src-pill"
+                    onClick=${() => p.act("read", src.id)}
+                  >
+                    <b>${src.index}</b>
+                    <span>${src.title}</span>
+                  </button>`
+                )}
+              </div>
+              <button
+                type="button"
+                className="sw-ai-space"
+                onClick=${() => {
+                  recordTopbarRect();
+                  p.act("ask", aiAns.q);
+                }}
+              >
+                Spotlight in 3D Space ↗
+              </button>
+            </div>`}
+          </div>`}
+
           <div className="pl2">
             ${it.map(
               (x, k) => html`<button
@@ -190,7 +470,7 @@ export function Pal(p) {
               </button>`
             )}
           </div>
-          <div className="pf"><span>↑↓ select</span><span>↵ open</span><span>esc close</span></div>
+          <div className="pf"><span>↑↓ select</span><span>↵ open</span><span>⇧↵ ask AI</span><span>esc close</span></div>
         </div>
       </div>
     </div>

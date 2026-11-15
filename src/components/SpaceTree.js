@@ -44,7 +44,7 @@ export function Node({ n, d, c }) {
     <div className="st-row-wrap" data-depth=${d}>
       <button
         type="button"
-        className=${"ti st-btn" + (c.cur === n.id && (c.view === "lib" || c.view === "kb" || c.view === "reslib") ? " on" : "")}
+        className=${"ti st-btn" + (c.cur === n.id && (c.view === "lib" || c.view === "kb" || c.view === "space" || c.view === "reslib") ? " on" : "")}
         style=${{ paddingLeft: 6 + d * 14 }}
         title=${n.name}
         data-depth=${d}

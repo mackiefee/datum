@@ -28,11 +28,11 @@ import { PublicPreviewModal } from './components/PublicPreviewModal.js';
 import { RevitLinkModal, parseRevitLinkUrl } from './components/RevitLinkModal.js';
 import { LoginView } from './components/LoginView.js';
 import { CategoryModal } from './components/CategoryModal.js';
-import { Home } from './features/home/Home.js';
 import { Reader } from './features/reader/Reader.js';
 import { Graph } from './features/graph/GraphView.js';
 import { CollectionsView } from './features/collections/CollectionsView.js';
 import { RevitTypeView } from './features/revitType/RevitTypeView.js';
+import { KnowledgeSpaceView } from './features/space/KnowledgeSpaceView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
 
@@ -96,7 +96,7 @@ export function App() {
   const [watch, setWatch] = useState(() => db.load("kb2-watch", null) || [113, 129, 131]);
   const [notes, setNotes] = useState(() => db.load("kb2-notes", null) || NOTES);
 
-  const [view, setView] = useState("home");
+  const [view, setView] = useState("kb");
   const [assemblyId, setAssemblyId] = useState(null);
   const [revitTypeCtx, setRevitTypeCtx] = useState(null);
   const [revitLinkCtx, setRevitLinkCtx] = useState(null);
@@ -110,7 +110,19 @@ export function App() {
   };
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
-  const [kbDisplay, setKbDisplay] = useState("grid");
+  const [kbDisplay, setKbDisplay] = useState("space");
+  const kbDisplayLoaded = useRef(false);
+  useEffect(() => {
+    if (!kbDisplayLoaded.current) {
+      kbDisplayLoaded.current = true;
+      const saved = db.load("kb2-display-v2", "space");
+      if (saved === "grid" || saved === "space" || saved === "graph") {
+        setKbDisplay(saved);
+      }
+      return;
+    }
+    db.save("kb2-display-v2", kbDisplay);
+  }, [kbDisplay]);
   const [activeKitId, setActiveKitId] = useState(null);
   const [kitTier, setKitTier] = useState("all");
   const [creatingKit, setCreatingKit] = useState(false);
@@ -146,6 +158,7 @@ export function App() {
   useEffect(() => { db.save("kb2-uid", activeUserId); }, [activeUserId]);
   const signedInRef = useRef(null);
   const readerBridgeRef = useRef(null);
+  const omniRectRef = useRef(null);
   useEffect(() => {
     let alive = true;
     consumeSupabaseOAuthHash().then((out) => {
@@ -626,7 +639,9 @@ export function App() {
 
   const goHome = (focusAi) => {
     setRead(null);
-    setView("home");
+    setActiveKitId(null);
+    setCatFilter("all");
+    setView("kb");
     setNav(false);
     window.scrollTo({ top: 0 });
     if (focusAi) setHf((n) => n + 1);
@@ -657,6 +672,7 @@ export function App() {
 
   const go = (id) => {
     setRead(null);
+    if (view === "space" && kbDisplay !== "space") setKbDisplay("space");
     setCur(id);
     setCatFilter("all");
     setActiveKitId(null);
@@ -673,6 +689,21 @@ export function App() {
     window.scrollTo({ top: 0 });
   };
 
+  const switchKbDisplay = (nextMode) => {
+    if (catFilter === "kits") setCatFilter("all");
+    setKbDisplay(nextMode);
+    if (view === "space" && nextMode !== "space") {
+      setView("kb");
+    }
+  };
+
+  const handleSetCatFilter = (nextCat) => {
+    setCatFilter(nextCat);
+    if (view === "space" && nextCat === "kits") {
+      setView("kb");
+    }
+  };
+
   const pa = (k, a) => {
     setPal(false);
     if (k === "read") rd(a);
@@ -682,6 +713,11 @@ export function App() {
       setActiveKitId(null);
       setCatFilter("kits");
       goV("kb");
+    } else if (k === "kb-space") {
+      setActiveKitId(null);
+      if (catFilter === "kits") setCatFilter("all");
+      setKbDisplay("space");
+      goV("kb");
     } else if (k === "kb-graph") {
       setCatFilter("all");
       setKbDisplay("graph");
@@ -690,7 +726,8 @@ export function App() {
     else if (k === "go") go(a);
     else if (k === "theme") theme();
     else if (k === "ask") {
-      goHome();
+      setKbDisplay("space");
+      goHome(true);
       setAq({ q: a, n: Date.now() });
     } else if (k === "all") {
       setQ(a);
@@ -750,8 +787,8 @@ export function App() {
     const ids = catNode ? sub(catNode) : null;
 
     return visibleRes.filter((r) => {
-      if ((view === "kb" || isCategoryScope) && catFilter === "docs" && !isDocType(r.type)) return false;
-      if ((view === "kb" || isCategoryScope) && catFilter === "res" && !isResType(r.type)) return false;
+      if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "docs" && !isDocType(r.type)) return false;
+      if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "res" && !isResType(r.type)) return false;
       if (view === "lib") {
         if (cur === "fav" && !favs.includes(r.id)) return false;
         if (cur === "watch" && !watch.includes(r.id)) return false;
@@ -784,7 +821,7 @@ export function App() {
   const isGovCapable = can.admin(role);
 
   useEffect(() => {
-    if (view === "admin" && !isGovCapable) setView("home");
+    if (view === "admin" && !isGovCapable) setView("kb");
     if (view === "lib" && cur === "drafts" && !can.createDraft(role)) setCur("all");
   }, [role, view, cur, isGovCapable]);
 
@@ -829,9 +866,17 @@ export function App() {
   };
 
   const curCat = view === "lib" && !["all", "fav", "watch", "drafts", "recent"].includes(cur) ? byId(cur, tree) : null;
+  const isSpaceView =
+    catFilter !== "kits" &&
+    (view === "space" || (kbDisplay === "space" && (view === "lib" || view === "kb" || view === "home" || view === "reslib")));
+  const isSpaceDockActive = Boolean(isSpaceView && !rr);
   const pageTitle =
-    view === "kb"
-      ? "Knowledge Base"
+    view === "kb" || view === "home"
+      ? isSpaceView
+        ? "Knowledge Space"
+        : "Knowledge Base"
+      : view === "space"
+      ? "Knowledge Space"
       : view === "wall"
       ? "Detail Wall"
       : view === "3d"
@@ -1089,16 +1134,19 @@ export function App() {
         </button>
       </div>
 
-      ${!isGuest &&
-      html`<button className=${"ti" + (view === "home" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Dashboard" onClick=${() => goV("home")}>
-        <span className="tile" style=${{ "--c": "#0a84ff" }}><${Ic} n="home" s=${14} /></span>
-        <span className="tn">Dashboard</span>
-        ${req.filter((id) => !acks[id]).length > 0 &&
-        html`<span className="ct" style=${{ color: "#ff3b30", fontWeight: 600 }}>${req.filter((id) => !acks[id]).length}</span>`}
-      </button>`}
-
-      <button className=${"ti" + (view === "kb" ? " on" : "")} style=${{ paddingLeft: 10 }} title="Knowledge Base" onClick=${() => { setActiveKitId(null); setCatFilter("all"); goV("kb"); }}>
-        <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="doc" s=${14} /></span>
+      <button
+        className=${"ti" + (view === "kb" || view === "home" || view === "space" || (view === "lib" && cur === "all") ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        title="Knowledge Base & 3D Space"
+        onClick=${() => {
+          setRead(null);
+          setActiveKitId(null);
+          setCatFilter("all");
+          setCur("all");
+          goV("kb");
+        }}
+      >
+        <span className="tile" style=${{ "--c": "#5e5ce6" }}><${Ic} n="globe" s=${14} /></span>
         <span className="tn">Knowledge Base</span>
         <span className="ct">${visibleRes.length}</span>
       </button>
@@ -1189,7 +1237,8 @@ export function App() {
               Datum
             </button>
             ${rr
-              ? html`<span className="bar-crumb-sep">/</span>
+              ? html`<${Fragment}>
+                  <span className="bar-crumb-sep">/</span>
                   <button
                     type="button"
                     className="bar-crumb-btn"
@@ -1201,27 +1250,38 @@ export function App() {
                     ${(byId(rr.node, tree) && byId(rr.node, tree).name) || pageTitle}
                   </button>
                   <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${rr.title}</span>`
+                  <span className="bar-crumb-cur">${rr.title}</span>
+                <//>`
               : curCat && curCat.path && curCat.path.length > 1
-              ? html`<span className="bar-crumb-sep">/</span>
+              ? html`<${Fragment}>
+                  <span className="bar-crumb-sep">/</span>
                   <span className="bar-crumb-btn" style=${{ pointerEvents: "none" }}>${curCat.path[0]}</span>
                   <span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${pageTitle}</span>`
-              : html`<span className="bar-crumb-sep">/</span>
-                  <span className="bar-crumb-cur">${pageTitle}</span>`}
+                  <span className="bar-crumb-cur">${pageTitle}</span>
+                <//>`
+              : html`<${Fragment}>
+                  <span className="bar-crumb-sep">/</span>
+                  <span className="bar-crumb-cur">${pageTitle}</span>
+                <//>`}
           </nav>
         </div>
 
         <${Pal}
-          open=${pal}
+          open=${pal && !isSpaceDockActive}
+          isSpaceDockActive=${isSpaceDockActive}
+          omniRectRef=${omniRectRef}
           onOpen=${() => setPal(true)}
           close=${() => setPal(false)}
           catalogQ=${q}
+          onCatalogQChange=${setQ}
           onClearCatalogQ=${() => setQ("")}
           kb=${KB}
           res=${visibleRes}
           tree=${tree}
           role=${role}
+          userName=${userName}
+          cols=${visibleCols}
+          pinned=${pinned}
           recentSearches=${recentSearches}
           onLogSearch=${logSearch}
           act=${pa}
@@ -1322,83 +1382,128 @@ export function App() {
         onOpenPublic=${(t) => setPubTarget(t)}
       />`}
 
-      <div className=${"pad" + (view === "home" ? " ph" : "")} hidden=${!!rr}>
-        ${view === "home" &&
-        html`<${Home}
-          res=${visibleRes}
-          tree=${tree}
-          role=${role}
-          userName=${userName}
-          req=${req}
-          acks=${acks}
-          hist=${hist}
-          seen=${seen}
-          pinned=${pinned}
-          cols=${cols}
-          aq=${aq}
-          focus=${hf}
-          read=${rd}
-          flash=${flash}
-          markSeen=${() => setSeen(TODAY)}
-          onOpenKit=${(kitId) => {
-            setActiveKitId(kitId);
-            setCatFilter("kits");
-            goV("kb");
-          }}
-          onOpenAllKits=${() => {
-            setActiveKitId(null);
-            setCatFilter("kits");
-            goV("kb");
-          }}
-        />`}
+      <div className=${"pad" + (isSpaceView ? " pad-space" : "")} hidden=${!!rr}>
+        ${(view === "home" || view === "lib" || view === "kb" || view === "space" || view === "reslib") &&
+        (() => {
+          const catalogToolbarControls = html`<${Fragment}>
+            <div className="seg kview-seg" role="group" aria-label="Knowledge Base view mode">
+              <button
+                type="button"
+                className=${catFilter !== "kits" && !isSpaceView && kbDisplay !== "graph" ? "on" : ""}
+                aria-pressed=${catFilter !== "kits" && !isSpaceView && kbDisplay !== "graph"}
+                onClick=${() => switchKbDisplay("grid")}
+              >
+                <${Ic} n="layout" s=${13} /><span>Grid</span>
+              </button>
+              <button
+                type="button"
+                className=${isSpaceView ? "on" : ""}
+                aria-pressed=${isSpaceView}
+                onClick=${() => switchKbDisplay("space")}
+              >
+                <${Ic} n="globe" s=${13} /><span>Space</span>
+              </button>
+            </div>
+            <${FilterPopover}
+              view=${view}
+              curCat=${curCat}
+              catFilter=${catFilter}
+              setCatFilter=${handleSetCatFilter}
+              setActiveKitId=${setActiveKitId}
+              visibleColsCount=${visibleCols.length}
+              kitTier=${kitTier}
+              setKitTier=${setKitTier}
+              f=${f}
+              setF=${setF}
+              canFilterStatus=${can.createDraft(role)}
+              statuses=${Object.entries(ST).map(([k, v]) => [k, v[0]])}
+              types=${Object.entries(TY)}
+              tags=${tags}
+            />
+            <${SortPopover}
+              view=${view}
+              catFilter=${catFilter}
+              setCatFilter=${handleSetCatFilter}
+              setActiveKitId=${setActiveKitId}
+              kbDisplay=${kbDisplay}
+              setKbDisplay=${switchKbDisplay}
+              sort=${sort}
+              setSort=${setSort}
+              visibleColsCount=${visibleCols.length}
+            />
+            ${view === "kb" &&
+            catFilter === "kits" &&
+            !isGuest &&
+            html`<button className="btn p" onClick=${() => setCreatingKit(true)}>
+              <${Ic} n="plus" s=${14} /><span>New Kit</span>
+            </button>`}
+          <//>`;
 
-        ${(view === "lib" || view === "kb" || view === "reslib") &&
-        html`<div>
-          <div className="pdl-top">
-            <div className="pdl-top-l">
-              <h1>${pageTitle}</h1>
-              <span className="pdl-cnt">
-                ${view === "kb" && catFilter === "kits"
-                  ? visibleCols.filter((c) => kitTier === "all" || c.tier === kitTier).length
-                  : list.length}
-              </span>
+          if (isSpaceView) {
+            return html`<${KnowledgeSpaceView}
+              items=${shown}
+              allItems=${visibleRes}
+              allCount=${list.length}
+              pageTitle=${pageTitle}
+              curCat=${curCat}
+              tree=${tree}
+              role=${role}
+              userName=${userName}
+              pinned=${pinned}
+              cols=${cols}
+              aq=${aq}
+              focusSignal=${hf}
+              catalogQ=${q}
+              onCatalogQChange=${setQ}
+              onOpenKit=${(kitId) => {
+                setActiveKitId(kitId);
+                setCatFilter("kits");
+                setView("kb");
+              }}
+              onOpenAllKits=${() => {
+                setActiveKitId(null);
+                setCatFilter("kits");
+                setView("kb");
+              }}
+              favs=${favs}
+              watch=${watch}
+              onToggleFav=${(id) => tgl(setFavs, id)}
+              onToggleWatch=${(id) => tgl(setWatch, id)}
+              onRead=${rd}
+              onInspect=${pick}
+              isGuest=${isGuest}
+              hasFilters=${hasF || Boolean(q.trim())}
+              onResetFilters=${() => {
+                setF({});
+                setQ("");
+                setCatFilter("all");
+              }}
+              f=${f}
+              setF=${setF}
+              toolbarRight=${catalogToolbarControls}
+              active=${isSpaceDockActive}
+              cmdOpen=${pal && isSpaceDockActive}
+              onSetCmdOpen=${setPal}
+              recentSearches=${recentSearches}
+              onLogSearch=${logSearch}
+              onCommand=${pa}
+              kb=${KB}
+              omniRectRef=${omniRectRef}
+            />`;
+          }
+
+          return html`<div>
+            <div className="pdl-top">
+              <div className="pdl-top-l">
+                <h1>${pageTitle}</h1>
+                <span className="pdl-cnt">
+                  ${view === "kb" && catFilter === "kits"
+                    ? visibleCols.filter((c) => kitTier === "all" || c.tier === kitTier).length
+                    : list.length}
+                </span>
+              </div>
+              <div className="pdl-top-r">${catalogToolbarControls}</div>
             </div>
-            <div className="pdl-top-r">
-              <${FilterPopover}
-                view=${view}
-                curCat=${curCat}
-                catFilter=${catFilter}
-                setCatFilter=${setCatFilter}
-                setActiveKitId=${setActiveKitId}
-                visibleColsCount=${visibleCols.length}
-                kitTier=${kitTier}
-                setKitTier=${setKitTier}
-                f=${f}
-                setF=${setF}
-                canFilterStatus=${can.createDraft(role)}
-                statuses=${Object.entries(ST).map(([k, v]) => [k, v[0]])}
-                types=${Object.entries(TY)}
-                tags=${tags}
-              />
-              <${SortPopover}
-                view=${view}
-                catFilter=${catFilter}
-                setCatFilter=${setCatFilter}
-                setActiveKitId=${setActiveKitId}
-                kbDisplay=${kbDisplay}
-                setKbDisplay=${setKbDisplay}
-                sort=${sort}
-                setSort=${setSort}
-                visibleColsCount=${visibleCols.length}
-              />
-              ${view === "kb" &&
-              catFilter === "kits" &&
-              !isGuest &&
-              html`<button className="btn p" onClick=${() => setCreatingKit(true)}>
-                <${Ic} n="plus" s=${14} /><span>New Kit</span>
-              </button>`}
-            </div>
-          </div>
 
           ${view === "kb" && catFilter === "kits"
             ? html`<${CollectionsView}
@@ -1521,7 +1626,8 @@ export function App() {
                       </div>`;
                 })()}
               </div>`}
-        </div>`}
+        </div>`;
+        })()}
 
         ${view === "type" &&
         html`<${RevitTypeView}

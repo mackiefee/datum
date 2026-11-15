@@ -312,7 +312,8 @@ export function FilterPopover({
     maxHeight: 440,
   });
 
-  const showScope = view === "kb" || Boolean(curCat);
+  const isKbLike = view === "kb" || view === "space";
+  const showScope = isKbLike || Boolean(curCat);
   const docFilterKeys = ["status", "type", "tag", "disc", "author", "stage"].filter((k) => Boolean(f[k]));
   const activeCount =
     (showScope && catFilter !== "all" ? 1 : 0) +
@@ -343,7 +344,7 @@ export function FilterPopover({
     </div>`;
 
   const scopeOpts =
-    view === "kb"
+    isKbLike
       ? [
           ["all", "All"],
           ["docs", "Docs"],
@@ -476,12 +477,14 @@ export function SortPopover({
     maxHeight: 360,
   });
 
-  const isKits = view === "kb" && catFilter === "kits";
-  const isActive = isKits || kbDisplay === "graph" || sort !== "new";
-  const icoName = isKits ? "folder" : kbDisplay === "graph" ? "graph" : "swap";
+  const isKbLike = view === "kb" || view === "space";
+  const isKits = isKbLike && catFilter === "kits";
+  const effectiveDisplay = view === "space" && kbDisplay !== "graph" ? "space" : kbDisplay;
+  const isActive = isKits || effectiveDisplay === "graph" || sort !== "new";
+  const icoName = isKits ? "folder" : effectiveDisplay === "graph" ? "graph" : "swap";
   const label = isKits
     ? "View: Kits"
-    : kbDisplay === "graph"
+    : effectiveDisplay === "graph"
     ? "View: Graph"
     : sort === "az"
     ? "Sort: A–Z"
@@ -530,19 +533,26 @@ export function SortPopover({
           <div className="lpop-layout">
             <button
               type="button"
-              className=${"lpop-chip" + (!isKits && kbDisplay === "grid" ? " on" : "")}
+              className=${"lpop-chip" + (!isKits && effectiveDisplay === "grid" ? " on" : "")}
               onClick=${() => chooseLayout("grid")}
             >
               <${Ic} n="layout" s=${14} /><span>Grid</span>
             </button>
             <button
               type="button"
-              className=${"lpop-chip" + (!isKits && kbDisplay === "graph" ? " on" : "")}
+              className=${"lpop-chip" + (!isKits && effectiveDisplay === "space" ? " on" : "")}
+              onClick=${() => chooseLayout("space")}
+            >
+              <${Ic} n="globe" s=${14} /><span>Space</span>
+            </button>
+            <button
+              type="button"
+              className=${"lpop-chip" + (!isKits && effectiveDisplay === "graph" ? " on" : "")}
               onClick=${() => chooseLayout("graph")}
             >
               <${Ic} n="graph" s=${14} /><span>Graph</span>
             </button>
-            ${view === "kb" &&
+            ${isKbLike &&
             html`<button
               type="button"
               className=${"lpop-chip" + (isKits ? " on" : "")}

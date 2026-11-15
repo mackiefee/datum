@@ -120,7 +120,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{padding:9px 6px;t
 .dr::before{content:"";position:absolute;top:8px;left:50%;width:36px;height:5px;margin-left:-18px;border-radius:3px;background:var(--fill2);z-index:2}.dh{padding-top:28px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 /* Sidebar v2: macOS-style floating glass */
-body{background:radial-gradient(900px 520px at 0 0,rgba(10,132,255,.11),transparent 62%),radial-gradient(760px 520px at 100% 100%,rgba(191,90,242,.08),transparent 60%),var(--bg);background-attachment:fixed}
+body{background:var(--bg)}
 .app{grid-template-columns:280px minmax(0,1fr)}
 .side{top:calc(10px + env(safe-area-inset-top,0px));height:calc(100vh - 20px - env(safe-area-inset-top,0px));margin:10px 0 10px 10px;padding:14px 8px 0;border:0;border-radius:22px;background:var(--glass);backdrop-filter:saturate(200%) blur(40px);-webkit-backdrop-filter:saturate(200%) blur(40px);box-shadow:0 0 0 .5px rgba(0,0,0,.12),0 12px 40px rgba(0,0,0,.08);scrollbar-width:none}
 .logo{font-size:15px;padding:6px 10px 8px}
@@ -139,7 +139,7 @@ h1{font-size:clamp(30px,3.6vw,38px);letter-spacing:-.035em;line-height:1.08}
 .lead{font-size:16px}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}}
 .card,.big{animation:rise .5s cubic-bezier(.2,.8,.2,1) both}.grid>:nth-child(3n+2),.feat>:nth-child(2){animation-delay:.05s}.grid>:nth-child(3n),.feat>:nth-child(3){animation-delay:.1s}
-.rd,.edp .prose{animation:fade .26s ease}
+.edp .prose{animation:fade .26s ease}
 .card{padding:20px;border-radius:22px;box-shadow:0 0 0 1px var(--line),0 1px 2px rgba(0,0,0,.03)}
 .card h3{font-size:16.5px}
 .big{min-height:196px;padding:20px;border-radius:24px;color:var(--text);background:linear-gradient(160deg,color-mix(in srgb,var(--c) 18%,var(--surface)),color-mix(in srgb,var(--c) 4%,var(--surface)));box-shadow:0 0 0 1px color-mix(in srgb,var(--c) 20%,transparent),var(--shadow)}

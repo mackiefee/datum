@@ -9,6 +9,7 @@ import '../styles/assembly3d.css';
 import '../styles/revitType.css';
 import '../styles/polish.css';
 import '../styles/editor.css';
+import '../styles/space3d.css';
 
 export const metadata = {
   title: 'Datum',

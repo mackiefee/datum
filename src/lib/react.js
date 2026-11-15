@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef, Fragment, createElement } from 'react';
+import React, { useState, useMemo, useEffect, useLayoutEffect, useRef, Fragment, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import htm from 'htm';
 
@@ -9,6 +9,7 @@ export {
   useState,
   useMemo,
   useEffect,
+  useLayoutEffect,
   useRef,
   Fragment,
   createElement,
