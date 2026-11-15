@@ -5138,6 +5138,9 @@ def datum_save_cfg(url=None, token=None, user=None, role=None):
     s = load_settings()
     if url is not None:
         s["datum_url"] = unicode(url).strip().rstrip(u"/") or DATUM_DEFAULT_URL
+        wb = unicode(s.get("link_web_base") or u"").strip()
+        if wb.lower().startswith(u"https://universal-toolkit-omega.vercel.app"):
+            s.pop("link_web_base", None)
     if token is not None:
         s["datum_token"] = unicode(token)
     if user is not None:
@@ -17933,7 +17936,8 @@ TKW_LINK_MAX_AGE = 600.0          # seconds: an older request (Toolkit was close
 TKW_SP_MAX_ROOMS = 40000
 TKW_SP_BUDGET = 25.0              # seconds for collecting the rooms
 TKW_SP_PARAMS = [u"Unit", u"Unit Number", u"Unit No", u"\u042e\u043d\u0456\u0442"]
-TKW_WEB_DEFAULT = u"https://universal-toolkit-omega.vercel.app"    # redirect page (utk_open.html): makes links clickable in chats
+TKW_LEGACY_WEB = u"https://universal-toolkit-omega.vercel.app"
+TKW_WEB_DEFAULT = u"http://localhost:8080/open"    # redirect page in Datum (/open): makes links clickable in chats
 TKW_KINDS = (u"view", u"sheet", u"elem", u"room")
 TKW_UID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-[0-9a-fA-F]{8}$")
 
@@ -17976,9 +17980,22 @@ def tkw_q(s):
     return _tkw_quote(unicode(s).encode("utf-8"), safe="")
 
 
+# invisible bidi / zero-width marks (Revit sheet numbers may contain them): they make links fragile in some browsers
+TKW_INVIS_RE = re.compile(u"[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]")
+
+
+def tkw_clean(s):
+    return TKW_INVIS_RE.sub(u"", unicode(s or u""))
+
+
+def tkw_qs(s):
+    """Like tkw_q, but a space becomes '+' (a real '+' is %2B): the link then has no spaces at all."""
+    return tkw_q(s).replace(u"%20", u"+")
+
+
 def tkw_uq(s):
     bs = bytearray()
-    for part in re.split(u"(%[0-9A-Fa-f]{2})", unicode(s)):
+    for part in re.split(u"(%[0-9A-Fa-f]{2})", unicode(s).replace(u"+", u" ")):
         if len(part) == 3 and part[0] == u"%":
             bs.append(int(part[1:], 16))
         else:
@@ -17986,10 +18003,28 @@ def tkw_uq(s):
     return bytes(bs).decode("utf-8", "replace")
 
 
-def tkw_link_build(mkey, title, kind, uid, name=u"", view_uid=u"", web_base=u""):
-    q = u"m={}&t={}&k={}&u={}&n={}".format(tkw_q(mkey), tkw_q(title), kind, tkw_q(uid), tkw_q(name or u""))
+def datum_link_base(settings=None):
+    if isinstance(settings, dict) and "link_web_base" in settings:
+        wb = unicode(settings.get("link_web_base") or u"").strip()
+        if not wb:
+            return u""
+        if not wb.lower().startswith(TKW_LEGACY_WEB.lower()):
+            return wb
+    cfg = datum_get_cfg()
+    d_url = unicode(cfg.get(u"url") or DATUM_DEFAULT_URL).strip().rstrip(u"/")
+    return d_url + u"/open"
+
+
+def tkw_link_build(mkey, title, kind, uid, name=u"", view_uid=u"", web_base=u"", extra=None):
+    title, name = tkw_clean(title), tkw_clean(name)
+    q = u"m={}&t={}&k={}&u={}&n={}".format(tkw_q(mkey), tkw_qs(title), kind, tkw_q(uid), tkw_qs(name or u""))
     if view_uid:
         q += u"&v=" + tkw_q(view_uid)
+    if extra:
+        for ek in (u"c", u"f", u"tp"):
+            ev = tkw_clean(unicode(extra.get(ek) or u""))
+            if ev:
+                q += u"&{}={}".format(ek, tkw_qs(ev))
     web_base = (web_base or u"").strip()
     if web_base:
         return web_base.split(u"#")[0].rstrip(u"?") + u"#" + q
@@ -20156,10 +20191,10 @@ class TkxMixin(object):
         except Exception:
             pass
         add(u"Workspace: close other tabs on restore, on / off", u"settings", u"\uE8BB", u"workspace close tabs", self.tkx_ws_toggle_close)
-        add(u"Copy Revit link: active view / sheet", u"link", u"\uE71B", u"link copy url share view sheet teams slack", lambda: self.tkx_lk_copy(u"view"))
-        add(u"Copy Revit link: selected element", u"link", u"\uE71B", u"link copy url share element selection teams slack", lambda: self.tkx_lk_copy(u"sel"))
+        add(u"Copy Revit link: active view / sheet", u"link", u"\uE71B", u"link copy url share view sheet datum teams slack", lambda: self.tkx_lk_copy(u"view"))
+        add(u"Copy Revit link: selected element", u"link", u"\uE71B", u"link copy url share element selection datum teams slack", lambda: self.tkx_lk_copy(u"sel"))
         add(u"Revit links (utk://): on / off", u"settings", u"\uE713", u"link protocol register utk", self.tkx_lk_toggle)
-        add(u"Revit links: web redirect page\u2026", u"settings", u"\uE774", u"link web https redirect teams slack", self.tkx_lk_set_web)
+        add(u"Revit links: Datum server URL\u2026", u"settings", u"\uE774", u"link web datum url https http redirect teams slack", self.tkx_lk_set_web)
         add(u"Rebuild the model search index", u"Ctrl+K", u"\uE72C", u"index spotlight search reindex views sheets rooms", lambda: self.tkx_sp_request(True))
         add(u"Collapse Toolkit", u"", u"\uE70D", u"compact collapse pill minimize icon island", lambda: self.island_collapse())
         add(u"Ctrl+K from the Revit window: on / off", u"settings", u"\uE713", u"hotkey palette shortcut", self.tkx_hotkey_toggle)
@@ -20923,6 +20958,7 @@ class TkxMixin(object):
             return self.hdr_toast(u"No model is open")
         d = ad.Document
         kind = name = uid = vuid = None
+        extra = None
         if item is not None:
             kind, uid, name, vuid = item[u"k"], item[u"u"], item[u"t"], u""
             kind = u"elem" if kind not in (u"view", u"sheet", u"room") else kind
@@ -20945,7 +20981,18 @@ class TkxMixin(object):
                 name = unicode(el.Category.Name) + u" " + unicode(el.Name)
             except Exception:
                 name = u"Element"
-        url = tkw_link_build(tkw_model_key(d), unicode(d.Title), kind, uid, name, vuid, self.settings.get("link_web_base", TKW_WEB_DEFAULT) or u"")
+            try:
+                sel_ctx = datum_read_selection(ua)
+                if sel_ctx:
+                    extra = {
+                        u"c": sel_ctx.get(u"category") or u"",
+                        u"f": sel_ctx.get(u"family") or u"",
+                        u"tp": sel_ctx.get(u"typeName") or u"",
+                    }
+            except Exception:
+                extra = None
+        name = tkw_clean(name)
+        url = tkw_link_build(tkw_model_key(d), unicode(d.Title), kind, uid, name, vuid, datum_link_base(self.settings), extra=extra)
         label = name or kind                      # readable link text: without the model name
         if tkw_clip_link(url, label):
             self.hdr_toast(u"Link copied: " + (name or kind))
@@ -21059,14 +21106,14 @@ class TkxMixin(object):
         self.hdr_toast(u"Revit links (utk://): " + (u"on" if on else u"off"))
 
     def tkx_lk_set_web(self):
-        cur = self.settings.get("link_web_base", TKW_WEB_DEFAULT) or u""
+        cur = datum_link_base(self.settings)
         v = ask_string(self.tkx_wl_owner(), u"Revit links: web page",
-                       u"https:// address of the redirect page (utk_open.html). Empty = copy plain utk:// links", cur)
+                       u"http(s):// address of the Datum opener (/open). Empty = copy plain utk:// links", cur)
         if v is None:
             return
         v = v.strip()
-        if v and not v.lower().startswith(u"https://"):
-            return self.hdr_toast(u"The address must start with https://")
+        if v and not (v.lower().startswith(u"http://") or v.lower().startswith(u"https://")):
+            return self.hdr_toast(u"The address must start with http:// or https://")
         self.settings["link_web_base"] = v
         save_settings(self.settings)
         self.hdr_toast(u"Links will be copied as " + (u"web links" if v else u"utk:// links"))

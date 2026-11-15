@@ -1,6 +1,6 @@
 'use client';
 
-import { html, useState, useMemo, useEffect, useRef } from './lib/react.js';
+import { html, Fragment, useState, useMemo, useEffect, useRef } from './lib/react.js';
 import { TODAY, KB, ST, TY, STG, DISC, DC, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, NOTES, USERS, SEED_TEAMS, SEED_COLLECTIONS, SEED_ACTIVITIES } from './data/seed.js';
@@ -25,6 +25,7 @@ import { Pal } from './components/CommandPalette.js';
 import { Drawer } from './components/ResourceDrawer.js';
 import { AI } from './components/AiDrawer.js';
 import { PublicPreviewModal } from './components/PublicPreviewModal.js';
+import { RevitLinkModal, parseRevitLinkUrl } from './components/RevitLinkModal.js';
 import { LoginView } from './components/LoginView.js';
 import { CategoryModal } from './components/CategoryModal.js';
 import { Home } from './features/home/Home.js';
@@ -98,6 +99,15 @@ export function App() {
   const [view, setView] = useState("home");
   const [assemblyId, setAssemblyId] = useState(null);
   const [revitTypeCtx, setRevitTypeCtx] = useState(null);
+  const [revitLinkCtx, setRevitLinkCtx] = useState(null);
+  const closeRevitLink = () => {
+    setRevitLinkCtx(null);
+    if (typeof window !== "undefined") {
+      try {
+        window.history.replaceState({}, "", "/");
+      } catch {}
+    }
+  };
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
   const [kbDisplay, setKbDisplay] = useState("grid");
@@ -265,6 +275,47 @@ export function App() {
       const docId = Number(qRead);
       if (!Number.isNaN(docId)) setRead(docId);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncRevitLink = () => {
+      const parsed = parseRevitLinkUrl(window.location.search, window.location.hash);
+      if (parsed) {
+        setRevitLinkCtx(parsed);
+        return true;
+      }
+      return false;
+    };
+    syncRevitLink();
+    const onRevitLoc = () => {
+      if (!syncRevitLink() && window.location.pathname !== "/open") {
+        setRevitLinkCtx(null);
+      }
+    };
+    const onRevitLinkClick = (e) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = e.target && typeof e.target.closest === "function" ? e.target.closest("a[href]") : null;
+      if (!a || a.closest(".rvt-lk-card")) return;
+      const href = a.getAttribute("href") || "";
+      const isUtk = /^utk:\/\/open\?/i.test(href);
+      const isOpenPath = /^(?:https?:\/\/[^/]+)?\/open(?:[?#].*)$/i.test(href);
+      if (!isUtk && !isOpenPath) return;
+      const parsed = parseRevitLinkUrl(href);
+      if (!parsed) return;
+      e.preventDefault();
+      try {
+        window.history.pushState({}, "", `/open#${parsed.cleanFullRaw}`);
+      } catch {}
+      setRevitLinkCtx(parsed);
+    };
+    window.addEventListener("hashchange", onRevitLoc);
+    window.addEventListener("popstate", onRevitLoc);
+    document.addEventListener("click", onRevitLinkClick);
+    return () => {
+      window.removeEventListener("hashchange", onRevitLoc);
+      window.removeEventListener("popstate", onRevitLoc);
+      document.removeEventListener("click", onRevitLinkClick);
+    };
   }, []);
 
   const sessionClaims = authSession && authSession.claims;
@@ -1005,7 +1056,17 @@ export function App() {
   };
 
   if (!authSession) {
-    return html`<${LoginView} users=${users} onSignedIn=${handleSignedIn} />`;
+    return html`<${Fragment}>
+      <${LoginView} users=${users} onSignedIn=${handleSignedIn} />
+      ${revitLinkCtx &&
+      html`<${RevitLinkModal}
+        linkCtx=${revitLinkCtx}
+        res=${[]}
+        onClose=${closeRevitLink}
+        flash=${flash}
+      />`}
+      ${toast && html`<div className="toast" role="status">${toast}</div>`}
+    </${Fragment}>`;
   }
 
   return html`<div className=${"app" + (sbCol ? " sb-col" : "")}>
@@ -1623,6 +1684,18 @@ export function App() {
       onDelete=${deleteCategory}
     />`}
 
+    ${revitLinkCtx &&
+    html`<${RevitLinkModal}
+      linkCtx=${revitLinkCtx}
+      res=${visibleRes}
+      onClose=${closeRevitLink}
+      onOpenDoc=${(id) => pick(id)}
+      onOpenType=${(ctx) => {
+        setRevitTypeCtx(ctx);
+        setView("type");
+      }}
+      flash=${flash}
+    />`}
     ${toast && html`<div className="toast" role="status">${toast}</div>`}
     ${ai && html`<${AI} res=${visibleRes} tree=${tree} role=${role} userName=${userName} close=${() => setAi(false)} pick=${pick} />`}
   </div>`;
