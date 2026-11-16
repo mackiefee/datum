@@ -1,4 +1,5 @@
-import { html, Fragment, useState, useMemo, useEffect } from '../../lib/react.js';
+import { createPortal } from 'react-dom';
+import { html, Fragment, useState, useMemo, useEffect, useRef } from '../../lib/react.js';
 import { Ic } from '../../components/Icon.js';
 import { Select } from '../../components/Select.js';
 import { md } from '../../utils/markdown.js';
@@ -85,6 +86,7 @@ export function SecondBrainView({
 }) {
   const todayStr = isoOffset(0);
   const weekEndStr = isoOffset(7);
+  const archiveCutoffStr = isoOffset(-14);
 
   const [filterTab, setFilterTab] = useState(
     initialTab === 'notes' ? 'notes' : initialTab === 'done' ? 'done' : 'all'
@@ -93,13 +95,16 @@ export function SecondBrainView({
   const [layout, setLayout] = useState('list'); // 'list' | 'board'
   const [projFilter, setProjFilter] = useState('all');
   const [query, setQuery] = useState('');
+  const [mobSearchOpen, setMobSearchOpen] = useState(false);
   const [sortMode, setSortMode] = useState(1); // 0 = manual, 1 = priority, 2 = due date
+  const [hideOldDone, setHideOldDone] = useState(false);
   const [collapsedProjs, setCollapsedProjs] = useState(() => new Set());
   const [expandedLinksIds, setExpandedLinksIds] = useState(() => new Set());
+  const [morePos, setMorePos] = useState(null);
 
-  const [quickTitle, setQuickTitle] = useState('');
-  const [quickUrgent, setQuickUrgent] = useState(false);
-  const [quickNoteText, setQuickNoteText] = useState('');
+  const moreBtnRef = useRef(null);
+  const moreMenuRef = useRef(null);
+  const searchInpRef = useRef(null);
 
   useEffect(() => {
     if (initialTab === 'notes') setFilterTab('notes');
@@ -112,6 +117,49 @@ export function SecondBrainView({
       setSmartBucket('');
     }
   }, [initialTab]);
+
+  // Keyboard shortcuts: 'n' to quick create, '/' to search
+  useEffect(() => {
+    const onKey = (e) => {
+      const tag = e.target && e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (document.querySelector('.qc-ov')) return;
+      if (e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        onOpenSheet &&
+          onOpenSheet({
+            mode: filterTab === 'notes' ? 'note' : 'task',
+            project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
+          });
+      } else if (e.key === '/') {
+        e.preventDefault();
+        setMobSearchOpen(true);
+        setTimeout(() => searchInpRef.current && searchInpRef.current.focus(), 20);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [filterTab, projFilter, projects, onOpenSheet]);
+
+  // Close '...' menu on outside click or Escape
+  useEffect(() => {
+    if (!morePos) return undefined;
+    const onDown = (e) => {
+      if (moreBtnRef.current && moreBtnRef.current.contains(e.target)) return;
+      if (moreMenuRef.current && moreMenuRef.current.contains(e.target)) return;
+      setMorePos(null);
+    };
+    const onEsc = (e) => {
+      if (e.key === 'Escape') setMorePos(null);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onEsc, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onEsc, true);
+    };
+  }, [morePos]);
 
   const docById = useMemo(() => new Map((docs || []).map((d) => [Number(d.id), d])), [docs]);
 
@@ -139,19 +187,15 @@ export function SecondBrainView({
   }, [tasks]);
 
   const activeProjects = useMemo(() => {
-    const set = new Set(filterTab === 'notes' ? [] : projects || []);
+    const set = new Set();
     const list = filterTab === 'notes' ? notes : tasks;
     list.forEach((x) => {
       const p = (x.project || 'General').trim() || 'General';
-      if (tasks.some((t) => (t.project || 'General') === p) || notes.some((n) => (n.project || 'General') === p) || projFilter === p) {
-        set.add(p);
-      }
+      set.add(p);
     });
-    // Only show projects that actually have items in chips bar to stay clean
-    return [...set]
-      .filter((p) => list.some((x) => ((x.project || 'General').trim() || 'General') === p) || projFilter === p)
-      .sort((a, b) => a.localeCompare(b));
-  }, [tasks, notes, projects, projFilter, filterTab]);
+    if (projFilter !== 'all') set.add(projFilter);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [tasks, notes, projFilter, filterTab]);
 
   const projStats = useMemo(() => {
     const scoped = projFilter === 'all' ? tasks : tasks.filter((t) => (t.project || 'General') === projFilter);
@@ -191,6 +235,9 @@ export function SecondBrainView({
 
   const matchesTask = (t) => {
     const tDone = isDoneStatus(statuses, t.status);
+    if (hideOldDone && filterTab !== 'done' && tDone && t.completedAt && String(t.completedAt).slice(0, 10) < archiveCutoffStr) {
+      return false;
+    }
     if (projFilter !== 'all' && (t.project || 'General') !== projFilter) return false;
     if (filterTab === 'done' && !tDone) return false;
     if (filterTab === 'active' && tDone) return false;
@@ -238,7 +285,7 @@ export function SecondBrainView({
 
   const visibleTasks = useMemo(
     () => sortRootList(tasks.filter(matchesTask)),
-    [tasks, statuses, projFilter, filterTab, smartBucket, query, sortMode, todayStr]
+    [tasks, statuses, hideOldDone, projFilter, filterTab, smartBucket, query, sortMode, todayStr]
   );
 
   const isBurningUrgent = (t) => !isDoneStatus(statuses, t.status) && priorityOf(t) >= 3;
@@ -257,8 +304,7 @@ export function SecondBrainView({
     const nonUrgent = visibleTasks.filter(
       (t) => !(layout === 'list' && filterTab !== 'done' && isBurningUrgent(t))
     );
-    const orderProj = [];
-    (projects || []).forEach((p) => orderProj.push(p));
+    const orderProj = [...(projects || [])];
     nonUrgent.forEach((t) => {
       const pn = (t.project || 'General').trim() || 'General';
       if (!orderProj.includes(pn)) orderProj.push(pn);
@@ -282,7 +328,6 @@ export function SecondBrainView({
             const shownInCat = shownInProj.filter((t) => (t.category || '').trim() === catName);
             if (!shownInCat.length) return null;
 
-            // Nest revisions underneath parent if parent is also in this group
             const shownIds = new Set(shownInCat.map((x) => x.id));
             const byParent = new Map();
             const roots = [];
@@ -329,7 +374,9 @@ export function SecondBrainView({
     () =>
       (statuses && statuses.length ? statuses : DEFAULT_PLANNER_STATUSES).map((st) => ({
         ...st,
-        items: visibleTasks.filter((t) => t.status === st.id || (!statuses.some((s) => s.id === t.status) && st === statuses[0])),
+        items: visibleTasks.filter(
+          (t) => t.status === st.id || (!statuses.some((s) => s.id === t.status) && st === statuses[0])
+        ),
       })),
     [visibleTasks, statuses]
   );
@@ -348,57 +395,6 @@ export function SecondBrainView({
       });
   }, [notes, projFilter, query]);
 
-  const handleQuickAdd = (e) => {
-    e.preventDefault();
-    let title = quickTitle.trim();
-    if (!title) return;
-    let project = projFilter !== 'all' ? projFilter : (projects[0] || 'General');
-    let urgent = quickUrgent;
-
-    if (/\s!(?:urgent|терміново)\b/i.test(title)) {
-      urgent = true;
-      title = title.replace(/\s!(?:urgent|терміново)\b/gi, '').trim();
-    }
-    const pM = title.match(/\s#([A-Za-z0-9_&-]+)$/);
-    if (pM) {
-      project = pM[1];
-      title = title.slice(0, pM.index).trim();
-    }
-    if (!title) return;
-
-    onSaveTask &&
-      onSaveTask({
-        title,
-        notes: '',
-        project,
-        category: '',
-        priority: urgent ? 3 : 0,
-        isUrgent: urgent,
-        dueDate: todayStr,
-        status: getFirstActiveStatus(statuses).id,
-        links: [],
-      });
-    setQuickTitle('');
-    setQuickUrgent(false);
-  };
-
-  const handleQuickNoteAdd = (e) => {
-    e.preventDefault();
-    const raw = quickNoteText.trim();
-    if (!raw) return;
-    const lines = raw.split('\n');
-    const title = lines[0].slice(0, 80) || 'Quick Note';
-    const body = lines.length > 1 ? lines.slice(1).join('\n').trim() : raw;
-    onSaveNote &&
-      onSaveNote({
-        title,
-        body,
-        project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
-        isPinned: false,
-      });
-    setQuickNoteText('');
-  };
-
   const toggleLinksExpand = (taskId) => {
     setExpandedLinksIds((prev) => {
       const next = new Set(prev);
@@ -406,6 +402,20 @@ export function SecondBrainView({
       else next.add(taskId);
       return next;
     });
+  };
+
+  const openMoreMenu = () => {
+    if (morePos) {
+      setMorePos(null);
+      return;
+    }
+    const el = moreBtnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = 228;
+    const left = Math.min(Math.max(10, r.right - w), window.innerWidth - w - 10);
+    const top = r.bottom + 6;
+    setMorePos({ left, top });
   };
 
   const renderTaskRow = (t, isNested = false, showProjCtx = false) => {
@@ -439,13 +449,15 @@ export function SecondBrainView({
           onSaveTask && onSaveTask({ ...t, status: tDone ? activeSt.id : doneSt.id });
         }}
       >
-        <${Ic} n="check" s=${12} />
+        <${Ic} n="check" s=${11} />
       </button>
 
       <div className="pl-mid">
         <div className="pl-title-line">
-          ${!tDone && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} title=${pri === 3 ? 'Urgent' : pri === 2 ? 'Hot' : 'Low'} />`}
-          <span className="pl-t">${t.title}</span>
+          <span className="pl-t">
+            ${!tDone && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} title=${pri === 3 ? 'Urgent' : pri === 2 ? 'Hot' : 'Low'} />`}
+            ${t.title}
+          </span>
 
           ${t.revNumber > 0 && html`<span className="pl-rvb">R${t.revNumber}</span>`}
 
@@ -469,9 +481,9 @@ export function SecondBrainView({
               toggleLinksExpand(t.id);
             }}
           >
-            <${Ic} n="link" s=${11} />
+            <${Ic} n="link" s=${10} />
             <span>${taskLinks.length}</span>
-            <${Ic} n="chev" s=${10} />
+            <${Ic} n="chev" s=${9} />
           </button>`}
 
           ${t.linkedItemId &&
@@ -484,7 +496,7 @@ export function SecondBrainView({
               onOpenDoc && onOpenDoc(t.linkedItemId);
             }}
           >
-            <${Ic} n="doc" s=${11} />
+            <${Ic} n="doc" s=${10} />
             <span>${docTitle || `Standard #${t.linkedItemId}`}</span>
           </button>`}
         </div>
@@ -550,12 +562,12 @@ export function SecondBrainView({
             rel="noopener noreferrer"
             title=${lk.u}
           >
-            <span className="pl-lkl-ic"><${Ic} n="link" s=${14} /></span>
+            <span className="pl-lkl-ic"><${Ic} n="link" s=${13} /></span>
             <span className="pl-lkl-tx">
               <span className="pl-lkl-nm">${linkDisplayName(lk)}</span>
               <span className="pl-lkl-hs">${linkDisplayHost(lk.u)}</span>
             </span>
-            <span className="pl-lkl-go"><${Ic} n="openx" s=${13} /></span>
+            <span className="pl-lkl-go"><${Ic} n="openx" s=${12} /></span>
           </a>`
         )}
         ${taskLinks.length > 1 &&
@@ -570,7 +582,25 @@ export function SecondBrainView({
     </div>`;
   };
 
-  const sortLabels = ['Manual order', 'Sorted by priority', 'Sorted by due date'];
+  const smartChips =
+    filterTab !== 'notes'
+      ? [
+          ['over', 'Overdue', projStats.smartCounts.over],
+          ['today', 'Today', projStats.smartCounts.today],
+          ['week', 'This week', projStats.smartCounts.week],
+          ['urgent', 'Urgent', projStats.smartCounts.urgent],
+        ].filter(([k, , cnt]) => cnt > 0 || smartBucket === k)
+      : [];
+
+  const hasSecondaryChips = smartChips.length > 0 || activeProjects.length > 1;
+  const openCreateModal = () =>
+    onOpenSheet &&
+    onOpenSheet({
+      mode: filterTab === 'notes' ? 'note' : 'task',
+      project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
+    });
+
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
   return html`<div className=${'pl-wrap' + (filterTab !== 'notes' && layout === 'board' ? ' is-wide' : '')}>
     <div className="pl-head">
@@ -578,16 +608,15 @@ export function SecondBrainView({
         <div className="pl-stats">
           <span>
             ${filterTab === 'notes'
-              ? `${notes.length} ${notes.length === 1 ? 'private note' : 'private notes'}`
-              : `${projStats.doneCount} of ${projStats.total} completed${projStats.overdueCount ? ` · ${projStats.overdueCount} overdue` : ''}`}
+              ? `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`
+              : `${projStats.doneCount}/${projStats.total} done${projStats.overdueCount ? ` · ${projStats.overdueCount} late` : ''}`}
           </span>
-          <span
-            className=${'pl-sync' + (syncState === 'saving' ? ' busy' : syncState === 'error' ? ' err' : '')}
-            title=${ownerName ? `Private for ${ownerName} · Synced to Supabase` : 'Synced to Supabase'}
-          >
-            <i />
-            <span>${syncState === 'saving' ? 'Syncing…' : syncState === 'error' ? 'Local cache' : 'Synced'}</span>
-          </span>
+          <i
+            className=${'pl-sync-dot' + (syncState === 'saving' ? ' busy' : syncState === 'error' ? ' err' : '')}
+            title=${ownerName
+              ? `${ownerName} · ${syncState === 'saving' ? 'Syncing…' : syncState === 'error' ? 'Local cache' : 'Synced to Supabase'}`
+              : 'Synced to Supabase'}
+          />
         </div>
         ${filterTab !== 'notes' &&
         html`<div className="pl-pbar" aria-hidden="true">
@@ -617,7 +646,7 @@ export function SecondBrainView({
         </div>
 
         ${filterTab !== 'notes' &&
-        html`<div className="seg" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
+        html`<div className="seg pl-desk-only" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
           <button type="button" className=${layout === 'list' ? 'on' : ''} onClick=${() => setLayout('list')}>
             List
           </button>
@@ -628,14 +657,38 @@ export function SecondBrainView({
 
         <button
           type="button"
-          className="btn sm p"
-          onClick=${() =>
-            onOpenSheet &&
-            onOpenSheet({
-              mode: filterTab === 'notes' ? 'note' : 'task',
-              project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
-            })
-          }
+          className=${'pl-ico-btn pl-mob-only' + (mobSearchOpen || query ? ' on' : '')}
+          title="Search"
+          aria-label="Toggle search"
+          onClick=${() => {
+            setMobSearchOpen((v) => !v);
+            setTimeout(() => searchInpRef.current && searchInpRef.current.focus(), 40);
+          }}
+        >
+          <${Ic} n="search" s=${15} />
+        </button>
+
+        <button
+          ref=${moreBtnRef}
+          type="button"
+          className=${'pl-ico-btn' + (morePos || sortMode !== 1 || hideOldDone ? ' on' : '')}
+          title="Sort, Statuses, Projects & Options"
+          aria-label="Planner options"
+          aria-expanded=${Boolean(morePos)}
+          onClick=${openMoreMenu}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <circle cx="5" cy="12" r="2" />
+            <circle cx="12" cy="12" r="2" />
+            <circle cx="19" cy="12" r="2" />
+          </svg>
+        </button>
+
+        <button
+          type="button"
+          className="btn sm p pl-desk-only"
+          onClick=${openCreateModal}
+          title=${filterTab === 'notes' ? 'New Private Note' : 'New Task (N)'}
         >
           <${Ic} n="plus" s=${14} />
           <span>${filterTab === 'notes' ? 'New Note' : 'New Task'}</span>
@@ -643,64 +696,26 @@ export function SecondBrainView({
       </div>
     </div>
 
-    <div className="pl-toolbar">
+    ${(tasks.length > 0 || notes.length > 0 || mobSearchOpen || query || hasSecondaryChips) &&
+    html`<div className=${'pl-filterbar' + (mobSearchOpen || query ? ' mob-search-on' : '')}>
       <div className="pl-search">
-        <${Ic} n="search" s=${15} />
+        <${Ic} n="search" s=${14} />
         <input
+          ref=${searchInpRef}
           type="search"
-          placeholder=${filterTab === 'notes' ? 'Search private notes…' : 'Search tasks, categories, links, or standards…'}
+          placeholder=${filterTab === 'notes' ? 'Search notes…' : 'Search tasks… (/)'}
           value=${query}
           onChange=${(e) => setQuery(e.target.value)}
         />
         ${query &&
         html`<button type="button" className="pl-search-clr" aria-label="Clear search" onClick=${() => setQuery('')}>
-          <${Ic} n="x" s=${12} />
+          <${Ic} n="x" s=${11} />
         </button>`}
       </div>
 
-      ${filterTab !== 'notes' &&
-      html`<${Fragment}>
-        <button
-          type="button"
-          className=${'pl-ico-btn' + (sortMode > 0 ? ' on' : '')}
-          title=${`${sortLabels[sortMode]} (click to change)`}
-          aria-label=${sortLabels[sortMode]}
-          onClick=${() => setSortMode((s) => (s + 1) % 3)}
-        >
-          <${Ic} n="swap" s=${15} />
-        </button>
-        <button
-          type="button"
-          className="pl-ico-btn"
-          title="Manage Projects & Remembered Categories"
-          aria-label="Manage Projects and Categories"
-          onClick=${() => onOpenManageSheet && onOpenManageSheet('lists')}
-        >
-          <${Ic} n="folder" s=${15} />
-        </button>
-        <button
-          type="button"
-          className="pl-ico-btn"
-          title="Manage Custom Statuses"
-          aria-label="Manage Statuses"
-          onClick=${() => onOpenManageSheet && onOpenManageSheet('statuses')}
-        >
-          <${Ic} n="layers" s=${15} />
-        </button>
-      </${Fragment}>`}
-    </div>
-
-    ${(activeProjects.length > 0 || (filterTab !== 'notes' && Object.values(projStats.smartCounts).some((n) => n > 0))) &&
-    html`<div className="pl-chips-row">
-      ${filterTab !== 'notes' &&
-      [
-        ['over', 'Overdue', projStats.smartCounts.over],
-        ['today', 'Today', projStats.smartCounts.today],
-        ['week', 'This week', projStats.smartCounts.week],
-        ['urgent', 'Urgent', projStats.smartCounts.urgent],
-      ]
-        .filter(([k, , cnt]) => cnt > 0 || smartBucket === k)
-        .map(
+      ${hasSecondaryChips &&
+      html`<div className="pl-chips-row">
+        ${smartChips.map(
           ([k, lbl, cnt]) => html`<button
             key=${'sm-' + k}
             type="button"
@@ -712,74 +727,33 @@ export function SecondBrainView({
           </button>`
         )}
 
-      ${filterTab !== 'notes' &&
-      Object.values(projStats.smartCounts).some((n) => n > 0) &&
-      activeProjects.length > 0 &&
-      html`<i className="pl-chip-sep" aria-hidden="true" />`}
+        ${smartChips.length > 0 && activeProjects.length > 1 && html`<i className="pl-chip-sep" aria-hidden="true" />`}
 
-      ${activeProjects.length > 0 &&
-      html`<${Fragment}>
-        <button
-          type="button"
-          className=${'pl-chip' + (projFilter === 'all' ? ' on' : '')}
-          onClick=${() => setProjFilter('all')}
-        >
-          All projects
-        </button>
-        ${activeProjects.map(
-          (pr) => html`<button
-            key=${'pr-' + pr}
+        ${activeProjects.length > 1 &&
+        html`<${Fragment}>
+          <button
             type="button"
-            className=${'pl-chip' + (projFilter === pr ? ' on' : '')}
-            onClick=${() => setProjFilter((prev) => (prev === pr ? 'all' : pr))}
+            className=${'pl-chip' + (projFilter === 'all' ? ' on' : '')}
+            onClick=${() => setProjFilter('all')}
           >
-            ${pr}
-          </button>`
-        )}
-      </${Fragment}>`}
+            All
+          </button>
+          ${activeProjects.map(
+            (pr) => html`<button
+              key=${'pr-' + pr}
+              type="button"
+              className=${'pl-chip' + (projFilter === pr ? ' on' : '')}
+              onClick=${() => setProjFilter((prev) => (prev === pr ? 'all' : pr))}
+            >
+              ${pr}
+            </button>`
+          )}
+        </${Fragment}>`}
+      </div>`}
     </div>`}
 
     ${filterTab !== 'notes'
       ? html`<${Fragment}>
-          <form className="pl-quick" onSubmit=${handleQuickAdd}>
-            <span className="pl-quick-ico"><${Ic} n="plus" s=${16} /></span>
-            <input
-              type="text"
-              placeholder=${projFilter !== 'all'
-                ? `Quick add to ${projFilter}… (Enter, or sliders for date, links & category)`
-                : 'Quick add task… (Enter, #Project !urgent, or sliders for calendar & links)'}
-              value=${quickTitle}
-              onChange=${(e) => setQuickTitle(e.target.value)}
-            />
-            <button
-              type="button"
-              className=${'pl-quick-btn' + (quickUrgent ? ' on' : '')}
-              title="Toggle Urgent"
-              aria-label="Toggle Urgent"
-              onClick=${() => setQuickUrgent((v) => !v)}
-            >
-              <span style=${{ fontWeight: 800, fontSize: 13 }}>!</span>
-            </button>
-            <button
-              type="button"
-              className="pl-quick-btn"
-              title="Open full task sheet"
-              aria-label="Task options"
-              onClick=${() =>
-                onOpenSheet &&
-                onOpenSheet({
-                  mode: 'task',
-                  project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
-                  task: quickTitle.trim() ? { title: quickTitle.trim(), priority: quickUrgent ? 3 : 0 } : null,
-                })
-              }
-            >
-              <${Ic} n="sliders" s=${15} />
-            </button>
-            ${quickTitle.trim() &&
-            html`<button type="submit" className="btn sm p">Add</button>`}
-          </form>
-
           ${layout === 'board'
             ? html`<div className=${'pl-board' + (boardColumns.length > 3 ? ' is-scroll' : '')}>
                 ${boardColumns.map((col, colIdx) => {
@@ -821,7 +795,7 @@ export function SecondBrainView({
                                 className="pl-doc-lk"
                                 onClick=${() => onOpenDoc && onOpenDoc(t.linkedItemId)}
                               >
-                                <${Ic} n="doc" s=${11} />
+                                <${Ic} n="doc" s=${10} />
                                 <span>${docTitle || `Standard #${t.linkedItemId}`}</span>
                               </button>`}
                             </div>
@@ -868,7 +842,7 @@ export function SecondBrainView({
                 html`<section className="pl-urgent" aria-label="Urgent focus">
                   <div className="pl-urgent-head">
                     <b>Urgent · ${urgentFocusTasks.length}</b>
-                    <span>Put these out first</span>
+                    <span>High priority</span>
                   </div>
                   <div className="pl-card">
                     ${urgentFocusTasks.map((t) => renderTaskRow(t, false, true))}
@@ -914,139 +888,223 @@ export function SecondBrainView({
                   </section>`;
                 })}
               </${Fragment}>`
-            : html`<div className="empty" style=${{ padding: '56px 20px' }}>
+            : html`<div className="empty" style=${{ padding: '72px 20px' }}>
                 <${Ic} n="check" s=${28} />
                 <b>${tasks.length ? 'No matching tasks' : 'No tasks yet'}</b>
                 <span>
                   ${tasks.length
-                    ? 'Try clearing search or filter chips above.'
-                    : 'Type above to add your first task, press Alt+N anywhere, or use + Task on any standard.'}
+                    ? 'Try clearing search or filter chips.'
+                    : 'Tap + to create your first task, or press N anytime.'}
                 </span>
+                ${!tasks.length &&
+                html`<button type="button" className="btn p" style=${{ marginTop: 10 }} onClick=${openCreateModal}>
+                  <${Ic} n="plus" s=${14} /> Add first task
+                </button>`}
               </div>`}
         </${Fragment}>`
-      : html`<${Fragment}>
-          <form className="pl-quick" onSubmit=${handleQuickNoteAdd}>
-            <span className="pl-quick-ico"><${Ic} n="note" s=${15} /></span>
-            <input
-              type="text"
-              placeholder="Quick capture a private note… (or click sliders for full Markdown & [[Standard]] links)"
-              value=${quickNoteText}
-              onChange=${(e) => setQuickNoteText(e.target.value)}
-            />
-            <button
-              type="button"
-              className="pl-quick-btn"
-              title="Open full Note Sheet with [[Wiki-Links]]"
-              aria-label="Open Note Sheet"
-              onClick=${() =>
-                onOpenSheet &&
-                onOpenSheet({
-                  mode: 'note',
-                  project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
-                })
-              }
+      : visibleNotes.length
+      ? html`<div className="pl-notes-grid">
+          ${visibleNotes.map((n) => {
+            const isHl = highlightId && String(highlightId) === String(n.id);
+            const rendered = md(n.body || '', {}, []).h;
+            return html`<div
+              key=${n.id}
+              className=${'pl-note-card' + (n.isPinned ? ' pin' : '')}
+              style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
             >
-              <${Ic} n="sliders" s=${15} />
-            </button>
-            ${quickNoteText.trim() &&
-            html`<button type="submit" className="btn sm p">Save</button>`}
-          </form>
-
-          ${visibleNotes.length
-            ? html`<div className="pl-notes-grid">
-                ${visibleNotes.map((n) => {
-                  const isHl = highlightId && String(highlightId) === String(n.id);
-                  const rendered = md(n.body || '', {}, []).h;
-                  return html`<div
-                    key=${n.id}
-                    className=${'pl-note-card' + (n.isPinned ? ' pin' : '')}
-                    style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
+              <div className="pl-note-head">
+                <div className="pl-note-title">${n.title || 'Private Note'}</div>
+                <span className="pl-note-proj">${n.project || 'General'}</span>
+              </div>
+              <div
+                className="pl-note-body"
+                onClick=${(e) => {
+                  const lk = e.target.closest && e.target.closest('a.datum-wiki-lk');
+                  if (lk && lk.dataset.wikiId) {
+                    e.preventDefault();
+                    onOpenDoc && onOpenDoc(Number(lk.dataset.wikiId));
+                  }
+                }}
+                dangerouslySetInnerHTML=${{ __html: rendered || '<p><i>Empty note</i></p>' }}
+              />
+              <div className="pl-note-foot">
+                <div className="pl-note-acts">
+                  <button
+                    type="button"
+                    className="pl-mv-btn"
+                    onClick=${() => onSaveNote && onSaveNote({ ...n, isPinned: !n.isPinned })}
                   >
-                    <div className="pl-note-head">
-                      <div className="pl-note-title">${n.title || 'Private Note'}</div>
-                      <span className="pl-note-proj">${n.project || 'General'}</span>
-                    </div>
-                    <div
-                      className="pl-note-body"
-                      onClick=${(e) => {
-                        const lk = e.target.closest && e.target.closest('a.datum-wiki-lk');
-                        if (lk && lk.dataset.wikiId) {
-                          e.preventDefault();
-                          onOpenDoc && onOpenDoc(Number(lk.dataset.wikiId));
-                        }
-                      }}
-                      dangerouslySetInnerHTML=${{ __html: rendered || '<p><i>Empty note</i></p>' }}
-                    />
-                    <div className="pl-note-foot">
-                      <div className="pl-note-acts">
-                        <button
-                          type="button"
-                          className="pl-mv-btn"
-                          onClick=${() => onSaveNote && onSaveNote({ ...n, isPinned: !n.isPinned })}
-                        >
-                          ${n.isPinned ? 'Pinned' : 'Pin'}
-                        </button>
-                        <button
-                          type="button"
-                          className="pl-mv-btn"
-                          onClick=${() => onOpenSheet && onOpenSheet({ mode: 'note', note: n })}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="pl-mv-btn"
-                          onClick=${() => {
-                            const firstDocId = Array.isArray(n.linkedItemIds) && n.linkedItemIds[0] ? n.linkedItemIds[0] : null;
-                            const d = firstDocId ? docById.get(Number(firstDocId)) : null;
-                            onSaveTask &&
-                              onSaveTask({
-                                title: n.title || 'Follow up note',
-                                notes: n.body || '',
-                                project: n.project || 'General',
-                                category: '',
-                                priority: 0,
-                                dueDate: todayStr,
-                                isUrgent: false,
-                                status: getFirstActiveStatus(statuses).id,
-                                links: [],
-                                linkedItemId: d ? d.id : null,
-                                linkedItemTitle: d ? d.title : '',
-                              });
-                            setFilterTab('active');
-                          }}
-                        >
-                          → Task
-                        </button>
-                        ${canPromote &&
-                        onPromoteNoteToDoc &&
-                        html`<button
-                          type="button"
-                          className="pl-mv-btn"
-                          title="Promote to shared Draft standard"
-                          onClick=${() => onPromoteNoteToDoc(n)}
-                        >
-                          → Standard
-                        </button>`}
-                      </div>
-                      <button
-                        type="button"
-                        className="pl-row-del"
-                        style=${{ opacity: 1 }}
-                        title="Delete note"
-                        onClick=${() => onDeleteNote && onDeleteNote(n.id)}
-                      >
-                        <${Ic} n="trash" s=${13} />
-                      </button>
-                    </div>
-                  </div>`;
-                })}
-              </div>`
-            : html`<div className="empty" style=${{ padding: '56px 20px' }}>
-                <${Ic} n="note" s=${28} />
-                <b>No private notes yet</b>
-                <span>Capture ideas privately or link [[Standards]] to see them in document Backlinks.</span>
-              </div>`}
+                    ${n.isPinned ? 'Pinned' : 'Pin'}
+                  </button>
+                  <button
+                    type="button"
+                    className="pl-mv-btn"
+                    onClick=${() => onOpenSheet && onOpenSheet({ mode: 'note', note: n })}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="pl-mv-btn"
+                    onClick=${() => {
+                      const firstDocId = Array.isArray(n.linkedItemIds) && n.linkedItemIds[0] ? n.linkedItemIds[0] : null;
+                      const d = firstDocId ? docById.get(Number(firstDocId)) : null;
+                      onSaveTask &&
+                        onSaveTask({
+                          title: n.title || 'Follow up note',
+                          notes: n.body || '',
+                          project: n.project || 'General',
+                          category: '',
+                          priority: 0,
+                          dueDate: todayStr,
+                          isUrgent: false,
+                          status: getFirstActiveStatus(statuses).id,
+                          links: [],
+                          linkedItemId: d ? d.id : null,
+                          linkedItemTitle: d ? d.title : '',
+                        });
+                      setFilterTab('active');
+                    }}
+                  >
+                    → Task
+                  </button>
+                  ${canPromote &&
+                  onPromoteNoteToDoc &&
+                  html`<button
+                    type="button"
+                    className="pl-mv-btn"
+                    title="Promote to shared Draft standard"
+                    onClick=${() => onPromoteNoteToDoc(n)}
+                  >
+                    → Standard
+                  </button>`}
+                </div>
+                <button
+                  type="button"
+                  className="pl-row-del"
+                  style=${{ opacity: 1 }}
+                  title="Delete note"
+                  onClick=${() => onDeleteNote && onDeleteNote(n.id)}
+                >
+                  <${Ic} n="trash" s=${13} />
+                </button>
+              </div>
+            </div>`;
+          })}
+        </div>`
+      : html`<div className="empty" style=${{ padding: '72px 20px' }}>
+          <${Ic} n="note" s=${28} />
+          <b>No private notes yet</b>
+          <span>Capture ideas privately or link [[Standards]] to populate document Backlinks.</span>
+          <button type="button" className="btn p" style=${{ marginTop: 10 }} onClick=${openCreateModal}>
+            <${Ic} n="plus" s=${14} /> New note
+          </button>
+        </div>`}
+
+    <button
+      type="button"
+      className="pl-fab pl-mob-only"
+      aria-label=${filterTab === 'notes' ? 'New note' : 'New task'}
+      onClick=${openCreateModal}
+    >
+      <${Ic} n="plus" s=${24} />
+    </button>
+
+    ${portalRoot &&
+    morePos &&
+    createPortal(
+      html`<div
+        ref=${moreMenuRef}
+        className="asel-menu pl-more-menu"
+        style=${{ left: `${morePos.left}px`, top: `${morePos.top}px`, width: '228px' }}
+        role="menu"
+      >
+        ${filterTab !== 'notes' &&
+        html`<${Fragment}>
+          <div className="asel-hdr">Sort</div>
+          ${[
+            [1, 'By Priority'],
+            [2, 'By Due Date'],
+            [0, 'Manual Order'],
+          ].map(
+            ([m, lbl]) => html`<button
+              key=${'sort-' + m}
+              type="button"
+              className=${'asel-opt' + (sortMode === m ? ' on' : '')}
+              onClick=${() => {
+                setSortMode(m);
+                setMorePos(null);
+              }}
+            >
+              <span className="asel-ck">${sortMode === m ? html`<${Ic} n="check" s=${13} />` : null}</span>
+              <span className="asel-tx"><span>${lbl}</span></span>
+            </button>`
+          )}
+
+          <div className="pl-menu-div" />
+          <div className="asel-hdr">Customize</div>
+          <button
+            type="button"
+            className="asel-opt"
+            onClick=${() => {
+              setMorePos(null);
+              onOpenManageSheet && onOpenManageSheet('lists');
+            }}
+          >
+            <span className="asel-ck"><${Ic} n="folder" s=${13} /></span>
+            <span className="asel-tx"><span>Projects & Categories…</span></span>
+          </button>
+          <button
+            type="button"
+            className="asel-opt"
+            onClick=${() => {
+              setMorePos(null);
+              onOpenManageSheet && onOpenManageSheet('statuses');
+            }}
+          >
+            <span className="asel-ck"><${Ic} n="layers" s=${13} /></span>
+            <span className="asel-tx"><span>Custom Statuses…</span></span>
+          </button>
+
+          <button
+            type="button"
+            className="asel-opt pl-mob-only"
+            onClick=${() => {
+              setLayout((l) => (l === 'board' ? 'list' : 'board'));
+              setMorePos(null);
+            }}
+          >
+            <span className="asel-ck"><${Ic} n="layout" s=${13} /></span>
+            <span className="asel-tx"><span>${layout === 'board' ? 'Switch to List View' : 'Switch to Board View'}</span></span>
+          </button>
+
+          <div className="pl-menu-div" />
+          <button
+            type="button"
+            className=${'asel-opt' + (hideOldDone ? ' on' : '')}
+            onClick=${() => {
+              setHideOldDone((v) => !v);
+              setMorePos(null);
+            }}
+          >
+            <span className="asel-ck">${hideOldDone ? html`<${Ic} n="check" s=${13} />` : null}</span>
+            <span className="asel-tx"><span>Hide old completed (14d+)</span></span>
+          </button>
         </${Fragment}>`}
+        ${filterTab === 'notes' &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          onClick=${() => {
+            setMorePos(null);
+            onOpenManageSheet && onOpenManageSheet('lists');
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="folder" s=${13} /></span>
+          <span className="asel-tx"><span>Manage Projects…</span></span>
+        </button>`}
+      </div>`,
+      portalRoot
+    )}
   </div>`;
 }

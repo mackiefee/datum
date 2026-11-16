@@ -471,13 +471,22 @@ export function App() {
         }
       });
     };
-    const mo = new MutationObserver(() => {
+    const schedule = () => {
       cancelAnimationFrame(r);
       r = requestAnimationFrame(upd);
-    });
+    };
+    const mo = new MutationObserver(schedule);
     mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    if (ro) ro.observe(document.body);
+    window.addEventListener("resize", schedule);
     upd();
-    return () => mo.disconnect();
+    return () => {
+      cancelAnimationFrame(r);
+      mo.disconnect();
+      if (ro) ro.disconnect();
+      window.removeEventListener("resize", schedule);
+    };
   }, []);
 
   useEffect(() => {
@@ -2080,6 +2089,7 @@ export function App() {
 
         <div className="bar-r">
           ${!rr &&
+          view !== "tasks" &&
           can.createDraft(role) &&
           html`<button
             className="btn p cr"
