@@ -45,6 +45,8 @@ import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
 import { SecondBrainView } from './features/brain/SecondBrainView.js';
 import { QuickCaptureModal } from './components/QuickCaptureModal.js';
+import { PlannerManageSheet } from './components/PlannerManageSheet.js';
+import { normalizePlannerPrefs, isDoneStatus, getFirstActiveStatus } from './utils/planner.js';
 
 const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
@@ -926,10 +928,14 @@ export function App() {
   const brainOwnerEmail = db.brain.normalizeEmail(activeUser?.email || (activeUser?.id ? `${activeUser.id}@datum.local` : ""));
   const [tasks, setTasks] = useState(() => db.brain.loadLocal(brainOwnerEmail).tasks);
   const [privNotes, setPrivNotes] = useState(() => db.brain.loadLocal(brainOwnerEmail).notes);
+  const [plannerPrefs, setPlannerPrefs] = useState(() =>
+    normalizePlannerPrefs(db.brain.loadLocal(brainOwnerEmail).state?.plannerPrefs, db.brain.loadLocal(brainOwnerEmail).tasks)
+  );
   const [brainSyncState, setBrainSyncState] = useState("synced");
   const [brainTabSeed, setBrainTabSeed] = useState("all");
   const [brainHighlightId, setBrainHighlightId] = useState(null);
   const [qcModal, setQcModal] = useState(null);
+  const [manageSheetMode, setManageSheetMode] = useState(null); // 'statuses' | 'lists' | null
   const brainHydratedEmailRef = useRef("");
   const brainStateSyncTimerRef = useRef(null);
 
@@ -937,20 +943,24 @@ export function App() {
     if (!brainOwnerEmail || isGuest) {
       setTasks([]);
       setPrivNotes([]);
+      setPlannerPrefs(normalizePlannerPrefs(null, []));
       brainHydratedEmailRef.current = "";
       return;
     }
     let alive = true;
     brainHydratedEmailRef.current = "";
     const local = db.brain.loadLocal(brainOwnerEmail);
-    setTasks(Array.isArray(local.tasks) ? local.tasks : []);
+    const localTasks = Array.isArray(local.tasks) ? local.tasks : [];
+    setTasks(localTasks);
     setPrivNotes(Array.isArray(local.notes) ? local.notes : []);
+    setPlannerPrefs(normalizePlannerPrefs(local.state?.plannerPrefs, localTasks));
     setBrainHighlightId(null);
 
     db.brain
       .fetchSnapshot(brainOwnerEmail)
       .then((snap) => {
         if (!alive || !snap) return;
+        const remoteTasks = Array.isArray(snap.tasks) ? snap.tasks : localTasks;
         if (Array.isArray(snap.tasks)) setTasks(snap.tasks);
         if (Array.isArray(snap.notes)) setPrivNotes(snap.notes);
         if (snap.state && snap.state.exists) {
@@ -958,6 +968,7 @@ export function App() {
           if (Array.isArray(snap.state.pinned)) setPinned(snap.state.pinned);
           if (snap.state.acks && typeof snap.state.acks === "object") setAcks(snap.state.acks);
           if (snap.state.chk && typeof snap.state.chk === "object") setChk(snap.state.chk);
+          setPlannerPrefs(normalizePlannerPrefs(snap.state.plannerPrefs, remoteTasks));
           if (Array.isArray(snap.state.chats) && snap.state.chats.length > 0) {
             setChats(snap.state.chats);
             saveChats(snap.state.chats, chatOwnerKey);
@@ -966,6 +977,8 @@ export function App() {
               saveActiveChatId(snap.state.activeChatId, chatOwnerKey);
             }
           }
+        } else {
+          setPlannerPrefs(normalizePlannerPrefs(null, remoteTasks));
         }
         brainHydratedEmailRef.current = brainOwnerEmail;
         setBrainSyncState("synced");
@@ -983,20 +996,37 @@ export function App() {
 
   useEffect(() => {
     if (!brainOwnerEmail || isGuest || brainHydratedEmailRef.current !== brainOwnerEmail) return;
-    const payload = { favs, pinned, acks, chk, chats, activeChatId };
+    const payload = { favs, pinned, acks, chk, chats, activeChatId, plannerPrefs };
     db.brain.saveLocalState(brainOwnerEmail, payload);
     clearTimeout(brainStateSyncTimerRef.current);
     brainStateSyncTimerRef.current = setTimeout(() => {
       db.brain.syncState(brainOwnerEmail, payload).catch(() => {});
-    }, 900);
+    }, 700);
     return () => clearTimeout(brainStateSyncTimerRef.current);
-  }, [favs, pinned, acks, chk, chats, activeChatId, brainOwnerEmail, isGuest]);
+  }, [favs, pinned, acks, chk, chats, activeChatId, plannerPrefs, brainOwnerEmail, isGuest]);
+
+  const rememberCategoryAndProject = (projectVal, categoryVal) => {
+    const cleanP = String(projectVal || "").trim();
+    const cleanC = String(categoryVal || "").trim();
+    if (!cleanP && !cleanC) return;
+    setPlannerPrefs((prev) => {
+      const hasP = !cleanP || prev.projects.includes(cleanP);
+      const hasC = !cleanC || prev.categories.includes(cleanC);
+      if (hasP && hasC) return prev;
+      return {
+        ...prev,
+        projects: cleanP && !hasP ? [...prev.projects, cleanP] : prev.projects,
+        categories: cleanC && !hasC ? [...prev.categories, cleanC] : prev.categories,
+      };
+    });
+  };
 
   const saveTask = async (taskInput) => {
     if (!brainOwnerEmail || isGuest) return null;
     const id = taskInput.id || makeUuid();
     const nowIso = new Date().toISOString();
-    const nextStatus = taskInput.status || "todo";
+    const nextStatus = taskInput.status || getFirstActiveStatus(plannerPrefs.statuses).id;
+    const nextDone = isDoneStatus(plannerPrefs.statuses, nextStatus);
     const pri = Number.isFinite(Number(taskInput.priority)) ? Math.max(0, Math.min(3, Math.trunc(Number(taskInput.priority)))) : (taskInput.isUrgent ? 3 : 0);
     const isUrgent = Boolean(taskInput.isUrgent || pri >= 3);
     const optimistic = {
@@ -1005,19 +1035,24 @@ export function App() {
       title: String(taskInput.title || "").trim(),
       notes: taskInput.notes || "",
       project: taskInput.project || "General",
-      category: taskInput.category || "",
+      category: String(taskInput.category || "").trim(),
       priority: isUrgent && pri === 0 ? 3 : pri,
       dueDate: taskInput.dueDate || "",
       isUrgent,
       status: nextStatus,
+      parentTaskId: taskInput.parentTaskId || null,
+      revNumber: Number(taskInput.revNumber || 0),
+      requestedAt: taskInput.requestedAt || "",
+      links: Array.isArray(taskInput.links) ? taskInput.links : [],
       linkedItemId: taskInput.linkedItemId ?? null,
       linkedItemTitle: taskInput.linkedItemTitle || "",
       sortOrder: Number(taskInput.sortOrder || 0),
-      completedAt: nextStatus === "done" ? taskInput.completedAt || nowIso : null,
+      completedAt: nextDone ? taskInput.completedAt || nowIso : null,
       createdAt: taskInput.createdAt || nowIso,
       updatedAt: nowIso,
     };
     if (!optimistic.title) return null;
+    rememberCategoryAndProject(optimistic.project, optimistic.category);
     edgeClient.clearAiCache();
     setTasks((prev) => {
       const exists = prev.some((x) => x.id === id);
@@ -1047,7 +1082,7 @@ export function App() {
     if (!brainOwnerEmail || isGuest || !id) return;
     edgeClient.clearAiCache();
     setTasks((prev) => {
-      const next = prev.filter((x) => x.id !== id);
+      const next = prev.filter((x) => x.id !== id && x.parentTaskId !== id);
       db.brain.saveLocalTasks(brainOwnerEmail, next);
       return next;
     });
@@ -1058,6 +1093,57 @@ export function App() {
     } catch (e) {
       setBrainSyncState("error");
     }
+  };
+
+  const savePlannerStatuses = async (nextStatuses) => {
+    const firstActiveId = getFirstActiveStatus(nextStatuses).id;
+    const validIds = new Set(nextStatuses.map((s) => s.id));
+    setPlannerPrefs((prev) => ({ ...prev, statuses: nextStatuses }));
+    const affected = tasks.filter((t) => !validIds.has(t.status));
+    if (affected.length) {
+      for (const t of affected) {
+        await saveTask({ ...t, status: firstActiveId });
+      }
+    }
+    flash("Custom statuses updated");
+  };
+
+  const savePlannerLists = async ({ projects: nextProjects, categories: nextCategories, projRenameMap, catRenameMap, keptOldProjects }) => {
+    setPlannerPrefs((prev) => ({
+      ...prev,
+      projects: nextProjects,
+      categories: nextCategories,
+    }));
+    const keptSet = new Set(keptOldProjects || []);
+    const toDelete = [];
+    const toUpdate = [];
+    tasks.forEach((t) => {
+      const oldP = t.project || "General";
+      if (keptSet.size && oldP && !keptSet.has(oldP) && !nextProjects.includes(oldP)) {
+        toDelete.push(t.id);
+        return;
+      }
+      let nextP = oldP;
+      let nextC = t.category || "";
+      let changed = false;
+      if (projRenameMap && projRenameMap[oldP]) {
+        nextP = projRenameMap[oldP];
+        changed = true;
+      }
+      if (nextC && catRenameMap && Object.prototype.hasOwnProperty.call(catRenameMap, nextC)) {
+        nextC = catRenameMap[nextC];
+        changed = true;
+      } else if (nextC && !nextCategories.includes(nextC)) {
+        nextC = "";
+        changed = true;
+      }
+      if (changed) {
+        toUpdate.push({ ...t, project: nextP, category: nextC });
+      }
+    });
+    for (const delId of toDelete) await deleteTask(delId);
+    for (const updTask of toUpdate) await saveTask(updTask);
+    flash("Projects & categories saved");
   };
 
   const savePrivNote = async (noteInput) => {
@@ -1182,20 +1268,26 @@ export function App() {
   };
 
   const brainProjects = useMemo(() => {
-    const s = new Set(["General", "P&C", "Warehouse R21", "CL-RFI Standards"]);
+    const s = new Set([...(plannerPrefs.projects || [])]);
     tasks.forEach((t) => t.project && s.add(t.project));
     privNotes.forEach((n) => n.project && s.add(n.project));
     return [...s].sort();
-  }, [tasks, privNotes]);
+  }, [plannerPrefs.projects, tasks, privNotes]);
+
+  const brainCategories = useMemo(() => {
+    const s = new Set([...(plannerPrefs.categories || [])]);
+    tasks.forEach((t) => t.category && s.add(t.category));
+    return [...s].sort();
+  }, [plannerPrefs.categories, tasks]);
 
   const todayIso = localIsoToday();
   const todayPendingTasksCount = useMemo(
-    () => tasks.filter((t) => t.status !== "done" && t.dueDate && t.dueDate <= todayIso).length,
-    [tasks, todayIso]
+    () => tasks.filter((t) => !isDoneStatus(plannerPrefs.statuses, t.status) && t.dueDate && t.dueDate <= todayIso).length,
+    [tasks, plannerPrefs.statuses, todayIso]
   );
   const openTasksCount = useMemo(
-    () => tasks.filter((t) => t.status !== "done").length,
-    [tasks]
+    () => tasks.filter((t) => !isDoneStatus(plannerPrefs.statuses, t.status)).length,
+    [tasks, plannerPrefs.statuses]
   );
 
   // Sync URL ?doc=#section when reading/closing a standard (keeps /open Revit links untouched)
@@ -1259,7 +1351,16 @@ export function App() {
       allowedCategories: allowedCatIds,
       directShareIds,
       items: visibleRes,
-      personalTasks: isGuest ? [] : tasks,
+      personalTasks: isGuest
+        ? []
+        : tasks.map((t) => {
+            const st = plannerPrefs.statuses.find((s) => s.id === t.status);
+            return {
+              ...t,
+              statusLabel: (st && st.label) || t.status,
+              isDone: Boolean(st && st.isDone),
+            };
+          }),
       personalNotes: isGuest ? [] : privNotes,
       clientDate: todayIso,
       targetDocId: scopeDocId,
@@ -2410,6 +2511,9 @@ export function App() {
           tasks=${tasks}
           notes=${privNotes}
           docs=${visibleRes}
+          statuses=${plannerPrefs.statuses}
+          categories=${brainCategories}
+          projects=${brainProjects}
           ownerName=${userName}
           syncState=${brainSyncState}
           canPromote=${can.createDraft(role)}
@@ -2420,6 +2524,8 @@ export function App() {
           onSaveNote=${savePrivNote}
           onDeleteNote=${deletePrivNote}
           onOpenSheet=${(payload) => setQcModal(payload)}
+          onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
+          onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
           onOpenDoc=${(id) => rd(id)}
           onPromoteNoteToDoc=${(note) =>
             createNewDoc({
@@ -2595,14 +2701,19 @@ export function App() {
       initialMode=${qcModal.mode || "task"}
       initialDoc=${qcModal.doc || null}
       initialTask=${qcModal.task || null}
+      initialRevisionParent=${qcModal.revisionParent || null}
       initialNote=${qcModal.note || null}
       initialProject=${qcModal.project || ""}
+      statuses=${plannerPrefs.statuses}
+      categories=${brainCategories}
       projects=${brainProjects}
+      tasks=${tasks}
       docs=${visibleRes}
       onClose=${() => setQcModal(null)}
+      onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
       onSaveTask=${async (taskObj) => {
         await saveTask(taskObj);
-        flash(taskObj.id ? `Updated “${taskObj.title}”` : `Task saved · ${taskObj.project || "General"}`);
+        flash(taskObj.revNumber > 0 && !taskObj.id ? `Added revision R${taskObj.revNumber}` : taskObj.id ? `Updated “${taskObj.title}”` : `Task saved · ${taskObj.project || "General"}`);
       }}
       onDeleteTask=${async (id) => {
         await deleteTask(id);
@@ -2616,6 +2727,19 @@ export function App() {
         await deletePrivNote(id);
         flash("Note deleted");
       }}
+    />`}
+    ${!isGuest &&
+    manageSheetMode &&
+    html`<${PlannerManageSheet}
+      open=${true}
+      mode=${manageSheetMode}
+      statuses=${plannerPrefs.statuses}
+      projects=${brainProjects}
+      categories=${brainCategories}
+      tasks=${tasks}
+      onClose=${() => setManageSheetMode(null)}
+      onSaveStatuses=${savePlannerStatuses}
+      onSaveLists=${savePlannerLists}
     />`}
     ${toast && html`<div className="toast" role="status">${toast}</div>`}
   </div>`;

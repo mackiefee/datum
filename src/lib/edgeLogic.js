@@ -168,15 +168,17 @@ export function runAiEdgeLogic(payload) {
   if (scope !== "doc") {
     for (const t of personalTasks || []) {
       if (!t || !t.title) continue;
-      const isDone = t.status === "done";
+      const isDone = Boolean(t.isDone ?? t.status === "done");
       if (isDone && (asksUrgent || asksToday) && !/(?:done|completed|виконан|завершен)/i.test(qLow)) continue;
+      const linkTxt = Array.isArray(t.links) ? t.links.map((x) => `${x.l || ""} ${x.u || ""}`).join(" ") : "";
+      const stLabel = t.statusLabel || (t.status === "in_progress" ? "In Progress" : isDone ? "Done" : "To Do");
       const fakeDoc = {
         id: `task:${t.id}`,
-        title: t.title,
-        desc: `${t.project || "General"} ${t.isUrgent ? "urgent терміново" : ""} ${t.dueDate || ""} ${t.linkedItemTitle || ""}`,
+        title: `${t.title}${t.revNumber > 0 ? ` R${t.revNumber}` : ""}`,
+        desc: `${t.project || "General"} ${t.category || ""} ${t.isUrgent ? "urgent терміново" : ""} ${t.dueDate || ""} ${t.linkedItemTitle || ""} ${linkTxt}`,
         body: t.notes || "",
         disc: t.project || "General",
-        tags: [t.project || "General", t.status, t.isUrgent ? "urgent" : ""],
+        tags: [t.project || "General", t.category || "", stLabel, t.isUrgent ? "urgent" : ""].filter(Boolean),
       };
       let score = scoreDocument(fakeDoc, eff.q, eff.baseTokens).score;
       if (asksTasks && !isDone) {
@@ -188,10 +190,12 @@ export function runAiEdgeLogic(payload) {
       if (t.project && qLow.includes(String(t.project).toLowerCase())) score += 7;
       if (score > 0) {
         const metaParts = [
+          t.revNumber > 0 ? `R${t.revNumber}` : "",
           t.isUrgent ? "Urgent" : "",
           t.project ? `Project: ${t.project}` : "",
+          t.category ? `Category: ${t.category}` : "",
           t.dueDate ? `Due ${t.dueDate}` : "",
-          `Status: ${t.status === "in_progress" ? "In Progress" : t.status === "done" ? "Done" : "To Do"}`,
+          `Status: ${stLabel}`,
         ].filter(Boolean);
         rankedBrain.push({
           kind: "task",

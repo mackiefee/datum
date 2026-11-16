@@ -2,7 +2,47 @@ export const runtime = 'edge';
 
 const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const VALID_TASK_STATUSES = new Set(['todo', 'in_progress', 'done']);
+
+function sanitizeStatus(s) {
+  const clean = String(s || 'todo').trim().slice(0, 64);
+  return clean || 'todo';
+}
+
+function sanitizeLinks(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .filter((x) => x && x.u)
+    .slice(0, 30)
+    .map((x) => ({
+      u: String(x.u || '').trim().slice(0, 1200),
+      l: String(x.l || '').trim().slice(0, 120),
+    }))
+    .filter((x) => x.u);
+}
+
+function sanitizePlannerPrefs(p) {
+  if (!p || typeof p !== 'object') return {};
+  const out = {};
+  if (Array.isArray(p.statuses)) {
+    out.statuses = p.statuses
+      .filter((s) => s && s.id && s.label)
+      .slice(0, 25)
+      .map((s) => ({
+        id: String(s.id).trim().slice(0, 64),
+        label: String(s.label).trim().slice(0, 40),
+        color: String(s.color || '#8e8e93').slice(0, 24),
+        isDone: Boolean(s.isDone),
+        isRevision: Boolean(s.isRevision),
+      }));
+  }
+  if (Array.isArray(p.categories)) {
+    out.categories = [...new Set(p.categories.map((c) => String(c || '').trim().slice(0, 60)).filter(Boolean))].slice(0, 60);
+  }
+  if (Array.isArray(p.projects)) {
+    out.projects = [...new Set(p.projects.map((x) => String(x || '').trim().slice(0, 80)).filter(Boolean))].slice(0, 60);
+  }
+  return out;
+}
 
 const enc = new TextEncoder();
 
@@ -156,7 +196,11 @@ function mapTask(row) {
     priority: Number.isFinite(Number(row.priority)) ? Number(row.priority) : (row.is_urgent ? 3 : 0),
     dueDate: row.due_date || '',
     isUrgent: Boolean(row.is_urgent || Number(row.priority) >= 3),
-    status: VALID_TASK_STATUSES.has(row.status) ? row.status : 'todo',
+    status: sanitizeStatus(row.status),
+    parentTaskId: row.parent_task_id || null,
+    revNumber: Number(row.rev_number || 0),
+    requestedAt: row.requested_at || '',
+    links: Array.isArray(row.links_json) ? row.links_json : [],
     linkedItemId: row.linked_item_id != null ? Number(row.linked_item_id) : null,
     linkedItemTitle: row.linked_item_title || '',
     sortOrder: Number(row.sort_order || 0),
@@ -192,6 +236,7 @@ function mapState(row, ownerEmail) {
       chk: null,
       chats: null,
       activeChatId: null,
+      plannerPrefs: null,
       exists: false,
     };
   }
@@ -203,6 +248,7 @@ function mapState(row, ownerEmail) {
     chk: row.chk && typeof row.chk === 'object' ? row.chk : {},
     chats: Array.isArray(row.chats) ? row.chats : [],
     activeChatId: row.active_chat_id || null,
+    plannerPrefs: row.planner_prefs && typeof row.planner_prefs === 'object' ? row.planner_prefs : null,
     updatedAt: row.updated_at || null,
     exists: true,
   };
@@ -325,12 +371,23 @@ export async function POST(req) {
       const title = String(t.title || '').trim();
       if (!title) return jsonResp({ error: 'Task title is required' }, 400);
 
-      const status = VALID_TASK_STATUSES.has(t.status) ? t.status : 'todo';
+      const status = sanitizeStatus(t.status);
       const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(String(t.dueDate || '')) ? String(t.dueDate) : null;
+      const requestedAt = /^\d{4}-\d{2}-\d{2}$/.test(String(t.requestedAt || '')) ? String(t.requestedAt) : null;
       const linkedNum = t.linkedItemId != null && t.linkedItemId !== '' ? Number(t.linkedItemId) : null;
       const rawPri = Number.isFinite(Number(t.priority)) ? Math.max(0, Math.min(3, Math.trunc(Number(t.priority)))) : (t.isUrgent ? 3 : 0);
       const isUrgent = Boolean(t.isUrgent || rawPri >= 3);
       const priority = isUrgent && rawPri === 0 ? 3 : rawPri;
+
+      let parentTaskId = UUID_RE.test(String(t.parentTaskId || '')) ? String(t.parentTaskId) : null;
+      if (parentTaskId) {
+        const parentOwner = await fetchRowOwner(admin, 'personal_tasks', parentTaskId);
+        if (parentOwner && String(parentOwner.owner_email || '').toLowerCase() !== ident.ownerEmail) {
+          return jsonResp({ error: 'Forbidden parent task reference' }, 403);
+        }
+        if (!parentOwner) parentTaskId = null;
+      }
+
       const payload = {
         user_id: ident.userId,
         owner_email: ident.ownerEmail,
@@ -342,10 +399,14 @@ export async function POST(req) {
         due_date: dueDate,
         is_urgent: isUrgent,
         status,
+        parent_task_id: parentTaskId,
+        rev_number: Number.isFinite(Number(t.revNumber)) ? Math.max(0, Math.trunc(Number(t.revNumber))) : 0,
+        requested_at: requestedAt,
+        links_json: sanitizeLinks(t.links),
         linked_item_id: Number.isFinite(linkedNum) && linkedNum > 0 ? Math.trunc(linkedNum) : null,
         linked_item_title: String(t.linkedItemTitle || '').slice(0, 220),
         sort_order: Number.isFinite(Number(t.sortOrder)) ? Math.trunc(Number(t.sortOrder)) : 0,
-        completed_at: status === 'done' ? t.completedAt || new Date().toISOString() : null,
+        completed_at: t.completedAt || (status === 'done' ? new Date().toISOString() : null),
       };
 
       const candidateId = UUID_RE.test(String(t.id || '')) ? String(t.id) : '';
@@ -480,6 +541,7 @@ export async function POST(req) {
         chk: s.chk && typeof s.chk === 'object' ? s.chk : {},
         chats: sanitizeChats(s.chats),
         active_chat_id: s.activeChatId ? String(s.activeChatId) : null,
+        planner_prefs: sanitizePlannerPrefs(s.plannerPrefs),
       };
       const upRes = await fetch(`${admin.url}/rest/v1/user_brain_state?on_conflict=owner_email`, {
         method: 'POST',

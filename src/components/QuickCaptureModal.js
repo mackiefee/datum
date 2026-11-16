@@ -1,16 +1,21 @@
 import { html, Fragment, useState, useEffect, useMemo } from '../lib/react.js';
 import { Ic } from './Icon.js';
 import { Select } from './Select.js';
+import {
+  DEFAULT_PLANNER_STATUSES,
+  DEFAULT_PLANNER_CATEGORIES,
+  DEFAULT_PLANNER_PROJECTS,
+  getStatusObj,
+  isDoneStatus,
+  getRevisionStartStatus,
+  getFirstActiveStatus,
+  parseTaskLinks,
+  linkAutoLabel,
+} from '../utils/planner.js';
 
 const MONTHS_FULL = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-const STATUS_OPTS = [
-  { value: 'todo', label: 'To Do', color: '#8e8e93' },
-  { value: 'in_progress', label: 'In Progress', color: '#ff9f0a' },
-  { value: 'done', label: 'Done', color: '#30d158' },
 ];
 
 const PRIORITY_LEVELS = [
@@ -41,19 +46,25 @@ export function QuickCaptureModal({
   initialMode = 'task',
   initialDoc = null,
   initialTask = null,
+  initialRevisionParent = null,
   initialNote = null,
   initialProject = '',
-  projects = [],
+  statuses = DEFAULT_PLANNER_STATUSES,
+  categories = DEFAULT_PLANNER_CATEGORIES,
+  projects = DEFAULT_PLANNER_PROJECTS,
+  tasks = [],
   docs = [],
   onClose,
   onSaveTask,
   onDeleteTask,
   onSaveNote,
   onDeleteNote,
+  onStartRevision,
 }) {
   const isEditingTask = Boolean(initialTask && initialTask.id);
+  const isNewRevision = Boolean(!isEditingTask && initialRevisionParent && initialRevisionParent.id);
   const isEditingNote = Boolean(initialNote && initialNote.id);
-  const isEditingExisting = isEditingTask || isEditingNote;
+  const isEditingExisting = isEditingTask || isEditingNote || isNewRevision;
 
   const [mode, setMode] = useState(initialMode);
   const [title, setTitle] = useState('');
@@ -62,7 +73,11 @@ export function QuickCaptureModal({
   const [creatingProj, setCreatingProj] = useState(false);
   const [newProjName, setNewProjName] = useState('');
   const [category, setCategory] = useState('');
-  const [status, setStatus] = useState('todo');
+  const [creatingCat, setCreatingCat] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [links, setLinks] = useState([]);
+  const [linkInput, setLinkInput] = useState('');
+  const [status, setStatus] = useState(() => getFirstActiveStatus(statuses).id);
   const [priority, setPriority] = useState(0);
   const [dueDate, setDueDate] = useState(isoOffset(0));
   const [calMonth, setCalMonth] = useState(() => {
@@ -78,6 +93,27 @@ export function QuickCaptureModal({
     if (!open) return;
     setCreatingProj(false);
     setNewProjName('');
+    setCreatingCat(false);
+    setNewCatName('');
+    setLinkInput('');
+
+    if (initialRevisionParent && initialRevisionParent.id) {
+      const p = initialRevisionParent;
+      setMode('task');
+      setTitle(p.title || '');
+      setNotes('');
+      setProject(p.project || 'General');
+      setCategory(p.category || '');
+      setLinks(Array.isArray(p.links) ? p.links.map((x) => ({ ...x })) : []);
+      setStatus(getRevisionStartStatus(statuses).id);
+      const pVal = Number.isFinite(Number(p.priority)) ? Number(p.priority) : (p.isUrgent ? 3 : 0);
+      setPriority(pVal);
+      setDueDate('');
+      const n = new Date();
+      setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
+      setLinkedDocId(p.linkedItemId ? String(p.linkedItemId) : '');
+      return;
+    }
 
     if (initialTask && initialTask.id) {
       setMode('task');
@@ -85,7 +121,8 @@ export function QuickCaptureModal({
       setNotes(initialTask.notes || '');
       setProject(initialTask.project || 'General');
       setCategory(initialTask.category || '');
-      setStatus(initialTask.status || 'todo');
+      setLinks(Array.isArray(initialTask.links) ? initialTask.links.map((x) => ({ ...x })) : []);
+      setStatus(initialTask.status || getFirstActiveStatus(statuses).id);
       const pVal = Number.isFinite(Number(initialTask.priority))
         ? Number(initialTask.priority)
         : initialTask.isUrgent
@@ -109,6 +146,7 @@ export function QuickCaptureModal({
       setProject(initialNote.project || 'General');
       setIsPinned(Boolean(initialNote.isPinned));
       setLinkedDocId('');
+      setLinks([]);
       return;
     }
 
@@ -116,16 +154,16 @@ export function QuickCaptureModal({
     setTitle(initialDoc && initialMode === 'task' ? `Follow up: ${initialDoc.title}` : (initialTask?.title || ''));
     setNotes('');
     setProject(initialProject || (initialDoc && initialDoc.disc) || 'General');
-    setCategory('');
-    setStatus('todo');
+    setCategory((categories && categories[0]) || '');
+    setLinks([]);
+    setStatus(getFirstActiveStatus(statuses).id);
     setPriority(initialTask?.priority || 0);
-    const seedDate = initialMode === 'task' ? isoOffset(0) : '';
-    setDueDate(seedDate);
+    setDueDate(initialMode === 'task' ? isoOffset(0) : '');
     const n = new Date();
     setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
     setLinkedDocId(initialDoc && initialDoc.id ? String(initialDoc.id) : '');
     setIsPinned(false);
-  }, [open, initialMode, initialDoc?.id, initialTask?.id, initialNote?.id, initialProject]);
+  }, [open, initialMode, initialDoc?.id, initialTask?.id, initialRevisionParent?.id, initialNote?.id, initialProject]);
 
   const sortedDocs = useMemo(
     () => [...(docs || [])].sort((a, b) => (a.title || '').localeCompare(b.title || '')),
@@ -133,13 +171,34 @@ export function QuickCaptureModal({
   );
 
   const projectOptions = useMemo(() => {
-    const set = new Set(['General', 'P&C', 'Warehouse R21', 'CL-RFI Standards', ...(projects || [])]);
+    const set = new Set([...(projects || [])]);
     if (project) set.add(project);
+    if (!set.size) set.add('General');
     return [
       ...[...set].sort().map((p) => ({ value: p, label: p })),
       { value: '__new__', label: '+ New project…' },
     ];
   }, [projects, project]);
+
+  const categoryOptions = useMemo(() => {
+    const set = new Set([...(categories || [])]);
+    if (category) set.add(category);
+    return [
+      { value: '', label: 'None' },
+      ...[...set].sort().map((c) => ({ value: c, label: c })),
+      { value: '__new__', label: '+ New category…' },
+    ];
+  }, [categories, category]);
+
+  const statusOptions = useMemo(
+    () =>
+      (statuses && statuses.length ? statuses : DEFAULT_PLANNER_STATUSES).map((s) => ({
+        value: s.id,
+        label: s.label,
+        color: s.color || '#8e8e93',
+      })),
+    [statuses]
+  );
 
   const docOptions = useMemo(
     () => [
@@ -155,12 +214,43 @@ export function QuickCaptureModal({
 
   if (!open) return null;
 
+  const commitPendingLinks = (curLinks = links) => {
+    if (!linkInput.trim()) return curLinks;
+    const parsed = parseTaskLinks(linkInput, curLinks);
+    if (parsed.length) {
+      const next = [...curLinks, ...parsed].slice(0, 30);
+      setLinks(next);
+      setLinkInput('');
+      return next;
+    }
+    return curLinks;
+  };
+
+  const addLinkFromInput = () => {
+    commitPendingLinks(links);
+  };
+
   const finalProject = creatingProj ? (newProjName.trim() || 'General') : (project || 'General');
+  const finalCategory = creatingCat ? newCatName.trim() : category.trim();
 
   const canSubmit =
     mode === 'note'
       ? Boolean(title.trim() || notes.trim())
       : Boolean(title.trim()) && (!creatingProj || Boolean(newProjName.trim()));
+
+  const existingRevsFor = (parentId) =>
+    (tasks || []).filter((x) => x.parentTaskId === parentId);
+
+  const nextRevNumber = isNewRevision
+    ? existingRevsFor(initialRevisionParent.id).length + 1
+    : initialTask?.revNumber || 0;
+
+  const parentTaskObj =
+    isNewRevision
+      ? initialRevisionParent
+      : isEditingTask && initialTask.parentTaskId
+      ? (tasks || []).find((x) => x.id === initialTask.parentTaskId) || null
+      : null;
 
   const submit = (e) => {
     e && e.preventDefault();
@@ -188,24 +278,42 @@ export function QuickCaptureModal({
       return;
     }
 
-    onSaveTask &&
-      onSaveTask({
-        ...(initialTask || {}),
-        title: title.trim(),
-        notes: notes.trim(),
-        project: finalProject,
-        category: category.trim(),
-        priority,
-        isUrgent: priority >= 3,
-        dueDate: dueDate || '',
-        status,
-        linkedItemId: docObj ? docObj.id : null,
-        linkedItemTitle: docObj ? docObj.title : '',
-      });
+    const finalLinks = commitPendingLinks(links).map((x) => ({
+      u: x.u,
+      l: String(x.l || '').trim(),
+    }));
+
+    const taskPayload = {
+      ...(isEditingTask ? initialTask : {}),
+      title: title.trim(),
+      notes: notes.trim(),
+      project: finalProject,
+      category: finalCategory,
+      priority,
+      isUrgent: priority >= 3,
+      dueDate: dueDate || '',
+      status,
+      links: finalLinks,
+      parentTaskId: isNewRevision
+        ? initialRevisionParent.id
+        : isEditingTask
+        ? initialTask.parentTaskId || null
+        : null,
+      revNumber: isNewRevision ? nextRevNumber : isEditingTask ? initialTask.revNumber || 0 : 0,
+      requestedAt: isNewRevision
+        ? todayIso
+        : isEditingTask
+        ? initialTask.requestedAt || ''
+        : '',
+      linkedItemId: docObj ? docObj.id : null,
+      linkedItemTitle: docObj ? docObj.title : '',
+    };
+
+    onSaveTask && onSaveTask(taskPayload);
     onClose && onClose();
   };
 
-  // Build 7-column calendar cells
+  // Calendar grid
   const calFirstDay = new Date(calMonth.y, calMonth.m, 1).getDay();
   const calDaysInMonth = new Date(calMonth.y, calMonth.m + 1, 0).getDate();
   const calPad = Array.from({ length: calFirstDay }, (_, i) => i);
@@ -216,13 +324,28 @@ export function QuickCaptureModal({
     return { dayNum, iso: `${calMonth.y}-${mm}-${dd}` };
   });
 
-  const sheetTitle = isEditingTask
+  const curStatusObj = getStatusObj(statuses, status);
+  const canSpawnRevisionFromEdit =
+    isEditingTask && isDoneStatus(statuses, status) && onStartRevision;
+
+  const sheetTitle = isNewRevision
+    ? 'New Revision'
+    : isEditingTask
     ? 'Edit Task'
     : isEditingNote
     ? 'Edit Note'
     : mode === 'note'
     ? 'New Private Note'
     : 'New Task';
+
+  const contextHint =
+    isNewRevision && parentTaskObj
+      ? `Revision R${nextRevNumber} of ${parentTaskObj.title} · requested ${formatDueNice(todayIso)}`
+      : isEditingTask && parentTaskObj
+      ? `Revision R${initialTask.revNumber} of ${parentTaskObj.title}${initialTask.requestedAt ? ` · requested ${formatDueNice(initialTask.requestedAt)}` : ''}`
+      : isEditingTask && !initialTask.parentTaskId && existingRevsFor(initialTask.id).length > 0
+      ? `${existingRevsFor(initialTask.id).length} client revision(s)`
+      : '';
 
   return html`<div
     className="qc-ov"
@@ -247,7 +370,7 @@ export function QuickCaptureModal({
         <button type="button" className="qc-sh-cancel" onClick=${onClose}>Cancel</button>
         <b>${sheetTitle}</b>
         <button type="submit" className="btn p sm qc-sh-save" disabled=${!canSubmit}>
-          ${isEditingExisting ? 'Save' : 'Add'}
+          ${isEditingTask ? 'Save' : isEditingNote ? 'Save' : 'Add'}
         </button>
       </div>
 
@@ -261,6 +384,8 @@ export function QuickCaptureModal({
         </button>
       </div>`}
 
+      ${contextHint && html`<div className="qc-ctx-note">${contextHint}</div>`}
+
       <div className="qc-cell">
         <input
           autoFocus
@@ -269,16 +394,11 @@ export function QuickCaptureModal({
           value=${title}
           onChange=${(e) => setTitle(e.target.value)}
         />
-        ${mode === 'task' &&
-        html`<input
-          type="text"
-          placeholder="Category / discipline group (optional, e.g. BIM QA)"
-          value=${category}
-          onChange=${(e) => setCategory(e.target.value)}
-        />`}
         <textarea
-          placeholder=${mode === 'task'
-            ? 'Notes, Revit details, constraints…'
+          placeholder=${isNewRevision || (isEditingTask && initialTask.parentTaskId)
+            ? 'What did the client change?'
+            : mode === 'task'
+            ? 'Description, Revit details, constraints…'
             : 'Write private thoughts, meeting summary, or [[Standard links]]…'}
           value=${notes}
           onChange=${(e) => setNotes(e.target.value)}
@@ -312,6 +432,36 @@ export function QuickCaptureModal({
           autoFocus
         />`}
 
+        ${mode === 'task' &&
+        html`<${Fragment}>
+          <div className="qc-row">
+            <span className="qc-row-lbl">Category</span>
+            <${Select}
+              variant="inline"
+              value=${creatingCat ? '__new__' : category}
+              options=${categoryOptions}
+              placeholder="None"
+              ariaLabel="Category"
+              onChange=${(v) => {
+                if (v === '__new__') {
+                  setCreatingCat(true);
+                } else {
+                  setCreatingCat(false);
+                  setCategory(v);
+                }
+              }}
+            />
+          </div>
+          ${creatingCat &&
+          html`<input
+            type="text"
+            placeholder="New category name (will be remembered)"
+            value=${newCatName}
+            onChange=${(e) => setNewCatName(e.target.value)}
+            autoFocus
+          />`}
+        </${Fragment}>`}
+
         <div className="qc-row">
           <span className="qc-row-lbl">
             ${mode === 'note' ? 'Insert [[Standard]]' : 'Linked Standard'}
@@ -340,126 +490,193 @@ export function QuickCaptureModal({
       </div>
 
       ${mode === 'task'
-        ? html`<div className="qc-cell">
-            <div className="qc-row">
-              <span className="qc-row-lbl">Status</span>
-              <${Select}
-                variant="meta"
-                value=${status}
-                options=${STATUS_OPTS}
-                color=${(STATUS_OPTS.find((s) => s.value === status) || STATUS_OPTS[0]).color}
-                ariaLabel="Task status"
-                onChange=${(v) => setStatus(v)}
-              />
-            </div>
-
-            <div className="qc-row">
-              <span className="qc-row-lbl">Priority</span>
-              <div className="seg qc-pri-seg" role="group" aria-label="Task priority" style=${{ marginTop: 0 }}>
-                ${PRIORITY_LEVELS.map(
-                  (lv) => html`<button
-                    key=${lv.val}
-                    type="button"
-                    className=${priority === lv.val ? 'on' : ''}
-                    onClick=${() => setPriority(lv.val)}
-                  >
-                    ${lv.dot && html`<i className=${'pl-pri-dot ' + lv.dot} />`}
-                    <span>${lv.label}</span>
-                  </button>`
-                )}
-              </div>
-            </div>
-
-            <div className="qc-row">
-              <div>
-                <div className="qc-row-lbl">Due Date</div>
-                ${dueDate && html`<div className="qc-row-sub">${formatDueNice(dueDate)}</div>`}
-              </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked=${Boolean(dueDate)}
-                aria-label="Toggle due date"
-                className=${'pl-sw' + (dueDate ? ' on' : '')}
-                onClick=${() => {
-                  if (dueDate) setDueDate('');
-                  else {
-                    const td = isoOffset(0);
-                    setDueDate(td);
-                    const n = new Date();
-                    setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
-                  }
-                }}
-              />
-            </div>
-
-            <div className="qc-dq">
-              <button
-                type="button"
-                className=${dueDate === isoOffset(0) ? 'on' : ''}
-                onClick=${() => setDueDate(isoOffset(0))}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                className=${dueDate === isoOffset(1) ? 'on' : ''}
-                onClick=${() => setDueDate(isoOffset(1))}
-              >
-                Tomorrow
-              </button>
-              <button
-                type="button"
-                className=${dueDate === isoOffset(7) ? 'on' : ''}
-                onClick=${() => setDueDate(isoOffset(7))}
-              >
-                +1 week
-              </button>
-            </div>
-
-            ${dueDate &&
-            html`<div className="pl-cal">
-              <div className="pl-cal-h">
-                <b>${MONTHS_FULL[calMonth.m]} ${calMonth.y}</b>
-                <span className="pl-cal-nav">
+        ? html`<${Fragment}>
+            <div className="qc-cell">
+              ${links.map(
+                (lk, idx) => html`<div key=${lk.u + '-' + idx} className="pl-lkr">
+                  <span className="pl-lkr-ico"><${Ic} n="link" s=${14} /></span>
+                  <div className="pl-lkr-x">
+                    <input
+                      type="text"
+                      className="pl-lkni"
+                      value=${lk.l || ''}
+                      placeholder=${linkAutoLabel(lk.u)}
+                      aria-label="Link label"
+                      onChange=${(e) => {
+                        const val = e.target.value;
+                        setLinks((prev) => prev.map((x, k) => (k === idx ? { ...x, l: val } : x)));
+                      }}
+                    />
+                    <div className="pl-lku">${lk.u}</div>
+                  </div>
                   <button
                     type="button"
-                    aria-label="Previous month"
-                    onClick=${() =>
-                      setCalMonth((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))
-                    }
+                    className="pl-rmv"
+                    aria-label="Remove link"
+                    onClick=${() => setLinks((prev) => prev.filter((_, k) => k !== idx))}
                   >
-                    ‹
+                    −
                   </button>
-                  <button
-                    type="button"
-                    aria-label="Next month"
-                    onClick=${() =>
-                      setCalMonth((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))
+                </div>`
+              )}
+              <div className="pl-lkadd">
+                <input
+                  type="text"
+                  inputMode="url"
+                  placeholder="Add link — paste URL(s) or Drive / ACC path"
+                  value=${linkInput}
+                  onChange=${(e) => setLinkInput(e.target.value)}
+                  onKeyDown=${(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      addLinkFromInput();
                     }
-                  >
-                    ›
-                  </button>
-                </span>
+                  }}
+                  onPaste=${(e) => {
+                    const tx = (e.clipboardData && e.clipboardData.getData('text')) || '';
+                    if (tx && (/\n/.test(tx.trim()) || (!linkInput && /^\s*(?:https?:|mailto:|utk:\/\/|\\\\)\S+\s*$/i.test(tx)))) {
+                      e.preventDefault();
+                      const combined = linkInput ? `${linkInput}\n${tx}` : tx;
+                      const parsed = parseTaskLinks(combined, links);
+                      if (parsed.length) setLinks((prev) => [...prev, ...parsed].slice(0, 30));
+                      setLinkInput('');
+                    }
+                  }}
+                  onBlur=${addLinkFromInput}
+                />
+                <button
+                  type="button"
+                  disabled=${!linkInput.trim()}
+                  onMouseDown=${(e) => e.preventDefault()}
+                  onClick=${addLinkFromInput}
+                >
+                  Add
+                </button>
               </div>
-              <div className="pl-cal-w">
-                ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => html`<i key=${i}>${d}</i>`)}
+            </div>
+
+            <div className="qc-cell">
+              <div className="qc-row">
+                <span className="qc-row-lbl">Status</span>
+                <${Select}
+                  variant="meta"
+                  value=${status}
+                  options=${statusOptions}
+                  color=${curStatusObj.color || '#8e8e93'}
+                  ariaLabel="Task status"
+                  onChange=${(v) => setStatus(v)}
+                />
               </div>
-              <div className="pl-cal-g">
-                ${calPad.map((i) => html`<i key=${'pad-' + i} />`)}
-                ${calDays.map(
-                  (day) => html`<button
-                    key=${day.iso}
-                    type="button"
-                    className=${(day.iso === dueDate ? 'sel ' : '') + (day.iso === todayIso ? 'today' : '')}
-                    onClick=${() => setDueDate(day.iso)}
-                  >
-                    <span>${day.dayNum}</span>
-                  </button>`
-                )}
+
+              <div className="qc-row">
+                <span className="qc-row-lbl">Priority</span>
+                <div className="seg qc-pri-seg" role="group" aria-label="Task priority" style=${{ marginTop: 0 }}>
+                  ${PRIORITY_LEVELS.map(
+                    (lv) => html`<button
+                      key=${lv.val}
+                      type="button"
+                      className=${priority === lv.val ? 'on' : ''}
+                      onClick=${() => setPriority(lv.val)}
+                    >
+                      ${lv.dot && html`<i className=${'pl-pri-dot ' + lv.dot} />`}
+                      <span>${lv.label}</span>
+                    </button>`
+                  )}
+                </div>
               </div>
-            </div>`}
-          </div>`
+
+              <div className="qc-row">
+                <div>
+                  <div className="qc-row-lbl">Due Date</div>
+                  ${dueDate && html`<div className="qc-row-sub">${formatDueNice(dueDate)}</div>`}
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked=${Boolean(dueDate)}
+                  aria-label="Toggle due date"
+                  className=${'pl-sw' + (dueDate ? ' on' : '')}
+                  onClick=${() => {
+                    if (dueDate) setDueDate('');
+                    else {
+                      const td = isoOffset(0);
+                      setDueDate(td);
+                      const n = new Date();
+                      setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
+                    }
+                  }}
+                />
+              </div>
+
+              <div className="qc-dq">
+                <button
+                  type="button"
+                  className=${dueDate === isoOffset(0) ? 'on' : ''}
+                  onClick=${() => setDueDate(isoOffset(0))}
+                >
+                  Today
+                </button>
+                <button
+                  type="button"
+                  className=${dueDate === isoOffset(1) ? 'on' : ''}
+                  onClick=${() => setDueDate(isoOffset(1))}
+                >
+                  Tomorrow
+                </button>
+                <button
+                  type="button"
+                  className=${dueDate === isoOffset(7) ? 'on' : ''}
+                  onClick=${() => setDueDate(isoOffset(7))}
+                >
+                  +1 week
+                </button>
+              </div>
+
+              ${dueDate &&
+              html`<div className="pl-cal">
+                <div className="pl-cal-h">
+                  <b>${MONTHS_FULL[calMonth.m]} ${calMonth.y}</b>
+                  <span className="pl-cal-nav">
+                    <button
+                      type="button"
+                      aria-label="Previous month"
+                      onClick=${() =>
+                        setCalMonth((c) => (c.m === 0 ? { y: c.y - 1, m: 11 } : { y: c.y, m: c.m - 1 }))
+                      }
+                    >
+                      ‹
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Next month"
+                      onClick=${() =>
+                        setCalMonth((c) => (c.m === 11 ? { y: c.y + 1, m: 0 } : { y: c.y, m: c.m + 1 }))
+                      }
+                    >
+                      ›
+                    </button>
+                  </span>
+                </div>
+                <div className="pl-cal-w">
+                  ${['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => html`<i key=${i}>${d}</i>`)}
+                </div>
+                <div className="pl-cal-g">
+                  ${calPad.map((i) => html`<i key=${'pad-' + i} />`)}
+                  ${calDays.map(
+                    (day) => html`<button
+                      key=${day.iso}
+                      type="button"
+                      className=${(day.iso === dueDate ? 'sel ' : '') + (day.iso === todayIso ? 'today' : '')}
+                      onClick=${() => setDueDate(day.iso)}
+                    >
+                      <span>${day.dayNum}</span>
+                    </button>`
+                  )}
+                </div>
+              </div>`}
+            </div>
+          </${Fragment}>`
         : html`<div className="qc-cell">
             <div className="qc-row">
               <span className="qc-row-lbl">Pin to top</span>
@@ -473,6 +690,23 @@ export function QuickCaptureModal({
               />
             </div>
           </div>`}
+
+      ${canSpawnRevisionFromEdit &&
+      html`<div className="qc-cell">
+        <button
+          type="button"
+          className="pl-addc"
+          style=${{ textAlign: 'center', fontWeight: 550 }}
+          onClick=${() => {
+            const rootParent = initialTask.parentTaskId
+              ? (tasks || []).find((x) => x.id === initialTask.parentTaskId) || initialTask
+              : initialTask;
+            onStartRevision(rootParent);
+          }}
+        >
+          ↻ Client update → new revision
+        </button>
+      </div>`}
 
       ${(isEditingTask && onDeleteTask) || (isEditingNote && onDeleteNote)
         ? html`<div className="qc-cell">

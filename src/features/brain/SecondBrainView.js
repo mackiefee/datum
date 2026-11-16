@@ -2,14 +2,17 @@ import { html, Fragment, useState, useMemo, useEffect } from '../../lib/react.js
 import { Ic } from '../../components/Icon.js';
 import { Select } from '../../components/Select.js';
 import { md } from '../../utils/markdown.js';
+import {
+  DEFAULT_PLANNER_STATUSES,
+  getStatusObj,
+  isDoneStatus,
+  getDoneStatus,
+  getFirstActiveStatus,
+  linkDisplayName,
+  linkDisplayHost,
+} from '../../utils/planner.js';
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const STATUS_OPTS = [
-  { value: 'todo', label: 'To Do', color: '#8e8e93' },
-  { value: 'in_progress', label: 'In Progress', color: '#ff9f0a' },
-  { value: 'done', label: 'Done', color: '#30d158' },
-];
 
 function isoOffset(daysOffset = 0) {
   const d = new Date();
@@ -18,6 +21,13 @@ function isoOffset(daysOffset = 0) {
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+function formatShortDate(isoStr) {
+  if (!isoStr) return '';
+  const p = String(isoStr).split('-');
+  if (p.length !== 3) return isoStr;
+  return `${Number(p[2])} ${MONTHS_SHORT[Number(p[1]) - 1] || p[1]}`;
 }
 
 function dateInfo(dueDate, isDone) {
@@ -55,6 +65,9 @@ export function SecondBrainView({
   tasks = [],
   notes = [],
   docs = [],
+  statuses = DEFAULT_PLANNER_STATUSES,
+  categories = [],
+  projects = [],
   ownerName = '',
   syncState = 'synced',
   canPromote = false,
@@ -65,26 +78,27 @@ export function SecondBrainView({
   onSaveNote,
   onDeleteNote,
   onOpenSheet,
+  onOpenManageSheet,
+  onStartRevision,
   onOpenDoc,
   onPromoteNoteToDoc,
 }) {
   const todayStr = isoOffset(0);
   const weekEndStr = isoOffset(7);
 
-  // Align initialTab cleanly with All | Active | Done | Notes (mapping legacy today/upcoming -> date chip or active)
-  const [filterTab, setFilterTab] = useState(initialTab === 'notes' ? 'notes' : initialTab === 'done' ? 'done' : 'all'); // 'all' | 'active' | 'done' | 'notes'
-  const [smartBucket, setSmartBucket] = useState(initialTab === 'today' ? 'today' : ''); // '' | 'over' | 'today' | 'week' | 'urgent'
+  const [filterTab, setFilterTab] = useState(
+    initialTab === 'notes' ? 'notes' : initialTab === 'done' ? 'done' : 'all'
+  );
+  const [smartBucket, setSmartBucket] = useState(initialTab === 'today' ? 'today' : '');
   const [layout, setLayout] = useState('list'); // 'list' | 'board'
   const [projFilter, setProjFilter] = useState('all');
   const [query, setQuery] = useState('');
-  const [sortMode, setSortMode] = useState(1); // 0 = created/manual, 1 = priority, 2 = due date
+  const [sortMode, setSortMode] = useState(1); // 0 = manual, 1 = priority, 2 = due date
   const [collapsedProjs, setCollapsedProjs] = useState(() => new Set());
+  const [expandedLinksIds, setExpandedLinksIds] = useState(() => new Set());
 
-  // Single-line Quick Add input
   const [quickTitle, setQuickTitle] = useState('');
   const [quickUrgent, setQuickUrgent] = useState(false);
-
-  // Notes Quick Add input
   const [quickNoteText, setQuickNoteText] = useState('');
 
   useEffect(() => {
@@ -101,42 +115,87 @@ export function SecondBrainView({
 
   const docById = useMemo(() => new Map((docs || []).map((d) => [Number(d.id), d])), [docs]);
 
-  const activeProjects = useMemo(() => {
+  const statusOptions = useMemo(
+    () =>
+      (statuses && statuses.length ? statuses : DEFAULT_PLANNER_STATUSES).map((s) => ({
+        value: s.id,
+        label: s.label,
+        color: s.color || '#8e8e93',
+      })),
+    [statuses]
+  );
+
+  const revsByParent = useMemo(() => {
     const map = new Map();
+    tasks.forEach((t) => {
+      if (t.parentTaskId) {
+        const arr = map.get(t.parentTaskId) || [];
+        arr.push(t);
+        map.set(t.parentTaskId, arr);
+      }
+    });
+    map.forEach((arr) => arr.sort((a, b) => (a.revNumber || 0) - (b.revNumber || 0)));
+    return map;
+  }, [tasks]);
+
+  const activeProjects = useMemo(() => {
+    const set = new Set(filterTab === 'notes' ? [] : projects || []);
     const list = filterTab === 'notes' ? notes : tasks;
     list.forEach((x) => {
       const p = (x.project || 'General').trim() || 'General';
-      map.set(p, (map.get(p) || 0) + 1);
+      if (tasks.some((t) => (t.project || 'General') === p) || notes.some((n) => (n.project || 'General') === p) || projFilter === p) {
+        set.add(p);
+      }
     });
-    return [...map.keys()].sort((a, b) => a.localeCompare(b));
-  }, [tasks, notes, filterTab]);
+    // Only show projects that actually have items in chips bar to stay clean
+    return [...set]
+      .filter((p) => list.some((x) => ((x.project || 'General').trim() || 'General') === p) || projFilter === p)
+      .sort((a, b) => a.localeCompare(b));
+  }, [tasks, notes, projects, projFilter, filterTab]);
 
   const projStats = useMemo(() => {
     const scoped = projFilter === 'all' ? tasks : tasks.filter((t) => (t.project || 'General') === projFilter);
-    const doneCount = scoped.filter((t) => t.status === 'done').length;
-    const overdueCount = scoped.filter((t) => t.status !== 'done' && t.dueDate && t.dueDate < todayStr).length;
-    const activeScoped = scoped.filter((t) => t.status !== 'done');
-    const smartCounts = {
-      over: overdueCount,
-      today: activeScoped.filter((t) => t.dueDate === todayStr).length,
-      week: activeScoped.filter((t) => t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEndStr).length,
-      urgent: activeScoped.filter((t) => priorityOf(t) >= 3).length,
-    };
+    const doneCount = scoped.filter((t) => isDoneStatus(statuses, t.status)).length;
+    const overdueCount = scoped.filter((t) => !isDoneStatus(statuses, t.status) && t.dueDate && t.dueDate < todayStr).length;
+    const activeScoped = scoped.filter((t) => !isDoneStatus(statuses, t.status));
     return {
       total: scoped.length,
       doneCount,
       overdueCount,
       pct: scoped.length ? Math.round((doneCount / scoped.length) * 100) : 0,
-      smartCounts,
+      smartCounts: {
+        over: overdueCount,
+        today: activeScoped.filter((t) => t.dueDate === todayStr).length,
+        week: activeScoped.filter((t) => t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEndStr).length,
+        urgent: activeScoped.filter((t) => priorityOf(t) >= 3).length,
+      },
     };
-  }, [tasks, projFilter, todayStr, weekEndStr]);
+  }, [tasks, statuses, projFilter, todayStr, weekEndStr]);
+
+  const effectiveKey = (t) => {
+    const own = priorityOf(t);
+    const children = revsByParent.get(t.id) || [];
+    return children.reduce((mx, c) => {
+      const cp = isDoneStatus(statuses, c.status) ? -1 : priorityOf(c);
+      return Math.max(mx, cp);
+    }, isDoneStatus(statuses, t.status) ? -1 : own);
+  };
+
+  const effectiveDue = (t) => {
+    let best = '9999-12-31';
+    [t, ...(revsByParent.get(t.id) || [])].forEach((x) => {
+      if (!isDoneStatus(statuses, x.status) && x.dueDate && x.dueDate < best) best = x.dueDate;
+    });
+    return isDoneStatus(statuses, t.status) && best === '9999-12-31' ? '99999' : best;
+  };
 
   const matchesTask = (t) => {
+    const tDone = isDoneStatus(statuses, t.status);
     if (projFilter !== 'all' && (t.project || 'General') !== projFilter) return false;
-    if (filterTab === 'done' && t.status !== 'done') return false;
-    if (filterTab === 'active' && t.status === 'done') return false;
+    if (filterTab === 'done' && !tDone) return false;
+    if (filterTab === 'active' && tDone) return false;
     if (smartBucket) {
-      if (t.status === 'done') return false;
+      if (tDone) return false;
       if (smartBucket === 'over' && !(t.dueDate && t.dueDate < todayStr)) return false;
       if (smartBucket === 'today' && t.dueDate !== todayStr) return false;
       if (smartBucket === 'week' && !(t.dueDate && t.dueDate >= todayStr && t.dueDate <= weekEndStr)) return false;
@@ -144,71 +203,136 @@ export function SecondBrainView({
     }
     if (query.trim()) {
       const qL = query.trim().toLowerCase();
-      const hay = `${t.title || ''} ${t.notes || ''} ${t.project || ''} ${t.category || ''} ${t.linkedItemTitle || ''}`.toLowerCase();
+      const linkTxt = (t.links || []).map((x) => `${x.l || ''} ${x.u || ''}`).join(' ');
+      const hay = `${t.title || ''} ${t.notes || ''} ${t.project || ''} ${t.category || ''} ${t.linkedItemTitle || ''} ${linkTxt}`.toLowerCase();
       if (!hay.includes(qL)) return false;
     }
     return true;
   };
 
-  const sortTasks = (arr) => {
+  const sortRootList = (arr) => {
     const copy = [...arr];
     if (sortMode === 1) {
       copy.sort((a, b) => {
-        if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
-        const pa = priorityOf(a);
-        const pb = priorityOf(b);
-        if (pa !== pb) return pb - pa;
-        const da = a.dueDate || '9999-12-31';
-        const db = b.dueDate || '9999-12-31';
-        if (da !== db) return da.localeCompare(db);
+        const da = isDoneStatus(statuses, a.status);
+        const db = isDoneStatus(statuses, b.status);
+        if (da !== db) return da ? 1 : -1;
+        const ka = effectiveKey(a);
+        const kb = effectiveKey(b);
+        if (ka !== kb) return kb - ka;
+        const ddA = a.dueDate || '9999-12-31';
+        const ddB = b.dueDate || '9999-12-31';
+        if (ddA !== ddB) return ddA.localeCompare(ddB);
         return (b.updatedAt || '').localeCompare(a.updatedAt || '');
       });
     } else if (sortMode === 2) {
       copy.sort((a, b) => {
-        if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
-        const da = a.dueDate || '9999-12-31';
-        const db = b.dueDate || '9999-12-31';
+        const da = effectiveDue(a);
+        const db = effectiveDue(b);
         if (da !== db) return da.localeCompare(db);
-        return priorityOf(b) - priorityOf(a);
+        return effectiveKey(b) - effectiveKey(a);
       });
     }
     return copy;
   };
 
-  const visibleTasks = useMemo(() => sortTasks(tasks.filter(matchesTask)), [tasks, projFilter, filterTab, smartBucket, query, sortMode, todayStr]);
+  const visibleTasks = useMemo(
+    () => sortRootList(tasks.filter(matchesTask)),
+    [tasks, statuses, projFilter, filterTab, smartBucket, query, sortMode, todayStr]
+  );
+
+  const isBurningUrgent = (t) => !isDoneStatus(statuses, t.status) && priorityOf(t) >= 3;
 
   const urgentFocusTasks = useMemo(
-    () => (layout === 'list' && filterTab !== 'done' ? visibleTasks.filter((t) => t.status !== 'done' && priorityOf(t) >= 3) : []),
-    [visibleTasks, layout, filterTab]
+    () =>
+      layout === 'list' && filterTab !== 'done'
+        ? visibleTasks
+            .filter(isBurningUrgent)
+            .sort((a, b) => (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31'))
+        : [],
+    [visibleTasks, layout, filterTab, statuses]
   );
 
   const groupedByProject = useMemo(() => {
-    const nonUrgent = visibleTasks.filter((t) => !(layout === 'list' && filterTab !== 'done' && t.status !== 'done' && priorityOf(t) >= 3));
-    const projOrder = [...new Set(nonUrgent.map((t) => (t.project || 'General').trim() || 'General'))];
-    return projOrder.map((pName) => {
-      const allInProj = tasks.filter((t) => ((t.project || 'General').trim() || 'General') === pName);
-      const shownInProj = nonUrgent.filter((t) => ((t.project || 'General').trim() || 'General') === pName);
-      const cats = [...new Set(shownInProj.map((t) => (t.category || '').trim()))];
-      const catGroups = cats.map((catName) => ({
-        name: catName,
-        items: shownInProj.filter((t) => (t.category || '').trim() === catName),
-        allCatCount: allInProj.filter((t) => (t.category || '').trim() === catName).length,
-        doneCatCount: allInProj.filter((t) => (t.category || '').trim() === catName && t.status === 'done').length,
-      }));
-      return {
-        name: pName,
-        totalCount: allInProj.length,
-        doneCount: allInProj.filter((t) => t.status === 'done').length,
-        catGroups,
-      };
+    const nonUrgent = visibleTasks.filter(
+      (t) => !(layout === 'list' && filterTab !== 'done' && isBurningUrgent(t))
+    );
+    const orderProj = [];
+    (projects || []).forEach((p) => orderProj.push(p));
+    nonUrgent.forEach((t) => {
+      const pn = (t.project || 'General').trim() || 'General';
+      if (!orderProj.includes(pn)) orderProj.push(pn);
     });
-  }, [visibleTasks, tasks, layout, filterTab]);
 
-  const boardColumns = useMemo(() => ({
-    todo: visibleTasks.filter((t) => t.status === 'todo'),
-    in_progress: visibleTasks.filter((t) => t.status === 'in_progress'),
-    done: visibleTasks.filter((t) => t.status === 'done'),
-  }), [visibleTasks]);
+    return orderProj
+      .map((pName) => {
+        const allInProj = tasks.filter((t) => ((t.project || 'General').trim() || 'General') === pName);
+        const shownInProj = nonUrgent.filter((t) => ((t.project || 'General').trim() || 'General') === pName);
+        if (!shownInProj.length) return null;
+
+        const catOrder = [...(categories || [])];
+        shownInProj.forEach((t) => {
+          const cn = (t.category || '').trim();
+          if (!catOrder.includes(cn)) catOrder.push(cn);
+        });
+        if (!catOrder.includes('')) catOrder.push('');
+
+        const catGroups = catOrder
+          .map((catName) => {
+            const shownInCat = shownInProj.filter((t) => (t.category || '').trim() === catName);
+            if (!shownInCat.length) return null;
+
+            // Nest revisions underneath parent if parent is also in this group
+            const shownIds = new Set(shownInCat.map((x) => x.id));
+            const byParent = new Map();
+            const roots = [];
+            shownInCat.forEach((t) => {
+              if (t.parentTaskId && shownIds.has(t.parentTaskId)) {
+                const arr = byParent.get(t.parentTaskId) || [];
+                arr.push(t);
+                byParent.set(t.parentTaskId, arr);
+              } else {
+                roots.push(t);
+              }
+            });
+            byParent.forEach((arr) => arr.sort((a, b) => (a.revNumber || 0) - (b.revNumber || 0)));
+
+            const orderedRows = [];
+            sortRootList(roots).forEach((rootTask) => {
+              orderedRows.push({ task: rootTask, isNested: false });
+              (byParent.get(rootTask.id) || []).forEach((childTask) => {
+                orderedRows.push({ task: childTask, isNested: true });
+              });
+            });
+
+            const allInCat = allInProj.filter((t) => (t.category || '').trim() === catName);
+            return {
+              name: catName,
+              rows: orderedRows,
+              allCatCount: allInCat.length,
+              doneCatCount: allInCat.filter((t) => isDoneStatus(statuses, t.status)).length,
+            };
+          })
+          .filter(Boolean);
+
+        return {
+          name: pName,
+          totalCount: allInProj.length,
+          doneCount: allInProj.filter((t) => isDoneStatus(statuses, t.status)).length,
+          catGroups,
+        };
+      })
+      .filter(Boolean);
+  }, [visibleTasks, tasks, projects, categories, statuses, layout, filterTab, sortMode]);
+
+  const boardColumns = useMemo(
+    () =>
+      (statuses && statuses.length ? statuses : DEFAULT_PLANNER_STATUSES).map((st) => ({
+        ...st,
+        items: visibleTasks.filter((t) => t.status === st.id || (!statuses.some((s) => s.id === t.status) && st === statuses[0])),
+      })),
+    [visibleTasks, statuses]
+  );
 
   const visibleNotes = useMemo(() => {
     const qL = query.trim().toLowerCase();
@@ -228,7 +352,7 @@ export function SecondBrainView({
     e.preventDefault();
     let title = quickTitle.trim();
     if (!title) return;
-    let project = projFilter !== 'all' ? projFilter : 'General';
+    let project = projFilter !== 'all' ? projFilter : (projects[0] || 'General');
     let urgent = quickUrgent;
 
     if (/\s!(?:urgent|терміново)\b/i.test(title)) {
@@ -251,7 +375,8 @@ export function SecondBrainView({
         priority: urgent ? 3 : 0,
         isUrgent: urgent,
         dueDate: todayStr,
-        status: 'todo',
+        status: getFirstActiveStatus(statuses).id,
+        links: [],
       });
     setQuickTitle('');
     setQuickUrgent(false);
@@ -268,35 +393,50 @@ export function SecondBrainView({
       onSaveNote({
         title,
         body,
-        project: projFilter !== 'all' ? projFilter : 'General',
+        project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
         isPinned: false,
       });
     setQuickNoteText('');
   };
 
-  const renderTaskRow = (t) => {
-    const isDone = t.status === 'done';
+  const toggleLinksExpand = (taskId) => {
+    setExpandedLinksIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  };
+
+  const renderTaskRow = (t, isNested = false, showProjCtx = false) => {
+    const tDone = isDoneStatus(statuses, t.status);
     const pri = priorityOf(t);
-    const di = dateInfo(t.dueDate, isDone);
-    const stObj = STATUS_OPTS.find((s) => s.value === t.status) || STATUS_OPTS[0];
+    const di = dateInfo(t.dueDate, tDone);
+    const stObj = getStatusObj(statuses, t.status);
     const isHl = highlightId && String(highlightId) === String(t.id);
     const docTitle = t.linkedItemTitle || (t.linkedItemId ? docById.get(Number(t.linkedItemId))?.title : '');
+    const childRevs = revsByParent.get(t.id) || [];
+    const openRevsCount = childRevs.filter((x) => !isDoneStatus(statuses, x.status)).length;
+    const taskLinks = Array.isArray(t.links) ? t.links : [];
+    const linksOpen = expandedLinksIds.has(t.id);
+    const doneSt = getDoneStatus(statuses);
+    const activeSt = getFirstActiveStatus(statuses);
 
     return html`<div
       key=${t.id}
-      className=${'pl-row' + (isDone ? ' is-done' : '') + (isHl ? ' is-hl' : '')}
+      className=${'pl-row' + (tDone ? ' is-done' : '') + (isNested ? ' is-rev' : '') + (isHl ? ' is-hl' : '')}
       onClick=${(e) => {
-        if (e.target.closest('button, a, .asel, .asel-menu')) return;
+        if (e.target.closest('button, a, .asel, .asel-menu, .pl-lkl')) return;
         onOpenSheet && onOpenSheet({ mode: 'task', task: t });
       }}
     >
       <button
         type="button"
         className="pl-chk"
-        aria-label=${isDone ? `Reopen ${t.title}` : `Complete ${t.title}`}
+        aria-label=${tDone ? `Reopen ${t.title}` : `Complete ${t.title}`}
         onClick=${(e) => {
           e.stopPropagation();
-          onSaveTask && onSaveTask({ ...t, status: isDone ? 'todo' : 'done' });
+          onSaveTask && onSaveTask({ ...t, status: tDone ? activeSt.id : doneSt.id });
         }}
       >
         <${Ic} n="check" s=${12} />
@@ -304,8 +444,36 @@ export function SecondBrainView({
 
       <div className="pl-mid">
         <div className="pl-title-line">
-          ${!isDone && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} title=${pri === 3 ? 'Urgent' : pri === 2 ? 'Hot' : 'Low'} />`}
+          ${!tDone && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} title=${pri === 3 ? 'Urgent' : pri === 2 ? 'Hot' : 'Low'} />`}
           <span className="pl-t">${t.title}</span>
+
+          ${t.revNumber > 0 && html`<span className="pl-rvb">R${t.revNumber}</span>`}
+
+          ${!t.parentTaskId &&
+          childRevs.length > 0 &&
+          html`<span
+            className=${'pl-rev' + (openRevsCount === 0 ? ' ok' : '')}
+            title=${`${childRevs.length} client revision(s)${openRevsCount ? `, ${openRevsCount} open` : ''}`}
+          >
+            ↻${childRevs.length}
+          </span>`}
+
+          ${taskLinks.length > 0 &&
+          html`<button
+            type="button"
+            className=${'pl-lkt' + (linksOpen ? ' open' : '')}
+            aria-expanded=${linksOpen}
+            title="Show links"
+            onClick=${(e) => {
+              e.stopPropagation();
+              toggleLinksExpand(t.id);
+            }}
+          >
+            <${Ic} n="link" s=${11} />
+            <span>${taskLinks.length}</span>
+            <${Ic} n="chev" s=${10} />
+          </button>`}
+
           ${t.linkedItemId &&
           html`<button
             type="button"
@@ -320,17 +488,42 @@ export function SecondBrainView({
             <span>${docTitle || `Standard #${t.linkedItemId}`}</span>
           </button>`}
         </div>
+
+        ${t.parentTaskId &&
+        t.requestedAt &&
+        !showProjCtx &&
+        html`<div className="pl-ctx">Client update · ${formatShortDate(t.requestedAt)}</div>`}
+
+        ${showProjCtx &&
+        t.project &&
+        html`<div className="pl-ctx">${t.project}${t.category ? ` · ${t.category}` : ''}</div>`}
+
         ${t.notes && html`<div className="pl-n">${t.notes}</div>`}
       </div>
 
       <div className="pl-meta" onClick=${(e) => e.stopPropagation()}>
         ${di && html`<span className=${'pl-due ' + di.cls}>${di.txt}</span>`}
 
+        ${tDone &&
+        onStartRevision &&
+        html`<button
+          type="button"
+          className="pl-rq"
+          title="Client update → new revision"
+          aria-label="New revision"
+          onClick=${() => {
+            const rootParent = t.parentTaskId ? tasks.find((x) => x.id === t.parentTaskId) || t : t;
+            onStartRevision(rootParent);
+          }}
+        >
+          ↻
+        </button>`}
+
         <${Select}
           variant="meta"
           value=${t.status}
-          options=${STATUS_OPTS}
-          color=${stObj.color}
+          options=${statusOptions}
+          color=${stObj.color || '#8e8e93'}
           ariaLabel="Task status"
           onChange=${(nextStatus) => onSaveTask && onSaveTask({ ...t, status: nextStatus })}
         />
@@ -345,6 +538,35 @@ export function SecondBrainView({
           <${Ic} n="trash" s=${13} />
         </button>
       </div>
+
+      ${linksOpen &&
+      taskLinks.length > 0 &&
+      html`<div className="pl-lkl" onClick=${(e) => e.stopPropagation()}>
+        ${taskLinks.map(
+          (lk, idx) => html`<a
+            key=${lk.u + '-' + idx}
+            href=${lk.u}
+            target="_blank"
+            rel="noopener noreferrer"
+            title=${lk.u}
+          >
+            <span className="pl-lkl-ic"><${Ic} n="link" s=${14} /></span>
+            <span className="pl-lkl-tx">
+              <span className="pl-lkl-nm">${linkDisplayName(lk)}</span>
+              <span className="pl-lkl-hs">${linkDisplayHost(lk.u)}</span>
+            </span>
+            <span className="pl-lkl-go"><${Ic} n="openx" s=${13} /></span>
+          </a>`
+        )}
+        ${taskLinks.length > 1 &&
+        html`<button
+          type="button"
+          className="pl-lkl-oa"
+          onClick=${() => taskLinks.forEach((lk) => window.open(lk.u, '_blank', 'noopener,noreferrer'))}
+        >
+          Open all (${taskLinks.length})
+        </button>`}
+      </div>`}
     </div>`;
   };
 
@@ -411,7 +633,7 @@ export function SecondBrainView({
             onOpenSheet &&
             onOpenSheet({
               mode: filterTab === 'notes' ? 'note' : 'task',
-              project: projFilter !== 'all' ? projFilter : 'General',
+              project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
             })
           }
         >
@@ -426,7 +648,7 @@ export function SecondBrainView({
         <${Ic} n="search" s=${15} />
         <input
           type="search"
-          placeholder=${filterTab === 'notes' ? 'Search private notes…' : 'Search tasks, projects, or linked standards…'}
+          placeholder=${filterTab === 'notes' ? 'Search private notes…' : 'Search tasks, categories, links, or standards…'}
           value=${query}
           onChange=${(e) => setQuery(e.target.value)}
         />
@@ -435,17 +657,37 @@ export function SecondBrainView({
           <${Ic} n="x" s=${12} />
         </button>`}
       </div>
+
       ${filterTab !== 'notes' &&
-      html`<button
-        type="button"
-        className=${'ib' + (sortMode > 0 ? ' on' : '')}
-        style=${{ width: 36, height: 36, color: sortMode > 0 ? '#fff' : 'var(--blue)', background: sortMode > 0 ? 'var(--blue)' : 'var(--fill)' }}
-        title=${`${sortLabels[sortMode]} (click to switch)`}
-        aria-label=${sortLabels[sortMode]}
-        onClick=${() => setSortMode((s) => (s + 1) % 3)}
-      >
-        <${Ic} n="swap" s=${16} />
-      </button>`}
+      html`<${Fragment}>
+        <button
+          type="button"
+          className=${'pl-ico-btn' + (sortMode > 0 ? ' on' : '')}
+          title=${`${sortLabels[sortMode]} (click to change)`}
+          aria-label=${sortLabels[sortMode]}
+          onClick=${() => setSortMode((s) => (s + 1) % 3)}
+        >
+          <${Ic} n="swap" s=${15} />
+        </button>
+        <button
+          type="button"
+          className="pl-ico-btn"
+          title="Manage Projects & Remembered Categories"
+          aria-label="Manage Projects and Categories"
+          onClick=${() => onOpenManageSheet && onOpenManageSheet('lists')}
+        >
+          <${Ic} n="folder" s=${15} />
+        </button>
+        <button
+          type="button"
+          className="pl-ico-btn"
+          title="Manage Custom Statuses"
+          aria-label="Manage Statuses"
+          onClick=${() => onOpenManageSheet && onOpenManageSheet('statuses')}
+        >
+          <${Ic} n="layers" s=${15} />
+        </button>
+      </${Fragment}>`}
     </div>
 
     ${(activeProjects.length > 0 || (filterTab !== 'notes' && Object.values(projStats.smartCounts).some((n) => n > 0))) &&
@@ -504,8 +746,8 @@ export function SecondBrainView({
             <input
               type="text"
               placeholder=${projFilter !== 'all'
-                ? `Quick add to ${projFilter}… (Enter, or sliders for date & standard)`
-                : 'Quick add task… (Enter, #Project !urgent, or sliders for calendar)'}
+                ? `Quick add to ${projFilter}… (Enter, or sliders for date, links & category)`
+                : 'Quick add task… (Enter, #Project !urgent, or sliders for calendar & links)'}
               value=${quickTitle}
               onChange=${(e) => setQuickTitle(e.target.value)}
             />
@@ -521,13 +763,13 @@ export function SecondBrainView({
             <button
               type="button"
               className="pl-quick-btn"
-              title="Open full task sheet with calendar & standard link"
+              title="Open full task sheet"
               aria-label="Task options"
               onClick=${() =>
                 onOpenSheet &&
                 onOpenSheet({
                   mode: 'task',
-                  project: projFilter !== 'all' ? projFilter : 'General',
+                  project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
                   task: quickTitle.trim() ? { title: quickTitle.trim(), priority: quickUrgent ? 3 : 0 } : null,
                 })
               }
@@ -539,38 +781,40 @@ export function SecondBrainView({
           </form>
 
           ${layout === 'board'
-            ? html`<div className="pl-board">
-                ${[
-                  ['todo', 'To Do', '#8e8e93', boardColumns.todo],
-                  ['in_progress', 'In Progress', '#ff9f0a', boardColumns.in_progress],
-                  ['done', 'Done', '#30d158', boardColumns.done],
-                ].map(
-                  ([colKey, colLabel, dotCol, colItems]) => html`<div key=${colKey} className="pl-col">
+            ? html`<div className=${'pl-board' + (boardColumns.length > 3 ? ' is-scroll' : '')}>
+                ${boardColumns.map((col, colIdx) => {
+                  const nextCol = boardColumns[Math.min(boardColumns.length - 1, colIdx + 1)];
+                  const prevCol = boardColumns[Math.max(0, colIdx - 1)];
+                  return html`<div key=${col.id} className="pl-col">
                     <div className="pl-col-h">
-                      <i style=${{ background: dotCol }} />
-                      <span>${colLabel}</span>
-                      <span>${colItems.length}</span>
+                      <i style=${{ background: col.color || '#8e8e93' }} />
+                      <span>${col.label}</span>
+                      <span>${col.items.length}</span>
                     </div>
-                    ${colItems.length
-                      ? colItems.map((t) => {
+                    ${col.items.length
+                      ? col.items.map((t) => {
                           const pri = priorityOf(t);
-                          const di = dateInfo(t.dueDate, t.status === 'done');
+                          const tDone = isDoneStatus(statuses, t.status);
+                          const di = dateInfo(t.dueDate, tDone);
                           const docTitle = t.linkedItemTitle || (t.linkedItemId ? docById.get(Number(t.linkedItemId))?.title : '');
+                          const taskLinks = Array.isArray(t.links) ? t.links : [];
                           return html`<div
                             key=${t.id}
-                            className=${'pl-bcard' + (t.status === 'done' ? ' is-done' : '')}
+                            className=${'pl-bcard' + (tDone ? ' is-done' : '')}
                             onClick=${(e) => {
                               if (e.target.closest('button')) return;
                               onOpenSheet && onOpenSheet({ mode: 'task', task: t });
                             }}
                           >
                             <div className="pl-title-line">
-                              ${t.status !== 'done' && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} />`}
+                              ${!tDone && pri > 0 && html`<i className=${'pl-pri-dot p' + pri} />`}
                               <span className="pl-bcard-t">${t.title}</span>
+                              ${t.revNumber > 0 && html`<span className="pl-rvb">R${t.revNumber}</span>`}
                             </div>
                             <div className="pl-meta" style=${{ justifyContent: 'flex-start', flexWrap: 'wrap' }}>
                               <span className="pl-note-proj">${t.project || 'General'}</span>
                               ${di && html`<span className=${'pl-due ' + di.cls}>${di.txt}</span>`}
+                              ${taskLinks.length > 0 && html`<span className="pl-lkt">🔗 ${taskLinks.length}</span>`}
                               ${t.linkedItemId &&
                               html`<button
                                 type="button"
@@ -583,21 +827,21 @@ export function SecondBrainView({
                             </div>
                             <div className="pl-bcard-foot">
                               <div className="row" style=${{ gap: 5 }}>
-                                ${colKey !== 'todo' &&
+                                ${colIdx > 0 &&
                                 html`<button
                                   type="button"
                                   className="pl-mv-btn"
-                                  onClick=${() => onSaveTask && onSaveTask({ ...t, status: colKey === 'done' ? 'in_progress' : 'todo' })}
+                                  onClick=${() => onSaveTask && onSaveTask({ ...t, status: prevCol.id })}
                                 >
                                   ←
                                 </button>`}
-                                ${colKey !== 'done' &&
+                                ${colIdx < boardColumns.length - 1 &&
                                 html`<button
                                   type="button"
                                   className="pl-mv-btn"
-                                  onClick=${() => onSaveTask && onSaveTask({ ...t, status: colKey === 'todo' ? 'in_progress' : 'done' })}
+                                  onClick=${() => onSaveTask && onSaveTask({ ...t, status: nextCol.id })}
                                 >
-                                  ${colKey === 'todo' ? 'Start →' : 'Done ✓'}
+                                  ${nextCol.label} →
                                 </button>`}
                               </div>
                               <button
@@ -615,8 +859,8 @@ export function SecondBrainView({
                       : html`<div style=${{ padding: '22px 8px', textAlign: 'center', fontSize: 12.5, color: 'var(--sub)' }}>
                           Empty
                         </div>`}
-                  </div>`
-                )}
+                  </div>`;
+                })}
               </div>`
             : visibleTasks.length
             ? html`<${Fragment}>
@@ -624,9 +868,11 @@ export function SecondBrainView({
                 html`<section className="pl-urgent" aria-label="Urgent focus">
                   <div className="pl-urgent-head">
                     <b>Urgent · ${urgentFocusTasks.length}</b>
-                    <span>High-priority items</span>
+                    <span>Put these out first</span>
                   </div>
-                  <div className="pl-card">${urgentFocusTasks.map(renderTaskRow)}</div>
+                  <div className="pl-card">
+                    ${urgentFocusTasks.map((t) => renderTaskRow(t, false, true))}
+                  </div>
                 </section>`}
 
                 ${groupedByProject.map((grp) => {
@@ -657,10 +903,12 @@ export function SecondBrainView({
                       (cg) => html`<${Fragment} key=${cg.name || '__none'}>
                         ${(grp.catGroups.length > 1 || cg.name) &&
                         html`<div className="pl-gh">
-                          <span>${cg.name || 'General'}</span>
+                          <span>${cg.name || 'Other'}</span>
                           <span>${cg.doneCatCount}/${cg.allCatCount}</span>
                         </div>`}
-                        <div className="pl-card">${cg.items.map(renderTaskRow)}</div>
+                        <div className="pl-card">
+                          ${cg.rows.map((entry) => renderTaskRow(entry.task, entry.isNested, false))}
+                        </div>
                       </${Fragment}>`
                     )}
                   </section>`;
@@ -694,7 +942,7 @@ export function SecondBrainView({
                 onOpenSheet &&
                 onOpenSheet({
                   mode: 'note',
-                  project: projFilter !== 'all' ? projFilter : 'General',
+                  project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
                 })
               }
             >
@@ -760,7 +1008,8 @@ export function SecondBrainView({
                                 priority: 0,
                                 dueDate: todayStr,
                                 isUrgent: false,
-                                status: 'todo',
+                                status: getFirstActiveStatus(statuses).id,
+                                links: [],
                                 linkedItemId: d ? d.id : null,
                                 linkedItemTitle: d ? d.title : '',
                               });
