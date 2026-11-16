@@ -155,9 +155,12 @@ export async function GET(req) {
 
     const callerEmail = auth.caller.email;
     const isGuest = auth.caller.role === 'guest';
+    const isMemberOnly = !isGuest && !isEditorOrAbove(auth.caller.role);
 
     const itemsQuery = isGuest
       ? `${admin.url}/rest/v1/shared_catalog_items?status=eq.Approved&vis=eq.Public&select=id,data,status,vis&order=id.desc`
+      : isMemberOnly
+      ? `${admin.url}/rest/v1/shared_catalog_items?status=eq.Approved&select=id,data,status,vis&order=id.desc`
       : `${admin.url}/rest/v1/shared_catalog_items?status=neq.Deleted&select=id,data,status,vis&order=id.desc`;
 
     const colQuery = isGuest
