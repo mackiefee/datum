@@ -97,6 +97,8 @@ export function KnowledgeSpaceView({
   onOpenQuickCapture = null,
   onQuickCommand = null,
   onOpenBrainSource = null,
+  onSaveToNote = null,
+  onSaveToTask = null,
 }) {
   const viewportRef = useRef(null);
   const sceneRef = useRef(null);
@@ -1669,7 +1671,12 @@ export function KnowledgeSpaceView({
 
   const openSourceFromChat = (s) => {
     if (!s || !s.id) return;
-    if ((String(s.id).startsWith('task:') || String(s.id).startsWith('note:')) && onOpenBrainSource) {
+    if (
+      (String(s.id).startsWith('task:') ||
+        String(s.id).startsWith('note:') ||
+        String(s.id).startsWith('res:')) &&
+      onOpenBrainSource
+    ) {
       onOpenBrainSource(s);
       return;
     }
@@ -2949,6 +2956,8 @@ export function KnowledgeSpaceView({
             onHoverSource=${(id) => (id ? focusItemInSpace(id) : setHoveredSourceId(null))}
             onOpenCard=${(id) => openSourceFromChat({ id })}
             onToggleFav=${onToggleFav}
+            onSaveToNote=${onSaveToNote}
+            onSaveToTask=${onSaveToTask}
             onOpenNamingStudio=${onOpenNamingStudio}
             onFlagGap=${onFlagGap}
             endRef=${desktopChatEndRef}
@@ -3462,6 +3471,8 @@ export function KnowledgeSpaceView({
               onSelectSource=${openSourceFromChat}
               onOpenCard=${(id) => triggerOpenCard(id)}
               onToggleFav=${onToggleFav}
+              onSaveToNote=${onSaveToNote}
+              onSaveToTask=${onSaveToTask}
               onOpenNamingStudio=${onOpenNamingStudio}
               onFlagGap=${onFlagGap}
               endRef=${mobChatEndRef}

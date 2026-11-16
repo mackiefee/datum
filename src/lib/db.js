@@ -345,20 +345,16 @@ export const db = {
     },
 
     headersFor(email) {
-      const cleanEmail = db.brain.normalizeEmail(email);
-      const tok = getStoredSupabaseJwt();
-      const headers = { 'Content-Type': 'application/json' };
-      if (cleanEmail) headers['x-datum-user-email'] = cleanEmail;
-      if (tok) headers.Authorization = `Bearer ${tok}`;
-      return headers;
+      return db.directory.headersFor(email);
     },
 
     loadLocal(email) {
       const cleanEmail = db.brain.normalizeEmail(email);
-      if (!cleanEmail) return { tasks: [], notes: [], state: null };
+      if (!cleanEmail) return { tasks: [], notes: [], resources: [], state: null };
       return {
         tasks: ls.get(`kb2-tasks:${cleanEmail}`) || [],
         notes: ls.get(`kb2-privnotes:${cleanEmail}`) || [],
+        resources: ls.get(`kb2-privres:${cleanEmail}`) || [],
         state: ls.get(`kb2-brain-state:${cleanEmail}`) || null,
       };
     },
@@ -373,6 +369,11 @@ export const db = {
       if (cleanEmail) ls.set(`kb2-privnotes:${cleanEmail}`, Array.isArray(notes) ? notes : []);
     },
 
+    saveLocalResources(email, resources) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (cleanEmail) ls.set(`kb2-privres:${cleanEmail}`, Array.isArray(resources) ? resources : []);
+    },
+
     saveLocalState(email, state) {
       const cleanEmail = db.brain.normalizeEmail(email);
       if (cleanEmail && state) ls.set(`kb2-brain-state:${cleanEmail}`, state);
@@ -380,7 +381,7 @@ export const db = {
 
     async fetchSnapshot(email) {
       const cleanEmail = db.brain.normalizeEmail(email);
-      if (!cleanEmail) return { configured: false, tasks: [], notes: [], state: null };
+      if (!cleanEmail) return { configured: false, tasks: [], notes: [], resources: [], state: null };
       const res = await fetch(`/api/brain?email=${encodeURIComponent(cleanEmail)}`, {
         method: 'GET',
         headers: db.brain.headersFor(cleanEmail),
@@ -390,6 +391,7 @@ export const db = {
       const data = await res.json();
       if (data && Array.isArray(data.tasks)) db.brain.saveLocalTasks(cleanEmail, data.tasks);
       if (data && Array.isArray(data.notes)) db.brain.saveLocalNotes(cleanEmail, data.notes);
+      if (data && Array.isArray(data.resources)) db.brain.saveLocalResources(cleanEmail, data.resources);
       if (data && data.state && data.state.exists) db.brain.saveLocalState(cleanEmail, data.state);
       return data;
     },
@@ -428,8 +430,64 @@ export const db = {
       return db.brain.postAction(email, { action: 'note_delete', id });
     },
 
+    upsertResource(email, resource) {
+      return db.brain.postAction(email, { action: 'resource_upsert', resource });
+    },
+
+    deleteResource(email, id) {
+      return db.brain.postAction(email, { action: 'resource_delete', id });
+    },
+
     syncState(email, state) {
       return db.brain.postAction(email, { action: 'state_sync', state });
+    },
+  },
+
+  workspace: {
+    async request(method, body = null, email = '') {
+      const res = await fetch('/api/workspace', {
+        method,
+        headers: db.directory.headersFor(email),
+        cache: 'no-store',
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data && data.error) || `Workspace sync failed (${res.status})`);
+      }
+      return data;
+    },
+
+    fetchSnapshot(email = '') {
+      return db.workspace.request('GET', null, email);
+    },
+
+    seedIfEmpty(payload, email = '') {
+      return db.workspace.request('POST', { action: 'seed_if_empty', ...payload }, email);
+    },
+
+    upsertItem(item, mode = 'save', email = '') {
+      return db.workspace.request('POST', { action: 'item_upsert', item, mode }, email);
+    },
+
+    addComment(itemId, comment, email = '') {
+      return db.workspace.request('POST', { action: 'item_comment', itemId, comment }, email);
+    },
+
+    deleteItem(id, email = '') {
+      return db.workspace.request('POST', { action: 'item_delete', id }, email);
+    },
+
+    upsertCollection(collection, email = '') {
+      return db.workspace.request('POST', { action: 'collection_upsert', collection }, email);
+    },
+
+    deleteCollection(id, email = '') {
+      return db.workspace.request('POST', { action: 'collection_delete', id }, email);
+    },
+
+    syncMeta(key, data, email = '') {
+      return db.workspace.request('POST', { action: 'meta_sync', key, data }, email);
     },
   },
 

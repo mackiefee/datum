@@ -41,6 +41,8 @@ export function ChatMessages({
   onHoverSource,
   onOpenCard,
   onToggleFav,
+  onSaveToNote,
+  onSaveToTask,
   onOpenNamingStudio,
   onFlagGap,
   endRef = null,
@@ -66,11 +68,22 @@ export function ChatMessages({
       const primaryExtUrl = (msg.src || []).find((s) => s && s.url);
       const isPrimaryFav = primarySrc && favs.includes(primarySrc.id);
       const isGapFlagged = msg.query && flaggedQueries.has(msg.query);
+      const canClip =
+        !msg.busy && Boolean(msg.text) && !isGuest && Boolean(onSaveToNote || onSaveToTask);
+      const canFavPrimary = Boolean(
+        primarySrc &&
+          !isGuest &&
+          onToggleFav &&
+          !String(primarySrc.id).startsWith('task:') &&
+          !String(primarySrc.id).startsWith('note:') &&
+          !String(primarySrc.id).startsWith('res:')
+      );
       const hasActions =
         !msg.busy &&
         ((msg.actions && (msg.actions.suggestNamingStudio || msg.actions.noResultsGap)) ||
           Boolean(primaryExtUrl) ||
-          Boolean(primarySrc && !isGuest && onToggleFav));
+          canFavPrimary ||
+          canClip);
 
       return html`<div key=${msg.id} className="kspace-mob-msg is-assistant">
         <div className="kspace-mob-msg-head">
@@ -102,13 +115,21 @@ export function ChatMessages({
                 ? 'Open in Personal Tasks'
                 : s.brainKind === 'note'
                 ? 'Open in Private Notes'
+                : s.brainKind === 'resource'
+                ? 'Open in Personal Resources'
                 : s.sectionTitle
                 ? `Jump to § ${s.sectionTitle}`
                 : 'Open standard'}
             >
               <b>${s.index}</b>
               <span>
-                ${s.brainKind === 'task' ? 'Task · ' : s.brainKind === 'note' ? 'Note · ' : ''}${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}${s.stale ? ' (Review)' : ''}
+                ${s.brainKind === 'task'
+                  ? 'Task · '
+                  : s.brainKind === 'note'
+                  ? 'Note · '
+                  : s.brainKind === 'resource'
+                  ? 'Resource · '
+                  : ''}${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}${s.stale ? ' (Review)' : ''}
               </span>
               <span className="kspace-src-go">↗</span>
             </button>`
@@ -140,11 +161,7 @@ export function ChatMessages({
             <span>Open ${TY[primaryExtUrl.type] || 'Link'}</span>
           </a>`}
 
-          ${primarySrc &&
-          !isGuest &&
-          onToggleFav &&
-          !String(primarySrc.id).startsWith('task:') &&
-          !String(primarySrc.id).startsWith('note:') &&
+          ${canFavPrimary &&
           html`<button
             type="button"
             className=${'chat-act-chip' + (isPrimaryFav ? ' on' : '')}
@@ -152,6 +169,30 @@ export function ChatMessages({
           >
             <${Ic} n="star" s=${12} f=${isPrimaryFav} />
             <span>${isPrimaryFav ? 'Bookmarked' : 'Bookmark'}</span>
+          </button>`}
+
+          ${canClip &&
+          onSaveToNote &&
+          html`<button
+            type="button"
+            className="chat-act-chip"
+            onClick=${() => onSaveToNote(msg)}
+            title="Save AI answer as a Private Note in your Second Brain"
+          >
+            <${Ic} n="note" s=${12} />
+            <span>+ Save Note</span>
+          </button>`}
+
+          ${canClip &&
+          onSaveToTask &&
+          html`<button
+            type="button"
+            className="chat-act-chip"
+            onClick=${() => onSaveToTask(msg)}
+            title="Turn AI answer into a Personal Task"
+          >
+            <${Ic} n="check" s=${12} />
+            <span>+ To Task</span>
           </button>`}
 
           ${msg.actions &&

@@ -121,6 +121,8 @@ export function Pal(p) {
     }
   }, [p.isSpaceDockActive]);
 
+  const isGuest = p.role === "Guest";
+
   const runInlineAi = async (question) => {
     const t = String(question || '').trim();
     if (!t) return;
@@ -133,6 +135,9 @@ export function Pal(p) {
       userName: p.userName,
       allowedCategories: allowedCats,
       items: p.res || [],
+      personalTasks: p.privTasks || [],
+      personalNotes: p.privNotes || [],
+      personalResources: p.privResources || [],
       today: TODAY,
     });
     setAiAns({
@@ -146,10 +151,17 @@ export function Pal(p) {
 
   const A = [
     ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
-    ["My Tasks & Second Brain", "check", "tasks"],
-    ["New Personal Task (Alt+N)", "plus", "quick-task"],
-    ["New Private Note", "note", "quick-note"],
+    ...(!isGuest
+      ? [
+          ["My Tasks & Second Brain", "check", "tasks"],
+          ["Morning Focus Dashboard", "spark", "focus"],
+          ["New Personal Task (Alt+N)", "plus", "quick-task"],
+          ["New Private Note", "note", "quick-note"],
+          ["Save Personal Resource", "link", "quick-resource"],
+        ]
+      : []),
     ["Knowledge Space (3D)", "globe", "kb-space"],
+    ["Team Resources & Catalog", "folder", "team-resources"],
     ["Naming Studio (Wall & Element Builder)", "layers", "view", "naming"],
     ["Knowledge Base (Grid)", "layout", "view", "kb"],
     ["Playbooks & Kits", "folder", "kits"],
@@ -170,6 +182,55 @@ export function Pal(p) {
         })()
       : [...(p.res || [])].sort((a, b) => (b.upd || '').localeCompare(a.upd || ''))
   ).slice(0, 6);
+
+  const brainMatches = (() => {
+    if (isGuest || !s) return [];
+    const out = [];
+    const tokens = tokenizeUnique(s);
+    const matchesText = (txt) => {
+      const low = String(txt || "").toLowerCase();
+      if (low.includes(s)) return true;
+      return tokens.length > 0 && tokens.every((tk) => low.includes(tk));
+    };
+
+    for (const r of p.privResources || []) {
+      const hayStr = `${r.title || ""} ${r.url || ""} ${r.notes || ""} ${r.project || ""} ${r.kind || ""}`;
+      if (matchesText(hayStr)) {
+        out.push({
+          t: r.title || "Personal Resource",
+          d: `Personal Resource${r.project ? ` · ${r.project}` : r.kind ? ` · ${r.kind}` : ""}`,
+          n: "link",
+          c: "#30d158",
+          run: () => p.act("open-brain-resource", r.id),
+        });
+      }
+    }
+    for (const n of p.privNotes || []) {
+      const hayStr = `${n.title || ""} ${n.body || ""} ${n.project || ""} ${(n.tags || []).join(" ")}`;
+      if (matchesText(hayStr)) {
+        out.push({
+          t: n.title || "Private Note",
+          d: `Private Note${n.project ? ` · ${n.project}` : ""}`,
+          n: "note",
+          c: "#bf5af2",
+          run: () => p.act("open-brain-note", n.id),
+        });
+      }
+    }
+    for (const t of p.privTasks || []) {
+      const hayStr = `${t.title || ""} ${t.notes || ""} ${t.project || ""} ${t.priority || ""}`;
+      if (matchesText(hayStr)) {
+        out.push({
+          t: t.title || "Personal Task",
+          d: `Personal Task${t.project ? ` · ${t.project}` : t.due ? ` · Due ${t.due}` : ""}`,
+          n: "check",
+          c: t.done ? "#34c759" : "#0a84ff",
+          run: () => p.act("open-brain-task", t.id),
+        });
+      }
+    }
+    return out.slice(0, 5);
+  })();
 
   const snip = (r) => {
     const cat = byId(r.node, p.tree);
@@ -192,6 +253,7 @@ export function Pal(p) {
   const it = [
     ...recentItems,
     ...arts.map((r) => ({ t: r.title, d: snip(r), n: r.type, c: DC[r.disc], run: () => p.act("read", r.id) })),
+    ...brainMatches,
     ...A.filter((a) => !s || a[0].toLowerCase().includes(s)).map((a) => ({
       t: a[0],
       d: "Navigation / Action",
@@ -458,11 +520,29 @@ export function Pal(p) {
                     onClick=${() => p.act("read", src.id, src.sectionId)}
                   >
                     <b>${src.index}</b>
-                    <span>${src.title}${src.sectionTitle ? ` · § ${src.sectionTitle}` : ''}</span>
+                    <span>
+                      ${src.brainKind === 'task'
+                        ? 'Task · '
+                        : src.brainKind === 'note'
+                        ? 'Note · '
+                        : src.brainKind === 'resource'
+                        ? 'Resource · '
+                        : ''}${src.title}${src.sectionTitle ? ` · § ${src.sectionTitle}` : ''}
+                    </span>
                   </button>`
                 )}
               </div>
               <div style=${{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                ${!isGuest &&
+                p.onSaveAiNote &&
+                aiAns.text &&
+                html`<button
+                  type="button"
+                  className="sw-ai-space"
+                  onClick=${() => p.onSaveAiNote({ query: aiAns.q, text: aiAns.text, src: aiAns.src })}
+                >
+                  + Save Note
+                </button>`}
                 ${aiAns.actions &&
                 aiAns.actions.suggestNamingStudio &&
                 p.onOpenNamingStudio &&

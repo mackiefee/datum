@@ -2005,7 +2005,11 @@ export function Reader(p) {
 
   const handleReaderSource = (s) => {
     if (!s || !s.id) return;
-    if (String(s.id).startsWith('task:') || String(s.id).startsWith('note:')) {
+    if (
+      String(s.id).startsWith('task:') ||
+      String(s.id).startsWith('note:') ||
+      String(s.id).startsWith('res:')
+    ) {
       p.onOpenBrainSource && p.onOpenBrainSource(s);
       return;
     }
@@ -2097,18 +2101,38 @@ export function Reader(p) {
   const V = (k) => html`<i key=${k} className="ewv"></i>`;
   const pct = Math.round(pg * 100);
 
+  const curSec = useMemo(
+    () => (act ? tocItems.find((x) => x.id === act) || null : null),
+    [tocItems, act]
+  );
+
   const TL = (t) =>
-    html`<a
-      key=${t.id}
-      href=${'#' + t.id}
-      className=${(t.l === 3 ? 'l3 ' : '') + (act === t.id ? 'on' : '')}
-      onClick=${(e) => {
-        e.preventDefault();
-        goToId(t.id);
-      }}
-    >
-      ${t.t}
-    </a>`;
+    html`<div key=${t.id} className="toc-row">
+      <a
+        href=${'#' + t.id}
+        className=${(t.l === 3 ? 'l3 ' : '') + (act === t.id ? 'on' : '')}
+        onClick=${(e) => {
+          e.preventDefault();
+          goToId(t.id);
+        }}
+      >
+        ${t.t}
+      </a>
+      ${!isGuest &&
+      p.onAddNoteForDoc &&
+      html`<button
+        type="button"
+        className="toc-clip"
+        title=${`Clip § ${t.t} to Private Note`}
+        aria-label=${`Clip ${t.t} to Private Note`}
+        onClick=${(e) => {
+          e.stopPropagation();
+          p.onAddNoteForDoc(r, { id: t.id, title: t.t });
+        }}
+      >
+        <${Ic} n="plus" s=${12} />
+      </button>`}
+    </div>`;
 
   const dupMatch = useMemo(() => {
     if (!canEditItem || titleVal.trim().length <= 5) return null;
@@ -2123,6 +2147,7 @@ export function Reader(p) {
   const backlinks = useMemo(() => {
     const idStr = String(r.id);
     const wikiNeedle = `|${idStr}]]`;
+    const wikiTitleNeedle = r.title ? `[[${r.title.trim().toLowerCase()}]]` : '';
     const docs = (res || [])
       .filter((x) => {
         if (!x || x.id === r.id) return false;
@@ -2139,7 +2164,10 @@ export function Reader(p) {
     const noteMentions = (p.privNotes || [])
       .filter((n) => {
         const linked = Array.isArray(n.linkedItemIds) && n.linkedItemIds.includes(r.id);
-        const inBody = (n.body || '').includes(wikiNeedle);
+        const bodyLow = (n.body || '').toLowerCase();
+        const inBody =
+          (n.body || '').includes(wikiNeedle) ||
+          (wikiTitleNeedle && bodyLow.includes(wikiTitleNeedle));
         return linked || inBody;
       })
       .map((n) => ({
@@ -2149,8 +2177,21 @@ export function Reader(p) {
         sub: n.project ? `Note · ${n.project}` : 'Private Note',
         color: '#bf5af2',
       }));
-    return [...docs, ...noteMentions];
-  }, [res, r.id, p.privNotes]);
+    const resourceMentions = (p.privResources || [])
+      .filter(
+        (pr) =>
+          Number(pr.linkedItemId) === Number(r.id) ||
+          (Array.isArray(pr.linkedItemIds) && pr.linkedItemIds.includes(r.id))
+      )
+      .map((pr) => ({
+        kind: 'resource',
+        id: pr.id,
+        title: pr.title || 'Personal Resource',
+        sub: pr.project ? `Resource · ${pr.project}` : 'Resource',
+        color: '#30d158',
+      }));
+    return [...docs, ...noteMentions, ...resourceMentions];
+  }, [res, r.id, r.title, p.privNotes, p.privResources]);
 
   const titlePeer = peers.find((x) => x.activeField === 'title');
   const descPeer = peers.find((x) => x.activeField === 'desc');
@@ -2259,12 +2300,24 @@ export function Reader(p) {
           </button>
 
           ${!isGuest &&
+          p.onAddNoteForDoc &&
+          html`<button
+            type="button"
+            className="btn sm rd-task-btn"
+            onClick=${() => p.onAddNoteForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null)}
+            title=${curSec ? `Clip § ${curSec.t} to Private Note` : 'Clip document to Private Note'}
+          >
+            <${Ic} n="note" s=${13} />
+            <span>+ Note</span>
+          </button>`}
+
+          ${!isGuest &&
           p.onAddTaskForDoc &&
           html`<button
             type="button"
             className="btn sm rd-task-btn"
-            onClick=${() => p.onAddTaskForDoc(r)}
-            title="Create personal task linked to this document"
+            onClick=${() => p.onAddTaskForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null)}
+            title=${curSec ? `Create task linked to § ${curSec.t}` : 'Create personal task linked to this document'}
           >
             <${Ic} n="check" s=${13} />
             <span>+ Task</span>
@@ -2592,7 +2645,7 @@ export function Reader(p) {
         html`<details className="rd-backlinks">
           <summary>
             <span>Backlinks (${backlinks.length})</span>
-            <small>Standards & notes referencing this page</small>
+            <small>Standards, notes & resources referencing this page</small>
           </summary>
           <div className="rd-backlinks-list">
             ${backlinks.map(
@@ -2602,7 +2655,9 @@ export function Reader(p) {
                 className="rd-backlink-chip"
                 onClick=${() => {
                   if (b.kind === 'doc') p.go && p.go(b.id);
-                  else if (p.onOpenNote) p.onOpenNote(b.id);
+                  else if (b.kind === 'note' && p.onOpenNote) p.onOpenNote(b.id);
+                  else if (b.kind === 'resource' && p.onOpenBrainSource)
+                    p.onOpenBrainSource({ id: `res:${b.id}`, brainKind: 'resource', title: b.title });
                 }}
               >
                 <i className="rd-bl-dot" style=${{ background: b.color }} />
@@ -2681,6 +2736,8 @@ export function Reader(p) {
                   onSelectSource=${handleReaderSource}
                   onOpenCard=${(id) => handleReaderSource({ id })}
                   onToggleFav=${p.tf}
+                  onSaveToNote=${p.onSaveToNote}
+                  onSaveToTask=${p.onSaveToTask}
                   onOpenNamingStudio=${p.onOpenNamingStudio}
                   onFlagGap=${p.onFlagGap}
                   endRef=${readerChatEndRef}

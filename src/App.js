@@ -426,9 +426,64 @@ export function App() {
     }
   };
 
+  const resRef = useRef(res);
+  resRef.current = res;
+  const workspaceHydratedRef = useRef(false);
+  const lastMetaSyncRef = useRef({ tree: "", activities: "", req: "" });
+
+  const refreshWorkspace = async (emailOverride = "") => {
+    const callerEmail = (emailOverride || sessionEmail || "").trim().toLowerCase();
+    if (!callerEmail) return null;
+    try {
+      let snap = await db.workspace.fetchSnapshot(callerEmail);
+      if (snap && snap.configured && snap.needsSeed) {
+        await db.workspace
+          .seedIfEmpty(
+            {
+              items: [GUIDE, ...SEED],
+              collections: SEED_COLLECTIONS,
+              tree: TREE,
+              activities: SEED_ACTIVITIES,
+              requiredIds: req,
+            },
+            callerEmail
+          )
+          .catch(() => null);
+        snap = await db.workspace.fetchSnapshot(callerEmail);
+      }
+      if (!snap || !snap.configured) return snap;
+
+      if (Array.isArray(snap.items) && snap.items.length > 0) {
+        edgeClient.clearAiCache();
+        setRes(snap.items);
+        resRef.current = snap.items;
+      }
+      if (Array.isArray(snap.collections) && snap.collections.length > 0) {
+        setCols(snap.collections);
+      }
+      if (Array.isArray(snap.tree) && snap.tree.length > 0) {
+        setTree(snap.tree);
+        lastMetaSyncRef.current.tree = JSON.stringify(snap.tree);
+      }
+      if (Array.isArray(snap.activities)) {
+        setActivities(snap.activities);
+        lastMetaSyncRef.current.activities = JSON.stringify(snap.activities);
+      }
+      if (Array.isArray(snap.requiredIds)) {
+        setReq(snap.requiredIds);
+        lastMetaSyncRef.current.req = JSON.stringify(snap.requiredIds);
+      }
+      workspaceHydratedRef.current = true;
+      return snap;
+    } catch (e) {
+      return null;
+    }
+  };
+
   useEffect(() => {
     if (!sessionEmail || isGuest) return;
     refreshDirectory(sessionEmail);
+    refreshWorkspace(sessionEmail);
   }, [sessionEmail, isGuest]);
 
   const dxr = useRef(null);
@@ -512,6 +567,47 @@ export function App() {
     window.__t = setTimeout(() => setToast(null), 2600);
   };
 
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || isGuest) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(activities.slice(0, 60));
+      if (serialized !== lastMetaSyncRef.current.activities) {
+        lastMetaSyncRef.current.activities = serialized;
+        db.workspace.syncMeta("activities", activities.slice(0, 60), sessionEmail).catch(() => {});
+      }
+    }, 900);
+    return () => clearTimeout(t);
+  }, [activities, sessionEmail, isGuest]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || !can.createDraft(role)) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(tree);
+      if (serialized !== lastMetaSyncRef.current.tree) {
+        lastMetaSyncRef.current.tree = serialized;
+        db.workspace.syncMeta("categories_tree", tree, sessionEmail).catch(() => {});
+      }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [tree, sessionEmail, role]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || !can.createDraft(role)) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(req);
+      if (serialized !== lastMetaSyncRef.current.req) {
+        lastMetaSyncRef.current.req = serialized;
+        db.workspace.syncMeta("required_ids", req, sessionEmail).catch(() => {});
+      }
+    }, 600);
+    return () => clearTimeout(t);
+  }, [req, sessionEmail, role]);
+
+  const syncSharedItem = (item, mode = "save") => {
+    if (!item || !sessionEmail || isGuest) return;
+    db.workspace.upsertItem(item, mode, sessionEmail).catch(() => {});
+  };
+
   const logAct = (action, targetType, targetId, targetTitle, note = "") => {
     setActivities((prev) => [
       { id: "act-" + Date.now() + Math.random().toString(36).slice(2, 5), actor: userName, action, targetType, targetId: String(targetId), targetTitle, note, at: TODAY },
@@ -527,6 +623,15 @@ export function App() {
   const upd = (id, fn) => {
     db.invalidateArticle(id);
     edgeClient.clearAiCache();
+    const prevItem = resRef.current.find((r) => r.id === id);
+    if (prevItem) {
+      const nextItem = fn(prevItem);
+      const nextList = resRef.current.map((r) => (r.id === id ? nextItem : r));
+      resRef.current = nextList;
+      setRes(nextList);
+      syncSharedItem(nextItem, "save");
+      return;
+    }
     setRes((rs) => rs.map((r) => (r.id === id ? fn(r) : r)));
   };
   const titleOf = (id) => (res.find((r) => r.id === id) || {}).title || "";
@@ -559,7 +664,13 @@ export function App() {
       logAct("Rolled Back", "item", id, titleOf(id), "to v" + v.n);
     },
     onComment: (id, t) => {
-      upd(id, (r) => ({ ...r, c: [...r.c, { by: userName, d: TODAY, t }] }));
+      const nextComment = { by: userName, d: TODAY, t };
+      db.invalidateArticle(id);
+      edgeClient.clearAiCache();
+      setRes((rs) => rs.map((r) => (r.id === id ? { ...r, c: [...(r.c || []), nextComment] } : r)));
+      if (sessionEmail && !isGuest) {
+        db.workspace.addComment(id, nextComment, sessionEmail).catch(() => {});
+      }
       push(`Commented on “${titleOf(id)}”`, id);
     },
     onLink: (id, to, t) => {
@@ -626,30 +737,31 @@ export function App() {
     const body = initial.body || "";
     db.invalidateArticle(id);
     edgeClient.clearAiCache();
-    setRes((rs) => [
-      {
-        id,
-        node,
-        title,
-        desc: initial.desc || "",
-        url: initial.url || "",
-        body,
-        type: initial.type || "doc",
-        status: "Draft",
-        vis: (catObj && catObj.vis) || "Internal",
-        stage: STG[0],
-        disc: (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
-        tags: initial.tags || [],
-        links: [],
-        c: [],
-        publicAttachments: [],
-        author: userName,
-        upd: TODAY,
-        verified: TODAY,
-        v: [{ n: 1, by: userName, d: TODAY, note: "Created", body }],
-      },
-      ...rs,
-    ]);
+    const newItem = {
+      id,
+      node,
+      title,
+      desc: initial.desc || "",
+      url: initial.url || "",
+      body,
+      type: initial.type || "doc",
+      status: "Draft",
+      vis: (catObj && catObj.vis) || "Internal",
+      stage: STG[0],
+      disc: (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
+      tags: initial.tags || [],
+      links: [],
+      c: [],
+      publicAttachments: [],
+      author: userName,
+      upd: TODAY,
+      verified: TODAY,
+      v: [{ n: 1, by: userName, d: TODAY, note: "Created", body }],
+    };
+    const nextList = [newItem, ...resRef.current];
+    resRef.current = nextList;
+    setRes(nextList);
+    syncSharedItem(newItem, "save");
     logAct("Created", "item", id, title || "Untitled", "Draft");
     push(title ? `Created “${title}”` : "Created new live draft", id);
     rd(id);
@@ -686,7 +798,14 @@ export function App() {
     const t = titleOf(id);
     db.invalidateArticle(id);
     edgeClient.clearAiCache();
-    setRes((rs) => rs.filter((x) => x.id !== id).map((x) => ({ ...x, links: x.links.filter((l) => l[0] !== id) })));
+    const nextList = resRef.current
+      .filter((x) => x.id !== id)
+      .map((x) => ({ ...x, links: (x.links || []).filter((l) => l[0] !== id) }));
+    resRef.current = nextList;
+    setRes(nextList);
+    if (sessionEmail && !isGuest) {
+      db.workspace.deleteItem(id, sessionEmail).catch(() => {});
+    }
     setFavs((a) => a.filter((x) => x !== id));
     setPinned((a) => a.filter((x) => x !== id));
     setRead(null);
@@ -813,10 +932,29 @@ export function App() {
 
   const pa = (k, a, b) => {
     setPal(false);
-    if (k === "read") rd(a, b ? { sectionId: b } : undefined);
+    if (k === "read") {
+      if (
+        String(a).startsWith("task:") ||
+        String(a).startsWith("note:") ||
+        String(a).startsWith("res:")
+      ) {
+        openBrainSource({ id: String(a) });
+      } else {
+        rd(a, b ? { sectionId: b } : undefined);
+      }
+    }
     else if (k === "new") createNewDoc();
     else if (k === "quick-task") setQcModal({ mode: "task", doc: null });
     else if (k === "quick-note") setQcModal({ mode: "note", doc: null });
+    else if (k === "quick-resource") setQcModal({ mode: "resource", doc: null });
+    else if (k === "focus") {
+      setBrainTabSeed("focus");
+      goV("tasks");
+    }
+    else if (k === "team-resources") handleNavSwitch("team-resources");
+    else if (k === "open-brain-task") openBrainSource({ id: "task:" + a });
+    else if (k === "open-brain-note") openBrainSource({ id: "note:" + a });
+    else if (k === "open-brain-resource") openBrainSource({ id: "res:" + a });
     else if (k === "tasks") {
       setBrainTabSeed(a || "all");
       goV("tasks");
@@ -935,6 +1073,7 @@ export function App() {
   const brainOwnerEmail = db.brain.normalizeEmail(activeUser?.email || (activeUser?.id ? `${activeUser.id}@datum.local` : ""));
   const [tasks, setTasks] = useState(() => db.brain.loadLocal(brainOwnerEmail).tasks);
   const [privNotes, setPrivNotes] = useState(() => db.brain.loadLocal(brainOwnerEmail).notes);
+  const [privResources, setPrivResources] = useState(() => db.brain.loadLocal(brainOwnerEmail).resources || []);
   const [plannerPrefs, setPlannerPrefs] = useState(() =>
     normalizePlannerPrefs(db.brain.loadLocal(brainOwnerEmail).state?.plannerPrefs, db.brain.loadLocal(brainOwnerEmail).tasks)
   );
@@ -950,6 +1089,7 @@ export function App() {
     if (!brainOwnerEmail || isGuest) {
       setTasks([]);
       setPrivNotes([]);
+      setPrivResources([]);
       setPlannerPrefs(normalizePlannerPrefs(null, []));
       brainHydratedEmailRef.current = "";
       return;
@@ -960,6 +1100,7 @@ export function App() {
     const localTasks = Array.isArray(local.tasks) ? local.tasks : [];
     setTasks(localTasks);
     setPrivNotes(Array.isArray(local.notes) ? local.notes : []);
+    setPrivResources(Array.isArray(local.resources) ? local.resources : []);
     setPlannerPrefs(normalizePlannerPrefs(local.state?.plannerPrefs, localTasks));
     setBrainHighlightId(null);
 
@@ -970,11 +1111,13 @@ export function App() {
         const remoteTasks = Array.isArray(snap.tasks) ? snap.tasks : localTasks;
         if (Array.isArray(snap.tasks)) setTasks(snap.tasks);
         if (Array.isArray(snap.notes)) setPrivNotes(snap.notes);
+        if (Array.isArray(snap.resources)) setPrivResources(snap.resources);
         if (snap.state && snap.state.exists) {
           if (Array.isArray(snap.state.favs)) setFavs(snap.state.favs);
           if (Array.isArray(snap.state.pinned)) setPinned(snap.state.pinned);
           if (snap.state.acks && typeof snap.state.acks === "object") setAcks(snap.state.acks);
           if (snap.state.chk && typeof snap.state.chk === "object") setChk(snap.state.chk);
+          if (Array.isArray(snap.state.history) && snap.state.history.length > 0) setHist(snap.state.history);
           setPlannerPrefs(normalizePlannerPrefs(snap.state.plannerPrefs, remoteTasks));
           if (Array.isArray(snap.state.chats) && snap.state.chats.length > 0) {
             setChats(snap.state.chats);
@@ -1003,14 +1146,14 @@ export function App() {
 
   useEffect(() => {
     if (!brainOwnerEmail || isGuest || brainHydratedEmailRef.current !== brainOwnerEmail) return;
-    const payload = { favs, pinned, acks, chk, chats, activeChatId, plannerPrefs };
+    const payload = { favs, pinned, acks, chk, chats, activeChatId, plannerPrefs, history: hist };
     db.brain.saveLocalState(brainOwnerEmail, payload);
     clearTimeout(brainStateSyncTimerRef.current);
     brainStateSyncTimerRef.current = setTimeout(() => {
       db.brain.syncState(brainOwnerEmail, payload).catch(() => {});
     }, 700);
     return () => clearTimeout(brainStateSyncTimerRef.current);
-  }, [favs, pinned, acks, chk, chats, activeChatId, plannerPrefs, brainOwnerEmail, isGuest]);
+  }, [favs, pinned, acks, chk, chats, activeChatId, plannerPrefs, hist, brainOwnerEmail, isGuest]);
 
   const rememberCategoryAndProject = (projectVal, categoryVal) => {
     const cleanP = String(projectVal || "").trim();
@@ -1211,6 +1354,197 @@ export function App() {
     }
   };
 
+  const savePrivResource = async (resInput) => {
+    if (!brainOwnerEmail || isGuest) return null;
+    const id = resInput.id || makeUuid();
+    const nowIso = new Date().toISOString();
+    const optimistic = {
+      id,
+      ownerEmail: resInput.ownerEmail || brainOwnerEmail,
+      title: String(resInput.title || "").trim() || String(resInput.url || "").trim() || "Saved Resource",
+      url: String(resInput.url || "").trim(),
+      kind: ["link", "tool", "snippet", "template"].includes(resInput.kind) ? resInput.kind : "link",
+      snippet: String(resInput.snippet || ""),
+      notes: String(resInput.notes || ""),
+      project: String(resInput.project || "General").trim() || "General",
+      tags: Array.isArray(resInput.tags) ? resInput.tags : [],
+      sharedWithEmails: Array.isArray(resInput.sharedWithEmails) ? resInput.sharedWithEmails : [],
+      isPinned: Boolean(resInput.isPinned),
+      linkedItemId: resInput.linkedItemId ?? null,
+      linkedItemTitle: resInput.linkedItemTitle || "",
+      linkedSection: resInput.linkedSection || "",
+      createdAt: resInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    rememberCategoryAndProject(optimistic.project, "");
+    edgeClient.clearAiCache();
+    setPrivResources((prev) => {
+      const exists = prev.some((x) => x.id === id);
+      const next = exists ? prev.map((x) => (x.id === id ? optimistic : x)) : [optimistic, ...prev];
+      db.brain.saveLocalResources(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      const resSync = await db.brain.upsertResource(brainOwnerEmail, optimistic);
+      if (resSync && resSync.resource) {
+        setPrivResources((prev) => {
+          const next = prev.map((x) => (x.id === id ? resSync.resource : x));
+          db.brain.saveLocalResources(brainOwnerEmail, next);
+          return next;
+        });
+      }
+      setBrainSyncState("synced");
+      return (resSync && resSync.resource) || optimistic;
+    } catch (e) {
+      setBrainSyncState("error");
+      return optimistic;
+    }
+  };
+
+  const deletePrivResource = async (id) => {
+    if (!brainOwnerEmail || isGuest || !id) return;
+    edgeClient.clearAiCache();
+    setPrivResources((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      db.brain.saveLocalResources(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      await db.brain.deleteResource(brainOwnerEmail, id);
+      setBrainSyncState("synced");
+    } catch (e) {
+      setBrainSyncState("error");
+    }
+  };
+
+  const shareResourceWithTeammates = async (resObj, nextEmails) => {
+    if (!resObj || !resObj.id) return;
+    await savePrivResource({ ...resObj, sharedWithEmails: nextEmails });
+    flash(nextEmails.length ? `Shared with ${nextEmails.length} teammate(s)` : "Sharing removed");
+  };
+
+  const suggestItemToGovernance = async ({ title, desc, url, body, project, kindTag, label }) => {
+    if (!sessionEmail || isGuest) return;
+    const id = Date.now();
+    const defaultNode = "c10-ovw-std";
+    const catObj = byId(defaultNode, tree);
+    const suggestedItem = {
+      id,
+      node: defaultNode,
+      title: String(title || "Suggested Knowledge Item").trim(),
+      desc: String(desc || "Submitted from Personal Second Brain for Governance review").trim().slice(0, 180),
+      url: String(url || "").trim(),
+      body: String(body || "").trim(),
+      type: url ? "link" : "doc",
+      status: "Review",
+      vis: "Internal",
+      stage: STG[0],
+      disc: (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
+      tags: [...new Set([project || "General", kindTag].filter(Boolean))],
+      links: [],
+      c: [],
+      publicAttachments: [],
+      author: userName,
+      authorEmail: sessionEmail,
+      upd: TODAY,
+      verified: TODAY,
+      v: [{ n: 1, by: userName, d: TODAY, note: `Suggested from Personal ${label}`, body: String(body || "") }],
+    };
+    const nextList = [suggestedItem, ...resRef.current];
+    resRef.current = nextList;
+    setRes(nextList);
+    try {
+      await db.workspace.upsertItem(suggestedItem, "suggest", sessionEmail);
+      logAct(`Suggested Team ${label}`, "item", id, suggestedItem.title, "Pending Governance Review");
+      flash(`Submitted “${suggestedItem.title}” to Administration → Governance`);
+    } catch (e) {
+      flash(e.message || "Suggestion saved locally — check connection");
+    }
+  };
+
+  const suggestResourceToTeamKb = (resObj) =>
+    suggestItemToGovernance({
+      title: resObj.title,
+      desc: resObj.notes || resObj.url || `Personal ${resObj.kind || "resource"}`,
+      url: resObj.url,
+      body: [
+        resObj.notes || "",
+        resObj.snippet ? `\n\`\`\`\n${resObj.snippet}\n\`\`\`` : "",
+        resObj.url ? `\nReference URL: ${resObj.url}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      project: resObj.project,
+      kindTag: resObj.kind || "resource",
+      label: "Resource",
+    });
+
+  const suggestNoteToTeamKb = (noteObj) =>
+    suggestItemToGovernance({
+      title: noteObj.title || "Suggested Standard Note",
+      desc: (noteObj.body || "").replace(/[#*`>\[\]]/g, "").slice(0, 160),
+      url: "",
+      body: noteObj.body || "",
+      project: noteObj.project,
+      kindTag: "note",
+      label: "Note",
+    });
+
+  const saveAiMessageToNote = (msg) => {
+    if (isGuest || !msg) return;
+    const rawSrcs = Array.isArray(msg.src) ? msg.src : [];
+    const docSrcs = rawSrcs.filter(
+      (s) =>
+        s &&
+        s.id &&
+        !String(s.id).startsWith("task:") &&
+        !String(s.id).startsWith("note:") &&
+        !String(s.id).startsWith("res:")
+    );
+    const linkedItemIds = docSrcs.map((s) => Number(s.id)).filter(Number.isFinite);
+    const citationsBlock = docSrcs.length
+      ? `\n\nSources:\n${docSrcs.map((s) => `- [[${s.title}|${s.id}]]${s.sectionTitle ? ` · § ${s.sectionTitle}` : ""}`).join("\n")}`
+      : "";
+    setQcModal({
+      mode: "note",
+      doc: linkedItemIds[0] ? res.find((x) => Number(x.id) === linkedItemIds[0]) || null : null,
+      note: {
+        title: msg.query ? `AI: ${String(msg.query).slice(0, 64)}` : msg.scopeDocTitle ? `AI: ${msg.scopeDocTitle}` : "AI Research Note",
+        body: `${String(msg.text || "").trim()}${citationsBlock}`,
+        project: "General",
+        isPinned: false,
+        linkedItemIds,
+      },
+    });
+  };
+
+  const saveAiMessageToTask = (msg) => {
+    if (isGuest || !msg) return;
+    const rawSrcs = Array.isArray(msg.src) ? msg.src : [];
+    const firstDoc = rawSrcs.find(
+      (s) =>
+        s &&
+        s.id &&
+        !String(s.id).startsWith("task:") &&
+        !String(s.id).startsWith("note:") &&
+        !String(s.id).startsWith("res:")
+    );
+    setQcModal({
+      mode: "task",
+      doc: firstDoc ? res.find((x) => Number(x.id) === Number(firstDoc.id)) || null : null,
+      task: {
+        title: msg.query ? `Follow up: ${String(msg.query).slice(0, 72)}` : "Follow up AI answer",
+        notes: String(msg.text || "").trim().slice(0, 600),
+        project: "General",
+        dueDate: localIsoToday(),
+        linkedItemId: firstDoc ? Number(firstDoc.id) : null,
+        linkedItemTitle: firstDoc ? firstDoc.title : "",
+      },
+    });
+  };
+
   const handleQuickCommand = (rawText) => {
     if (isGuest) return false;
     const t = String(rawText || "").trim();
@@ -1271,6 +1605,13 @@ export function App() {
       goV("tasks");
       return true;
     }
+    if (raw.startsWith("res:")) {
+      setRead(null);
+      setBrainHighlightId(raw.slice(4));
+      setBrainTabSeed("resources");
+      goV("tasks");
+      return true;
+    }
     return false;
   };
 
@@ -1278,8 +1619,9 @@ export function App() {
     const s = new Set([...(plannerPrefs.projects || [])]);
     tasks.forEach((t) => t.project && s.add(t.project));
     privNotes.forEach((n) => n.project && s.add(n.project));
+    privResources.forEach((r) => r.project && s.add(r.project));
     return [...s].sort();
-  }, [plannerPrefs.projects, tasks, privNotes]);
+  }, [plannerPrefs.projects, tasks, privNotes, privResources]);
 
   const brainCategories = useMemo(() => {
     const s = new Set([...(plannerPrefs.categories || [])]);
@@ -1369,6 +1711,7 @@ export function App() {
             };
           }),
       personalNotes: isGuest ? [] : privNotes,
+      personalResources: isGuest ? [] : privResources,
       clientDate: todayIso,
       targetDocId: scopeDocId,
       scope,
@@ -1514,7 +1857,9 @@ export function App() {
       : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
   const pageTitle =
-    view === "kb" || view === "home" || view === "space"
+    catFilter === "res" && (view === "kb" || view === "home" || view === "space" || view === "lib")
+      ? "Team Resources"
+      : view === "kb" || view === "home" || view === "space"
       ? "Knowledge Space"
       : view === "wall"
       ? "Detail Wall"
@@ -1525,7 +1870,7 @@ export function App() {
       : view === "naming"
       ? "Naming Studio"
       : view === "tasks"
-      ? "Tasks & Brain"
+      ? "Second Brain"
       : view === "reslib"
       ? "Resource Library"
       : view === "boards"
@@ -1559,9 +1904,19 @@ export function App() {
       : (a, b) => b.upd.localeCompare(a.upd)
   );
 
-  const addCol = (c) => setCols((prev) => [c, ...prev]);
-  const saveCol = (c) => setCols((prev) => prev.map((x) => (x.id === c.id ? c : x)));
-  const delCol = (id) => setCols((prev) => prev.filter((x) => x.id !== id));
+  const addCol = (c) => {
+    const colObj = { ...c, ownerEmail: c.ownerEmail || sessionEmail || "" };
+    setCols((prev) => [colObj, ...prev]);
+    if (sessionEmail && !isGuest) db.workspace.upsertCollection(colObj, sessionEmail).catch(() => {});
+  };
+  const saveCol = (c) => {
+    setCols((prev) => prev.map((x) => (x.id === c.id ? c : x)));
+    if (sessionEmail && !isGuest) db.workspace.upsertCollection(c, sessionEmail).catch(() => {});
+  };
+  const delCol = (id) => {
+    setCols((prev) => prev.filter((x) => x.id !== id));
+    if (sessionEmail && !isGuest) db.workspace.deleteCollection(id, sessionEmail).catch(() => {});
+  };
 
   // Sync Directory Handlers (Live Supabase public.users + auth.users)
   const reassignLocalOwnership = (oldName, targetName) => {
@@ -1744,6 +2099,7 @@ export function App() {
     setAuthSession(syncedSession);
     if (!isGuestAuth && email) {
       refreshDirectory(email);
+      refreshWorkspace(email);
     }
     setRead(null);
     setSel(null);
@@ -1868,6 +2224,8 @@ export function App() {
   const activeSwitcherKey =
     view === "kb" && catFilter === "kits"
       ? "kits"
+      : (view === "kb" || view === "lib") && catFilter === "res"
+      ? "team-resources"
       : view === "naming" || view === "team" || view === "admin" || view === "tasks"
       ? view
       : view === "lib" && (cur === "fav" || cur === "drafts" || cur === "recent")
@@ -1882,6 +2240,14 @@ export function App() {
       setCatFilter("all");
       setCur("all");
       setKbDisplay("space");
+      setSpaceStageOpen(true);
+      goV("kb");
+    } else if (key === "team-resources") {
+      setRead(null);
+      setActiveKitId(null);
+      setCur("all");
+      setCatFilter("res");
+      setKbDisplay("grid");
       setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "kits") {
@@ -2013,6 +2379,16 @@ export function App() {
 
       <button
         type="button"
+        className=${"ti" + (activeSwitcherKey === "team-resources" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("team-resources")}
+      >
+        <span className="side-ico"><${Ic} n="link" s=${15} /></span>
+        <span className="tn">Team Resources</span>
+      </button>
+
+      <button
+        type="button"
         className=${"ti" + (view === "naming" ? " on" : "")}
         style=${{ paddingLeft: 10 }}
         onClick=${() => handleNavSwitch("naming")}
@@ -2067,7 +2443,7 @@ export function App() {
         <div className="sec">Personal</div>
         <button type="button" className=${"ti" + (view === "tasks" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => handleNavSwitch("tasks")}>
           <span className="side-ico"><${Ic} n="check" s=${15} /></span>
-          <span className="tn">Tasks & Notes</span>
+          <span className="tn">Second Brain</span>
           ${openTasksCount > 0 && html`<span className="ct">${openTasksCount}</span>`}
         </button>
         <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
@@ -2186,6 +2562,10 @@ export function App() {
           userName=${userName}
           cols=${visibleCols}
           favs=${favs}
+          privTasks=${isGuest ? [] : tasks}
+          privNotes=${isGuest ? [] : privNotes}
+          privResources=${isGuest ? [] : privResources}
+          onSaveAiNote=${!isGuest ? saveAiMessageToNote : null}
           recentSearches=${recentSearches}
           onLogSearch=${logSearch}
           onOpenNamingStudio=${openNamingFromChat}
@@ -2270,7 +2650,11 @@ export function App() {
         }}
         onOpenPublic=${(t) => setPubTarget(t)}
         privNotes=${isGuest ? [] : privNotes}
-        onAddTaskForDoc=${!isGuest ? (doc) => setQcModal({ mode: "task", doc }) : null}
+        privResources=${isGuest ? [] : privResources}
+        onAddTaskForDoc=${!isGuest ? (doc, sec) => setQcModal({ mode: "task", doc, linkedSection: sec?.title || "" }) : null}
+        onAddNoteForDoc=${!isGuest ? (doc, sec) => setQcModal({ mode: "note", doc, linkedSection: sec?.title || "" }) : null}
+        onSaveToNote=${!isGuest ? saveAiMessageToNote : null}
+        onSaveToTask=${!isGuest ? saveAiMessageToTask : null}
         onOpenNote=${(noteId) => openBrainSource({ id: "note:" + noteId })}
         onOpenBrainSource=${openBrainSource}
       />`}
@@ -2464,6 +2848,8 @@ export function App() {
               onOpenQuickCapture=${(mode = "task") => setQcModal({ mode, doc: null })}
               onQuickCommand=${handleQuickCommand}
               onOpenBrainSource=${openBrainSource}
+              onSaveToNote=${!isGuest ? saveAiMessageToNote : null}
+              onSaveToTask=${!isGuest ? saveAiMessageToTask : null}
             />`;
           }
 
@@ -2625,7 +3011,13 @@ export function App() {
         html`<${SecondBrainView}
           tasks=${tasks}
           notes=${privNotes}
+          resources=${privResources}
           docs=${visibleRes}
+          users=${users}
+          currentEmail=${brainOwnerEmail}
+          activities=${activities}
+          requiredIds=${req}
+          acks=${Object.keys(acks || {}).filter((k) => acks[k]).map(Number)}
           statuses=${plannerPrefs.statuses}
           categories=${brainCategories}
           projects=${brainProjects}
@@ -2638,6 +3030,11 @@ export function App() {
           onDeleteTask=${deleteTask}
           onSaveNote=${savePrivNote}
           onDeleteNote=${deletePrivNote}
+          onSaveResource=${savePrivResource}
+          onDeleteResource=${deletePrivResource}
+          onShareResource=${shareResourceWithTeammates}
+          onSuggestResourceToTeam=${suggestResourceToTeamKb}
+          onSuggestNoteToTeam=${suggestNoteToTeamKb}
           onOpenSheet=${(payload) => setQcModal(payload)}
           onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
           onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
@@ -2841,7 +3238,9 @@ export function App() {
       initialTask=${qcModal.task || null}
       initialRevisionParent=${qcModal.revisionParent || null}
       initialNote=${qcModal.note || null}
+      initialResource=${qcModal.resource || null}
       initialProject=${qcModal.project || ""}
+      initialLinkedSection=${qcModal.linkedSection || ""}
       statuses=${plannerPrefs.statuses}
       categories=${brainCategories}
       projects=${brainProjects}
@@ -2864,6 +3263,14 @@ export function App() {
       onDeleteNote=${async (id) => {
         await deletePrivNote(id);
         flash("Note deleted");
+      }}
+      onSaveResource=${async (resObj) => {
+        await savePrivResource(resObj);
+        flash(resObj.id ? "Resource updated" : `Resource saved · ${resObj.project || "General"}`);
+      }}
+      onDeleteResource=${async (id) => {
+        await deletePrivResource(id);
+        flash("Resource deleted");
       }}
     />`}
     ${!isGuest &&

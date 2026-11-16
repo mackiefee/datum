@@ -226,6 +226,31 @@ function mapNote(row) {
   };
 }
 
+function mapResource(row, callerEmail = '') {
+  if (!row) return null;
+  const owner = String(row.owner_email || '').trim().toLowerCase();
+  return {
+    id: row.id,
+    ownerEmail: owner,
+    isSharedWithMe: Boolean(callerEmail && owner && owner !== callerEmail.toLowerCase()),
+    title: row.title || '',
+    url: row.url || '',
+    kind: row.kind || 'link',
+    snippet: row.kind === 'snippet' || row.kind === 'template' ? row.notes || '' : '',
+    notes: row.notes || '',
+    project: row.project || 'General',
+    tags: Array.isArray(row.tags) ? row.tags : [],
+    isPinned: Boolean(row.is_pinned),
+    linkedItemId: row.linked_item_id != null ? Number(row.linked_item_id) : null,
+    linkedItemTitle: row.linked_item_title || '',
+    linkedSection: row.linked_section || '',
+    sharedWithEmails: Array.isArray(row.shared_with_emails) ? row.shared_with_emails : [],
+    promotedStatus: row.promoted_status || '',
+    createdAt: row.created_at || null,
+    updatedAt: row.updated_at || null,
+  };
+}
+
 function mapState(row, ownerEmail) {
   if (!row) {
     return {
@@ -237,6 +262,7 @@ function mapState(row, ownerEmail) {
       chats: null,
       activeChatId: null,
       plannerPrefs: null,
+      history: null,
       exists: false,
     };
   }
@@ -249,6 +275,7 @@ function mapState(row, ownerEmail) {
     chats: Array.isArray(row.chats) ? row.chats : [],
     activeChatId: row.active_chat_id || null,
     plannerPrefs: row.planner_prefs && typeof row.planner_prefs === 'object' ? row.planner_prefs : null,
+    history: Array.isArray(row.history) ? row.history : [],
     updatedAt: row.updated_at || null,
     exists: true,
   };
@@ -291,7 +318,7 @@ async function fetchRowOwner(admin, table, id) {
 export async function GET(req) {
   const admin = getSupabaseAdmin();
   if (!admin) {
-    return jsonResp({ configured: false, tasks: [], notes: [], state: null });
+    return jsonResp({ configured: false, tasks: [], notes: [], resources: [], state: null });
   }
 
   const ident = await resolveOwnerIdentity(req, admin);
@@ -300,8 +327,9 @@ export async function GET(req) {
   }
 
   const emailEq = encodeURIComponent(ident.ownerEmail);
+  const sharedJsonFilter = encodeURIComponent(JSON.stringify([ident.ownerEmail]));
   try {
-    const [tasksRes, notesRes, stateRes] = await Promise.all([
+    const [tasksRes, notesRes, stateRes, ownResRes, sharedResRes] = await Promise.all([
       fetch(
         `${admin.url}/rest/v1/personal_tasks?owner_email=eq.${emailEq}&select=*&order=is_urgent.desc,due_date.asc.nullslast,created_at.desc`,
         { headers: admin.headers }
@@ -312,6 +340,14 @@ export async function GET(req) {
       ),
       fetch(
         `${admin.url}/rest/v1/user_brain_state?owner_email=eq.${emailEq}&select=*&limit=1`,
+        { headers: admin.headers }
+      ),
+      fetch(
+        `${admin.url}/rest/v1/personal_resources?owner_email=eq.${emailEq}&select=*&order=is_pinned.desc,updated_at.desc`,
+        { headers: admin.headers }
+      ),
+      fetch(
+        `${admin.url}/rest/v1/personal_resources?shared_with_emails=cs.${sharedJsonFilter}&select=*&order=updated_at.desc`,
         { headers: admin.headers }
       ),
     ]);
@@ -326,11 +362,22 @@ export async function GET(req) {
       );
     }
 
-    const [tasksRows, notesRows, stateRows] = await Promise.all([
+    const [tasksRows, notesRows, stateRows, ownResRows, sharedResRows] = await Promise.all([
       tasksRes.json(),
       notesRes.json(),
       stateRes.json(),
+      ownResRes.ok ? ownResRes.json() : [],
+      sharedResRes.ok ? sharedResRes.json() : [],
     ]);
+
+    const resMap = new Map();
+    [...(Array.isArray(ownResRows) ? ownResRows : []), ...(Array.isArray(sharedResRows) ? sharedResRows : [])].forEach(
+      (r) => {
+        if (r && r.id && !resMap.has(r.id)) {
+          resMap.set(r.id, mapResource(r, ident.ownerEmail));
+        }
+      }
+    );
 
     return jsonResp({
       configured: true,
@@ -338,6 +385,7 @@ export async function GET(req) {
       userId: ident.userId,
       tasks: (Array.isArray(tasksRows) ? tasksRows : []).map(mapTask),
       notes: (Array.isArray(notesRows) ? notesRows : []).map(mapNote),
+      resources: [...resMap.values()],
       state: mapState(Array.isArray(stateRows) ? stateRows[0] : null, ident.ownerEmail),
     });
   } catch (e) {
@@ -530,6 +578,94 @@ export async function POST(req) {
       return jsonResp({ ok: true, deletedId: id });
     }
 
+    if (action === 'resource_upsert') {
+      const r = body.resource || {};
+      const title = String(r.title || '').trim();
+      const rawUrl = String(r.url || '').trim().slice(0, 1200);
+      const rawNotes = String(r.notes || r.snippet || '').slice(0, 12000);
+      if (!title && !rawUrl && !rawNotes.trim()) {
+        return jsonResp({ error: 'Resource title or URL is required' }, 400);
+      }
+      const validKinds = ['link', 'tool', 'snippet', 'template', 'doc'];
+      const kind = validKinds.includes(r.kind) ? r.kind : 'link';
+      const linkedNum = r.linkedItemId != null && r.linkedItemId !== '' ? Number(r.linkedItemId) : null;
+      const sharedEmails = Array.isArray(r.sharedWithEmails)
+        ? [
+            ...new Set(
+              r.sharedWithEmails
+                .map((e) => String(e || '').trim().toLowerCase())
+                .filter((e) => e.includes('@') && e !== ident.ownerEmail)
+            ),
+          ].slice(0, 30)
+        : [];
+
+      const payload = {
+        user_id: ident.userId,
+        owner_email: ident.ownerEmail,
+        title: (title || rawUrl || 'Saved Resource').slice(0, 240),
+        url: rawUrl,
+        kind,
+        notes: rawNotes,
+        project: String(r.project || 'General').trim().slice(0, 80) || 'General',
+        tags: Array.isArray(r.tags) ? r.tags.map((x) => String(x).trim()).filter(Boolean).slice(0, 16) : [],
+        is_pinned: Boolean(r.isPinned),
+        linked_item_id: Number.isFinite(linkedNum) && linkedNum > 0 ? Math.trunc(linkedNum) : null,
+        linked_item_title: String(r.linkedItemTitle || '').slice(0, 220),
+        linked_section: String(r.linkedSection || '').slice(0, 220),
+        shared_with_emails: sharedEmails,
+        promoted_status: String(r.promotedStatus || '').slice(0, 32),
+      };
+
+      const candidateId = UUID_RE.test(String(r.id || '')) ? String(r.id) : '';
+      if (candidateId) {
+        const existing = await fetchRowOwner(admin, 'personal_resources', candidateId);
+        if (existing) {
+          if (String(existing.owner_email || '').toLowerCase() !== ident.ownerEmail) {
+            return jsonResp({ error: 'Forbidden' }, 403);
+          }
+          const patchRes = await fetch(
+            `${admin.url}/rest/v1/personal_resources?id=eq.${encodeURIComponent(candidateId)}&owner_email=eq.${encodeURIComponent(ident.ownerEmail)}`,
+            {
+              method: 'PATCH',
+              headers: { ...admin.headers, Prefer: 'return=representation' },
+              body: JSON.stringify(payload),
+            }
+          );
+          if (!patchRes.ok) {
+            return jsonResp({ error: `Resource update failed (${patchRes.status})` }, 502);
+          }
+          const rows = await patchRes.json();
+          return jsonResp({ ok: true, resource: mapResource(rows[0], ident.ownerEmail) });
+        }
+        payload.id = candidateId;
+      }
+
+      const insRes = await fetch(`${admin.url}/rest/v1/personal_resources`, {
+        method: 'POST',
+        headers: { ...admin.headers, Prefer: 'return=representation' },
+        body: JSON.stringify(payload),
+      });
+      if (!insRes.ok) {
+        return jsonResp({ error: `Resource create failed (${insRes.status})` }, 502);
+      }
+      const rows = await insRes.json();
+      return jsonResp({ ok: true, resource: mapResource(rows[0], ident.ownerEmail) });
+    }
+
+    if (action === 'resource_delete') {
+      const id = String(body.id || '').trim();
+      if (!UUID_RE.test(id)) return jsonResp({ error: 'Valid resource UUID required' }, 400);
+      const delRes = await fetch(
+        `${admin.url}/rest/v1/personal_resources?id=eq.${encodeURIComponent(id)}&owner_email=eq.${encodeURIComponent(ident.ownerEmail)}`,
+        {
+          method: 'DELETE',
+          headers: admin.headers,
+        }
+      );
+      if (!delRes.ok) return jsonResp({ error: `Resource delete failed (${delRes.status})` }, 502);
+      return jsonResp({ ok: true, deletedId: id });
+    }
+
     if (action === 'state_sync') {
       const s = body.state || {};
       const payload = {
@@ -542,6 +678,7 @@ export async function POST(req) {
         chats: sanitizeChats(s.chats),
         active_chat_id: s.activeChatId ? String(s.activeChatId) : null,
         planner_prefs: sanitizePlannerPrefs(s.plannerPrefs),
+        history: Array.isArray(s.history) ? s.history.slice(0, 24) : [],
       };
       const upRes = await fetch(`${admin.url}/rest/v1/user_brain_state?on_conflict=owner_email`, {
         method: 'POST',

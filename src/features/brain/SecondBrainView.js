@@ -65,19 +65,30 @@ function priorityOf(t) {
 export function SecondBrainView({
   tasks = [],
   notes = [],
+  resources = [],
   docs = [],
+  users = [],
+  currentEmail = '',
+  activities = [],
+  requiredIds = [],
+  acks = [],
   statuses = DEFAULT_PLANNER_STATUSES,
   categories = [],
   projects = [],
   ownerName = '',
   syncState = 'synced',
   canPromote = false,
-  initialTab = 'all',
+  initialTab = 'tasks',
   highlightId = null,
   onSaveTask,
   onDeleteTask,
   onSaveNote,
   onDeleteNote,
+  onSaveResource,
+  onDeleteResource,
+  onShareResource,
+  onSuggestResourceToTeam,
+  onSuggestNoteToTeam,
   onOpenSheet,
   onOpenManageSheet,
   onStartRevision,
@@ -89,7 +100,16 @@ export function SecondBrainView({
   const archiveCutoffStr = isoOffset(-14);
 
   const [filterTab, setFilterTab] = useState(
-    initialTab === 'notes' ? 'notes' : initialTab === 'done' ? 'done' : 'all'
+    initialTab === 'focus'
+      ? 'focus'
+      : initialTab === 'notes'
+      ? 'notes'
+      : initialTab === 'resources'
+      ? 'resources'
+      : 'tasks'
+  );
+  const [taskState, setTaskState] = useState(
+    initialTab === 'done' ? 'done' : initialTab === 'today' ? 'active' : 'all'
   );
   const [smartBucket, setSmartBucket] = useState(initialTab === 'today' ? 'today' : '');
   const [layout, setLayout] = useState('list'); // 'list' | 'board'
@@ -101,19 +121,29 @@ export function SecondBrainView({
   const [collapsedProjs, setCollapsedProjs] = useState(() => new Set());
   const [expandedLinksIds, setExpandedLinksIds] = useState(() => new Set());
   const [morePos, setMorePos] = useState(null);
+  const [shareTarget, setShareTarget] = useState(null);
+  const [shareEmails, setShareEmails] = useState([]);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [copiedResId, setCopiedResId] = useState(null);
 
   const moreBtnRef = useRef(null);
   const moreMenuRef = useRef(null);
   const searchInpRef = useRef(null);
 
   useEffect(() => {
-    if (initialTab === 'notes') setFilterTab('notes');
-    else if (initialTab === 'done') setFilterTab('done');
-    else if (initialTab === 'today') {
-      setFilterTab('active');
+    if (initialTab === 'focus') setFilterTab('focus');
+    else if (initialTab === 'notes') setFilterTab('notes');
+    else if (initialTab === 'resources') setFilterTab('resources');
+    else if (initialTab === 'done') {
+      setFilterTab('tasks');
+      setTaskState('done');
+    } else if (initialTab === 'today') {
+      setFilterTab('tasks');
+      setTaskState('active');
       setSmartBucket('today');
-    } else if (initialTab === 'all') {
-      setFilterTab('all');
+    } else if (initialTab === 'all' || initialTab === 'tasks') {
+      setFilterTab('tasks');
+      setTaskState('all');
       setSmartBucket('');
     }
   }, [initialTab]);
@@ -129,7 +159,7 @@ export function SecondBrainView({
         e.preventDefault();
         onOpenSheet &&
           onOpenSheet({
-            mode: filterTab === 'notes' ? 'note' : 'task',
+            mode: filterTab === 'notes' ? 'note' : filterTab === 'resources' ? 'resource' : 'task',
             project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
           });
       } else if (e.key === '/') {
@@ -162,6 +192,14 @@ export function SecondBrainView({
   }, [morePos]);
 
   const docById = useMemo(() => new Map((docs || []).map((d) => [Number(d.id), d])), [docs]);
+  const myEmailLower = String(currentEmail || '').trim().toLowerCase();
+  const teammates = useMemo(
+    () =>
+      (users || []).filter(
+        (u) => u && u.email && String(u.email).trim().toLowerCase() !== myEmailLower && u.role !== 'Guest'
+      ),
+    [users, myEmailLower]
+  );
 
   const statusOptions = useMemo(
     () =>
@@ -188,14 +226,13 @@ export function SecondBrainView({
 
   const activeProjects = useMemo(() => {
     const set = new Set();
-    const list = filterTab === 'notes' ? notes : tasks;
-    list.forEach((x) => {
+    [...tasks, ...notes, ...resources].forEach((x) => {
       const p = (x.project || 'General').trim() || 'General';
       set.add(p);
     });
     if (projFilter !== 'all') set.add(projFilter);
     return [...set].sort((a, b) => a.localeCompare(b));
-  }, [tasks, notes, projFilter, filterTab]);
+  }, [tasks, notes, resources, projFilter]);
 
   const projStats = useMemo(() => {
     const scoped = projFilter === 'all' ? tasks : tasks.filter((t) => (t.project || 'General') === projFilter);
@@ -235,12 +272,12 @@ export function SecondBrainView({
 
   const matchesTask = (t) => {
     const tDone = isDoneStatus(statuses, t.status);
-    if (hideOldDone && filterTab !== 'done' && tDone && t.completedAt && String(t.completedAt).slice(0, 10) < archiveCutoffStr) {
+    if (hideOldDone && taskState !== 'done' && tDone && t.completedAt && String(t.completedAt).slice(0, 10) < archiveCutoffStr) {
       return false;
     }
     if (projFilter !== 'all' && (t.project || 'General') !== projFilter) return false;
-    if (filterTab === 'done' && !tDone) return false;
-    if (filterTab === 'active' && tDone) return false;
+    if (taskState === 'done' && !tDone) return false;
+    if (taskState === 'active' && tDone) return false;
     if (smartBucket) {
       if (tDone) return false;
       if (smartBucket === 'over' && !(t.dueDate && t.dueDate < todayStr)) return false;
@@ -285,24 +322,24 @@ export function SecondBrainView({
 
   const visibleTasks = useMemo(
     () => sortRootList(tasks.filter(matchesTask)),
-    [tasks, statuses, hideOldDone, projFilter, filterTab, smartBucket, query, sortMode, todayStr]
+    [tasks, statuses, hideOldDone, projFilter, taskState, smartBucket, query, sortMode, todayStr]
   );
 
   const isBurningUrgent = (t) => !isDoneStatus(statuses, t.status) && priorityOf(t) >= 3;
 
   const urgentFocusTasks = useMemo(
     () =>
-      layout === 'list' && filterTab !== 'done'
+      layout === 'list' && taskState !== 'done'
         ? visibleTasks
             .filter(isBurningUrgent)
             .sort((a, b) => (a.dueDate || '9999-12-31').localeCompare(b.dueDate || '9999-12-31'))
         : [],
-    [visibleTasks, layout, filterTab, statuses]
+    [visibleTasks, layout, taskState, statuses]
   );
 
   const groupedByProject = useMemo(() => {
     const nonUrgent = visibleTasks.filter(
-      (t) => !(layout === 'list' && filterTab !== 'done' && isBurningUrgent(t))
+      (t) => !(layout === 'list' && taskState !== 'done' && isBurningUrgent(t))
     );
     const orderProj = [...(projects || [])];
     nonUrgent.forEach((t) => {
@@ -368,7 +405,7 @@ export function SecondBrainView({
         };
       })
       .filter(Boolean);
-  }, [visibleTasks, tasks, projects, categories, statuses, layout, filterTab, sortMode]);
+  }, [visibleTasks, tasks, projects, categories, statuses, layout, taskState, sortMode]);
 
   const boardColumns = useMemo(
     () =>
@@ -394,6 +431,100 @@ export function SecondBrainView({
         return (b.updatedAt || '').localeCompare(a.updatedAt || '');
       });
   }, [notes, projFilter, query]);
+
+  const visibleResources = useMemo(() => {
+    const qL = query.trim().toLowerCase();
+    return (resources || [])
+      .filter((r) => {
+        if (projFilter !== 'all' && (r.project || 'General') !== projFilter) return false;
+        if (qL) {
+          const hay = `${r.title || ''} ${r.url || ''} ${r.snippet || ''} ${r.notes || ''} ${r.project || ''} ${r.kind || ''}`.toLowerCase();
+          if (!hay.includes(qL)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (Boolean(a.isPinned) !== Boolean(b.isPinned)) return a.isPinned ? -1 : 1;
+        return (b.updatedAt || '').localeCompare(a.updatedAt || '');
+      });
+  }, [resources, projFilter, query]);
+
+  const focusUrgentTasks = useMemo(() => {
+    const qL = query.trim().toLowerCase();
+    return sortRootList(
+      tasks.filter((t) => {
+        if (isDoneStatus(statuses, t.status)) return false;
+        if (projFilter !== 'all' && (t.project || 'General') !== projFilter) return false;
+        const isPriorityOrToday = priorityOf(t) >= 3 || (t.dueDate && t.dueDate <= todayStr);
+        if (!isPriorityOrToday) return false;
+        if (qL && !`${t.title || ''} ${t.notes || ''} ${t.project || ''}`.toLowerCase().includes(qL)) return false;
+        return true;
+      })
+    );
+  }, [tasks, statuses, projFilter, todayStr, query, sortMode]);
+
+  const pinnedFocusItems = useMemo(() => {
+    const qL = query.trim().toLowerCase();
+    const list = [
+      ...notes
+        .filter((n) => n.isPinned)
+        .filter((n) => projFilter === 'all' || (n.project || 'General') === projFilter)
+        .map((n) => ({ kind: 'note', id: n.id, item: n, updatedAt: n.updatedAt || '' })),
+      ...(resources || [])
+        .filter((r) => r.isPinned)
+        .filter((r) => projFilter === 'all' || (r.project || 'General') === projFilter)
+        .map((r) => ({ kind: 'resource', id: r.id, item: r, updatedAt: r.updatedAt || '' })),
+    ].filter((x) => {
+      if (!qL) return true;
+      const it = x.item;
+      return `${it.title || ''} ${it.body || ''} ${it.notes || ''} ${it.url || ''}`.toLowerCase().includes(qL);
+    });
+    return list.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }, [notes, resources, projFilter, query]);
+
+  const pendingRequiredDocs = useMemo(() => {
+    const ackSet = new Set((acks || []).map((id) => Number(id)));
+    return (requiredIds || [])
+      .map((id) => docById.get(Number(id)))
+      .filter(Boolean)
+      .map((d) => ({ doc: d, done: ackSet.has(Number(d.id)) }))
+      .sort((a, b) => Number(a.done) - Number(b.done));
+  }, [requiredIds, acks, docById]);
+
+  const projectHubDocs = useMemo(() => {
+    if (projFilter === 'all') return [];
+    const target = projFilter.trim().toLowerCase();
+    const linkedDocIds = new Set();
+    tasks.forEach((t) => {
+      if ((t.project || 'General') === projFilter && t.linkedItemId) linkedDocIds.add(Number(t.linkedItemId));
+    });
+    notes.forEach((n) => {
+      if ((n.project || 'General') === projFilter && Array.isArray(n.linkedItemIds)) {
+        n.linkedItemIds.forEach((id) => linkedDocIds.add(Number(id)));
+      }
+    });
+    (resources || []).forEach((r) => {
+      if ((r.project || 'General') !== projFilter) return;
+      if (r.linkedItemId) linkedDocIds.add(Number(r.linkedItemId));
+      if (Array.isArray(r.linkedItemIds)) {
+        r.linkedItemIds.forEach((id) => linkedDocIds.add(Number(id)));
+      }
+    });
+    const tokens = target.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+    return (docs || [])
+      .filter((d) => {
+        if (linkedDocIds.has(Number(d.id))) return true;
+        const hay = `${d.title || ''} ${d.desc || ''} ${d.disc || ''}`.toLowerCase();
+        if (hay.includes(target)) return true;
+        return tokens.length > 0 && tokens.some((tk) => hay.includes(tk));
+      })
+      .slice(0, 6);
+  }, [projFilter, tasks, notes, resources, docs]);
+
+  const recentTeamUpdates = useMemo(
+    () => (activities || []).filter((a) => a && docById.has(Number(a.targetId || a.itemId))).slice(0, 5),
+    [activities, docById]
+  );
 
   const toggleLinksExpand = (taskId) => {
     setExpandedLinksIds((prev) => {
@@ -583,7 +714,7 @@ export function SecondBrainView({
   };
 
   const smartChips =
-    filterTab !== 'notes'
+    filterTab === 'tasks'
       ? [
           ['over', 'Overdue', projStats.smartCounts.over],
           ['today', 'Today', projStats.smartCounts.today],
@@ -592,23 +723,62 @@ export function SecondBrainView({
         ].filter(([k, , cnt]) => cnt > 0 || smartBucket === k)
       : [];
 
-  const hasSecondaryChips = smartChips.length > 0 || activeProjects.length > 1;
+  const hasSecondaryChips = filterTab === 'tasks' || smartChips.length > 0 || activeProjects.length > 1;
+  const createMode = filterTab === 'notes' ? 'note' : filterTab === 'resources' ? 'resource' : 'task';
+  const createLabel =
+    filterTab === 'notes' ? 'New Note' : filterTab === 'resources' ? 'New Resource' : 'New Task';
   const openCreateModal = () =>
     onOpenSheet &&
     onOpenSheet({
-      mode: filterTab === 'notes' ? 'note' : 'task',
+      mode: createMode,
       project: projFilter !== 'all' ? projFilter : (projects[0] || 'General'),
     });
 
+  const copySnippet = (r) => {
+    const txt = r.snippet || r.url || r.notes || '';
+    if (!txt) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).catch(() => {});
+    }
+    setCopiedResId(r.id);
+    setTimeout(() => setCopiedResId((cur) => (cur === r.id ? null : cur)), 1600);
+  };
+
+  const openShareModal = (r) => {
+    setShareTarget(r);
+    setShareEmails(Array.isArray(r.sharedWithEmails) ? r.sharedWithEmails : []);
+  };
+
+  const toggleShareEmail = (em) => {
+    const low = String(em || '').trim().toLowerCase();
+    if (!low) return;
+    setShareEmails((prev) => (prev.includes(low) ? prev.filter((x) => x !== low) : [...prev, low]));
+  };
+
+  const commitShare = async () => {
+    if (!shareTarget || !onShareResource || shareBusy) return;
+    setShareBusy(true);
+    try {
+      await onShareResource(shareTarget, shareEmails);
+      setShareTarget(null);
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
-  return html`<div className=${'pl-wrap' + (filterTab !== 'notes' && layout === 'board' ? ' is-wide' : '')}>
+  return html`<div className=${'pl-wrap' + (filterTab === 'tasks' && layout === 'board' ? ' is-wide' : '')}>
     <div className="pl-head">
       <div className="pl-head-l">
         <div className="pl-stats">
           <span>
-            ${filterTab === 'notes'
-              ? `${notes.length} ${notes.length === 1 ? 'note' : 'notes'}`
+            ${filterTab === 'focus'
+              ? `${focusUrgentTasks.length} priority · ${pinnedFocusItems.length} pinned`
+              : filterTab === 'notes'
+              ? `${visibleNotes.length} ${visibleNotes.length === 1 ? 'note' : 'notes'}`
+              : filterTab === 'resources'
+              ? `${visibleResources.length} ${visibleResources.length === 1 ? 'resource' : 'resources'}`
               : `${projStats.doneCount}/${projStats.total} done${projStats.overdueCount ? ` · ${projStats.overdueCount} late` : ''}`}
           </span>
           <i
@@ -618,19 +788,19 @@ export function SecondBrainView({
               : 'Synced to Supabase'}
           />
         </div>
-        ${filterTab !== 'notes' &&
+        ${filterTab === 'tasks' &&
         html`<div className="pl-pbar" aria-hidden="true">
           <i style=${{ width: `${projStats.pct}%` }} />
         </div>`}
       </div>
 
       <div className="pl-head-r">
-        <div className="seg" role="tablist" aria-label="Workspace filter" style=${{ marginTop: 0 }}>
+        <div className="seg" role="tablist" aria-label="Second Brain sections" style=${{ marginTop: 0 }}>
           ${[
-            ['all', 'All'],
-            ['active', 'Active'],
-            ['done', 'Done'],
+            ['tasks', 'Tasks'],
+            ['focus', 'Focus'],
             ['notes', 'Notes'],
+            ['resources', 'Resources'],
           ].map(
             ([k, lbl]) => html`<button
               key=${k}
@@ -645,7 +815,7 @@ export function SecondBrainView({
           )}
         </div>
 
-        ${filterTab !== 'notes' &&
+        ${filterTab === 'tasks' &&
         html`<div className="seg pl-desk-only" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
           <button type="button" className=${layout === 'list' ? 'on' : ''} onClick=${() => setLayout('list')}>
             List
@@ -688,22 +858,28 @@ export function SecondBrainView({
           type="button"
           className="btn sm p pl-desk-only"
           onClick=${openCreateModal}
-          title=${filterTab === 'notes' ? 'New Private Note' : 'New Task (N)'}
+          title=${`${createLabel} (N)`}
         >
           <${Ic} n="plus" s=${14} />
-          <span>${filterTab === 'notes' ? 'New Note' : 'New Task'}</span>
+          <span>${createLabel}</span>
         </button>
       </div>
     </div>
 
-    ${(tasks.length > 0 || notes.length > 0 || mobSearchOpen || query || hasSecondaryChips) &&
+    ${(tasks.length > 0 || notes.length > 0 || resources.length > 0 || mobSearchOpen || query || hasSecondaryChips) &&
     html`<div className=${'pl-filterbar' + (mobSearchOpen || query ? ' mob-search-on' : '')}>
       <div className="pl-search">
         <${Ic} n="search" s=${14} />
         <input
           ref=${searchInpRef}
           type="search"
-          placeholder=${filterTab === 'notes' ? 'Search notes…' : 'Search tasks… (/)'}
+          placeholder=${filterTab === 'notes'
+            ? 'Search private notes…'
+            : filterTab === 'resources'
+            ? 'Search links, snippets, tools…'
+            : filterTab === 'focus'
+            ? 'Filter focus & pinned items…'
+            : 'Search tasks… (/)'}
           value=${query}
           onChange=${(e) => setQuery(e.target.value)}
         />
@@ -715,6 +891,25 @@ export function SecondBrainView({
 
       ${hasSecondaryChips &&
       html`<div className="pl-chips-row">
+        ${filterTab === 'tasks' &&
+        html`<${Fragment}>
+          ${[
+            ['all', 'All'],
+            ['active', 'Active'],
+            ['done', 'Done'],
+          ].map(
+            ([stK, stLbl]) => html`<button
+              key=${'ts-' + stK}
+              type="button"
+              className=${'pl-chip' + (taskState === stK ? ' on' : '')}
+              onClick=${() => setTaskState(stK)}
+            >
+              ${stLbl}
+            </button>`
+          )}
+          ${(smartChips.length > 0 || activeProjects.length > 1) && html`<i className="pl-chip-sep" aria-hidden="true" />`}
+        </${Fragment}>`}
+
         ${smartChips.map(
           ([k, lbl, cnt]) => html`<button
             key=${'sm-' + k}
@@ -736,7 +931,7 @@ export function SecondBrainView({
             className=${'pl-chip' + (projFilter === 'all' ? ' on' : '')}
             onClick=${() => setProjFilter('all')}
           >
-            All
+            All projects
           </button>
           ${activeProjects.map(
             (pr) => html`<button
@@ -752,7 +947,7 @@ export function SecondBrainView({
       </div>`}
     </div>`}
 
-    ${filterTab !== 'notes'
+    ${filterTab === 'tasks'
       ? html`<${Fragment}>
           ${layout === 'board'
             ? html`<div className=${'pl-board' + (boardColumns.length > 3 ? ' is-scroll' : '')}>
@@ -902,6 +1097,315 @@ export function SecondBrainView({
                 </button>`}
               </div>`}
         </${Fragment}>`
+      : filterTab === 'focus'
+      ? html`<div className="pl-focus">
+          <section className="pl-focus-sec" aria-label="Urgent and today priorities">
+            <div className="pl-focus-head">
+              <span className="pl-focus-h">Urgent & Due Today · ${focusUrgentTasks.length}</span>
+              <button type="button" className="pl-focus-link" onClick=${() => setFilterTab('tasks')}>
+                All tasks →
+              </button>
+            </div>
+            ${focusUrgentTasks.length > 0
+              ? html`<div className="pl-card">
+                  ${focusUrgentTasks.slice(0, 8).map((t) => renderTaskRow(t, false, true))}
+                </div>`
+              : html`<div className="pl-card" style=${{ padding: '16px 18px', fontSize: 13.5, color: 'var(--sub)' }}>
+                  All clear for today — add a priority task with <b style=${{ color: 'var(--text)' }}>+ New Task</b> or pick a project pill above to open its Context Hub.
+                </div>`}
+          </section>
+
+          ${projFilter !== 'all' &&
+          html`<section className="pl-focus-sec" aria-label="Project Context Hub">
+            <div className="pl-focus-head">
+              <span className="pl-focus-h">Project Hub · ${projFilter}</span>
+              <button type="button" className="pl-focus-link" onClick=${() => setProjFilter('all')}>
+                Clear project filter
+              </button>
+            </div>
+
+            ${projectHubDocs.length > 0 &&
+            html`<div className="pl-card">
+              ${projectHubDocs.map(
+                (d) => html`<button
+                  key=${'hub-doc-' + d.id}
+                  type="button"
+                  className="pl-std-row"
+                  onClick=${() => onOpenDoc && onOpenDoc(d.id)}
+                >
+                  <i className="pl-std-dot" style=${{ background: 'var(--blue)' }} />
+                  <div className="pl-std-mid">
+                    <div className="pl-std-t">${d.title}</div>
+                    <div className="pl-std-s">${d.disc || 'Standard'} · ${d.desc || 'Team Standard'}</div>
+                  </div>
+                  <span className="pl-std-badge">Team Doc</span>
+                </button>`
+              )}
+            </div>`}
+
+            ${(visibleNotes.length > 0 || visibleResources.length > 0) &&
+            html`<div className="pl-pin-grid">
+              ${visibleResources.slice(0, 4).map(
+                (r) => html`<div
+                  key=${'hub-res-' + r.id}
+                  className="pl-pin-card"
+                  onClick=${() =>
+                    r.url
+                      ? window.open(r.url, '_blank', 'noopener,noreferrer')
+                      : onOpenSheet && onOpenSheet({ mode: 'resource', resource: r })
+                  }
+                >
+                  <div className="pl-pin-top">
+                    <span className="pl-pin-kind res">${r.kind || 'Resource'}</span>
+                    <button
+                      type="button"
+                      className="pl-mv-btn"
+                      onClick=${(e) => {
+                        e.stopPropagation();
+                        onOpenSheet && onOpenSheet({ mode: 'resource', resource: r });
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                  <div className="pl-pin-t">${r.title || 'Untitled Resource'}</div>
+                  <div className="pl-pin-s">${r.notes || r.url || r.snippet || 'Saved resource'}</div>
+                </div>`
+              )}
+              ${visibleNotes.slice(0, 4).map(
+                (n) => html`<button
+                  key=${'hub-note-' + n.id}
+                  type="button"
+                  className="pl-pin-card"
+                  onClick=${() => onOpenSheet && onOpenSheet({ mode: 'note', note: n })}
+                >
+                  <div className="pl-pin-top">
+                    <span className="pl-pin-kind note">Note</span>
+                    <span className="pl-note-proj">${n.project || 'General'}</span>
+                  </div>
+                  <div className="pl-pin-t">${n.title || 'Private Note'}</div>
+                  <div className="pl-pin-s">${(n.body || '').replace(/[#*`>\[\]]/g, '').slice(0, 120) || 'Empty note'}</div>
+                </button>`
+              )}
+            </div>`}
+          </section>`}
+
+          ${pinnedFocusItems.length > 0 &&
+          html`<section className="pl-focus-sec" aria-label="Pinned Notes and Resources">
+            <div className="pl-focus-head">
+              <span className="pl-focus-h">Pinned Brain · ${pinnedFocusItems.length}</span>
+            </div>
+            <div className="pl-pin-grid">
+              ${pinnedFocusItems.slice(0, 6).map((entry) =>
+                entry.kind === 'note'
+                  ? html`<button
+                      key=${'pin-n-' + entry.id}
+                      type="button"
+                      className="pl-pin-card"
+                      onClick=${() => onOpenSheet && onOpenSheet({ mode: 'note', note: entry.item })}
+                    >
+                      <div className="pl-pin-top">
+                        <span className="pl-pin-kind note">Pinned Note</span>
+                        <span className="pl-note-proj">${entry.item.project || 'General'}</span>
+                      </div>
+                      <div className="pl-pin-t">${entry.item.title || 'Private Note'}</div>
+                      <div className="pl-pin-s">${(entry.item.body || '').replace(/[#*`>\[\]]/g, '').slice(0, 120) || 'Empty note'}</div>
+                    </button>`
+                  : html`<div
+                      key=${'pin-r-' + entry.id}
+                      className="pl-pin-card"
+                      onClick=${() =>
+                        entry.item.url
+                          ? window.open(entry.item.url, '_blank', 'noopener,noreferrer')
+                          : onOpenSheet && onOpenSheet({ mode: 'resource', resource: entry.item })
+                      }
+                    >
+                      <div className="pl-pin-top">
+                        <span className="pl-pin-kind res">${entry.item.kind || 'Resource'}</span>
+                        <span className="pl-note-proj">${entry.item.project || 'General'}</span>
+                      </div>
+                      <div className="pl-pin-t">${entry.item.title || 'Personal Resource'}</div>
+                      <div className="pl-pin-s">${entry.item.notes || entry.item.url || entry.item.snippet || 'Saved link'}</div>
+                    </div>`
+              )}
+            </div>
+          </section>`}
+
+          ${(pendingRequiredDocs.length > 0 || recentTeamUpdates.length > 0) &&
+          html`<section className="pl-focus-sec" aria-label="Team Updates and Required Reading">
+            <div className="pl-focus-head">
+              <span className="pl-focus-h">Team Updates & Required Reading</span>
+            </div>
+            <div className="pl-card">
+              ${pendingRequiredDocs.slice(0, 4).map(
+                ({ doc: d, done }) => html`<button
+                  key=${'req-' + d.id}
+                  type="button"
+                  className="pl-std-row"
+                  onClick=${() => onOpenDoc && onOpenDoc(d.id)}
+                >
+                  <i className="pl-std-dot" style=${{ background: done ? '#30d158' : '#ff453a' }} />
+                  <div className="pl-std-mid">
+                    <div className="pl-std-t">${d.title}</div>
+                    <div className="pl-std-s">${d.disc || 'Standard'} · Required Reading</div>
+                  </div>
+                  <span className=${'pl-std-badge ' + (done ? 'ack' : 'req')}>${done ? 'Signed' : 'Action needed'}</span>
+                </button>`
+              )}
+              ${recentTeamUpdates.slice(0, 4).map((act, idx) => {
+                const d = docById.get(Number(act.targetId || act.itemId));
+                if (!d) return null;
+                return html`<button
+                  key=${'upd-' + (act.id || idx)}
+                  type="button"
+                  className="pl-std-row"
+                  onClick=${() => onOpenDoc && onOpenDoc(d.id)}
+                >
+                  <i className="pl-std-dot" style=${{ background: 'var(--blue)' }} />
+                  <div className="pl-std-mid">
+                    <div className="pl-std-t">${d.title}</div>
+                    <div className="pl-std-s">${act.actor || act.who || 'Team'} · ${act.action || 'updated'} · ${act.at || act.date || ''}</div>
+                  </div>
+                  <span className="pl-std-badge">Update</span>
+                </button>`;
+              })}
+            </div>
+          </section>`}
+        </div>`
+      : filterTab === 'resources'
+      ? visibleResources.length
+        ? html`<div className="pl-res-grid">
+            ${visibleResources.map((r) => {
+              const isHl = highlightId && String(highlightId) === String(r.id);
+              const isSharedWithMe =
+                r.isSharedWithMe ||
+                r.isShared ||
+                (myEmailLower && r.ownerEmail && String(r.ownerEmail).toLowerCase() !== myEmailLower);
+              const sharedCnt = Array.isArray(r.sharedWithEmails) ? r.sharedWithEmails.length : 0;
+              const isOwner = !isSharedWithMe;
+              const linkedDoc = r.linkedItemId ? docById.get(Number(r.linkedItemId)) : null;
+              const snipTxt =
+                r.snippet || ((r.kind === 'snippet' || r.kind === 'template') && r.notes ? r.notes : '');
+              return html`<div
+                key=${r.id}
+                className=${'pl-res-card' + (r.isPinned ? ' pin' : '')}
+                style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
+              >
+                <div className="pl-note-head">
+                  <div className="pl-note-title">${r.title || 'Untitled Resource'}</div>
+                  <div className="row" style=${{ gap: 5, flexWrap: 'nowrap', flex: 'none' }}>
+                    ${isSharedWithMe
+                      ? html`<span className="pl-res-shared-tag" title=${r.ownerEmail || ''}>
+                          From ${(r.ownerEmail || 'team').split('@')[0]}
+                        </span>`
+                      : sharedCnt > 0
+                      ? html`<span className="pl-res-shared-tag">Shared · ${sharedCnt}</span>`
+                      : null}
+                    <span className="pl-note-proj">${r.kind || 'link'}</span>
+                  </div>
+                </div>
+
+                ${r.url &&
+                html`<a
+                  className="pl-res-url"
+                  href=${r.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <${Ic} n="openx" s=${12} />
+                  <span>${linkDisplayHost(r.url) || r.url}</span>
+                </a>`}
+
+                ${snipTxt && html`<pre className="pl-res-snip">${snipTxt}</pre>`}
+
+                ${r.notes && r.notes !== snipTxt && html`<div className="pl-n" style=${{ WebkitLineClamp: 3 }}>${r.notes}</div>`}
+
+                <div className="row" style=${{ gap: 6, flexWrap: 'wrap' }}>
+                  ${r.project && r.project !== 'General' && html`<span className="pl-note-proj">${r.project}</span>`}
+                  ${linkedDoc &&
+                  html`<button
+                    type="button"
+                    className="pl-doc-lk"
+                    onClick=${() => onOpenDoc && onOpenDoc(linkedDoc.id)}
+                  >
+                    <${Ic} n="doc" s=${10} />
+                    <span>${linkedDoc.title}</span>
+                  </button>`}
+                </div>
+
+                <div className="pl-note-foot">
+                  <div className="pl-note-acts">
+                    ${isOwner &&
+                    html`<button
+                      type="button"
+                      className="pl-mv-btn"
+                      onClick=${() => onSaveResource && onSaveResource({ ...r, isPinned: !r.isPinned })}
+                    >
+                      ${r.isPinned ? 'Pinned' : 'Pin'}
+                    </button>`}
+
+                    ${snipTxt &&
+                    html`<button
+                      type="button"
+                      className="pl-mv-btn"
+                      onClick=${() => copySnippet(r)}
+                    >
+                      ${copiedResId === r.id ? 'Copied!' : 'Copy'}
+                    </button>`}
+
+                    ${isOwner &&
+                    html`<button
+                      type="button"
+                      className="pl-mv-btn"
+                      onClick=${() => onOpenSheet && onOpenSheet({ mode: 'resource', resource: r })}
+                    >
+                      Edit
+                    </button>`}
+
+                    ${isOwner &&
+                    onShareResource &&
+                    html`<button
+                      type="button"
+                      className="pl-mv-btn"
+                      title="Share with teammates"
+                      onClick=${() => openShareModal(r)}
+                    >
+                      Share${sharedCnt ? ` (${sharedCnt})` : ''}
+                    </button>`}
+
+                    ${isOwner &&
+                    onSuggestResourceToTeam &&
+                    html`<button
+                      type="button"
+                      className="pl-mv-btn"
+                      title="Submit this resource to Administration -> Governance Review for the shared team library"
+                      onClick=${() => onSuggestResourceToTeam(r)}
+                    >
+                      → Team KB
+                    </button>`}
+                  </div>
+                  ${isOwner &&
+                  html`<button
+                    type="button"
+                    className="pl-row-del"
+                    style=${{ opacity: 1 }}
+                    title="Delete resource"
+                    onClick=${() => onDeleteResource && onDeleteResource(r.id)}
+                  >
+                    <${Ic} n="trash" s=${13} />
+                  </button>`}
+                </div>
+              </div>`;
+            })}
+          </div>`
+        : html`<div className="empty" style=${{ padding: '72px 20px' }}>
+            <${Ic} n="link" s=${28} />
+            <b>No personal resources yet</b>
+            <span>Save BIM links, Dynamo scripts, Revit snippets or share helpful tools with teammates.</span>
+            <button type="button" className="btn p" style=${{ marginTop: 10 }} onClick=${openCreateModal}>
+              <${Ic} n="plus" s=${14} /> Add resource
+            </button>
+          </div>`
       : visibleNotes.length
       ? html`<div className="pl-notes-grid">
           ${visibleNotes.map((n) => {
@@ -963,17 +1467,26 @@ export function SecondBrainView({
                           linkedItemId: d ? d.id : null,
                           linkedItemTitle: d ? d.title : '',
                         });
-                      setFilterTab('active');
+                      setFilterTab('tasks');
                     }}
                   >
                     → Task
                   </button>
+                  ${onSuggestNoteToTeam &&
+                  html`<button
+                    type="button"
+                    className="pl-mv-btn"
+                    title="Submit note to Administration -> Governance Review for the shared team catalog"
+                    onClick=${() => onSuggestNoteToTeam(n)}
+                  >
+                    → Team KB
+                  </button>`}
                   ${canPromote &&
                   onPromoteNoteToDoc &&
                   html`<button
                     type="button"
                     className="pl-mv-btn"
-                    title="Promote to shared Draft standard"
+                    title="Promote directly to shared Draft standard"
                     onClick=${() => onPromoteNoteToDoc(n)}
                   >
                     → Standard
@@ -1004,11 +1517,81 @@ export function SecondBrainView({
     <button
       type="button"
       className="pl-fab pl-mob-only"
-      aria-label=${filterTab === 'notes' ? 'New note' : 'New task'}
+      aria-label=${createLabel}
       onClick=${openCreateModal}
     >
       <${Ic} n="plus" s=${24} />
     </button>
+
+    ${portalRoot &&
+    shareTarget &&
+    createPortal(
+      html`<div
+        className="qc-ov"
+        onClick=${(e) => {
+          if (e.target === e.currentTarget && !shareBusy) setShareTarget(null);
+        }}
+      >
+        <div className="qc-sheet" role="dialog" aria-modal="true" aria-label="Share resource with teammates">
+          <div className="qc-sh">
+            <button
+              type="button"
+              className="qc-sh-cancel"
+              disabled=${shareBusy}
+              onClick=${() => setShareTarget(null)}
+            >
+              Cancel
+            </button>
+            <b>Share Resource</b>
+            <button
+              type="button"
+              className="btn sm p qc-sh-save"
+              disabled=${shareBusy}
+              onClick=${commitShare}
+            >
+              ${shareBusy ? 'Saving…' : 'Done'}
+            </button>
+          </div>
+
+          <div className="pl-sheet-foot">
+            Sharing “${shareTarget.title}” makes a read-only copy appear directly in selected teammates' Personal Resources tab.
+          </div>
+
+          <div className="qc-cell">
+            ${teammates.length > 0
+              ? teammates.map((u) => {
+                  const em = String(u.email).toLowerCase();
+                  const isSel = shareEmails.includes(em);
+                  return html`<button
+                    key=${em}
+                    type="button"
+                    className="pl-share-row"
+                    onClick=${() => toggleShareEmail(em)}
+                  >
+                    <span className="pl-share-row-l">
+                      <span className="pl-share-av">
+                        ${u.avatar
+                          ? html`<img src=${u.avatar} alt="" />`
+                          : (u.name || em).slice(0, 2).toUpperCase()}
+                      </span>
+                      <span className="pl-share-meta">
+                        <b>${u.name || em}</b>
+                        <span>${em}${u.role ? ` · ${u.role}` : ''}</span>
+                      </span>
+                    </span>
+                    <span style=${{ color: isSel ? 'var(--blue)' : 'var(--sub)' }}>
+                      ${isSel ? html`<${Ic} n="check" s=${15} />` : 'Add'}
+                    </span>
+                  </button>`;
+                })
+              : html`<div style=${{ padding: '16px 14px', fontSize: 13.5, color: 'var(--sub)' }}>
+                  No other workspace members found yet.
+                </div>`}
+          </div>
+        </div>
+      </div>`,
+      portalRoot
+    )}
 
     ${portalRoot &&
     morePos &&
@@ -1019,7 +1602,7 @@ export function SecondBrainView({
         style=${{ left: `${morePos.left}px`, top: `${morePos.top}px`, width: '228px' }}
         role="menu"
       >
-        ${filterTab !== 'notes' &&
+        ${filterTab === 'tasks' &&
         html`<${Fragment}>
           <div className="asel-hdr">Sort</div>
           ${[
@@ -1091,7 +1674,7 @@ export function SecondBrainView({
             <span className="asel-tx"><span>Hide old completed (14d+)</span></span>
           </button>
         </${Fragment}>`}
-        ${filterTab === 'notes' &&
+        ${filterTab !== 'tasks' &&
         html`<button
           type="button"
           className="asel-opt"

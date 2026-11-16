@@ -118,6 +118,7 @@ export function runAiEdgeLogic(payload) {
     items = [],
     personalTasks = [],
     personalNotes = [],
+    personalResources = [],
     targetItem = null,
     targetDocId = null,
     scope = "all",
@@ -281,6 +282,42 @@ export function runAiEdgeLogic(payload) {
             upd: realToday,
             desc: plainText(n.body || "").slice(0, 220),
             body: n.body || "",
+          },
+        });
+      }
+    }
+
+    const asksRes = /(?:resource|resources|link|links|bookmark|snippet|tool|tools|url|ресурс|посилан|заклад|сніпет|шаблон|сервіс)/i.test(qLow);
+    for (const pr of personalResources || []) {
+      if (!pr || !pr.title) continue;
+      const fakeDoc = {
+        id: `res:${pr.id}`,
+        title: pr.title,
+        desc: `${pr.project || "General"} ${pr.kind || "link"} ${pr.url || ""}`,
+        body: pr.notes || "",
+        disc: pr.project || "General",
+        tags: pr.tags || [],
+      };
+      let score = scoreDocument(fakeDoc, eff.q, eff.baseTokens).score;
+      if (asksRes) score += pr.isPinned ? 5 : 3;
+      if (pr.project && qLow.includes(String(pr.project).toLowerCase())) score += 6;
+      if (score > 0) {
+        rankedBrain.push({
+          kind: "resource",
+          score,
+          item: {
+            id: `res:${pr.id}`,
+            rawId: pr.id,
+            title: pr.title,
+            url: pr.url || "",
+            disc: pr.project || "General",
+            type: pr.kind || "link",
+            brainKind: "resource",
+            reviewDays: 9999,
+            verified: realToday,
+            upd: realToday,
+            desc: plainText(pr.notes || pr.url || "").slice(0, 220),
+            body: pr.notes || pr.url || "",
           },
         });
       }

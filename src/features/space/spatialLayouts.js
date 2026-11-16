@@ -427,33 +427,37 @@ export function computeGraphData(displayItems, options = {}) {
     };
     syncRowPos();
 
-    for (let pass = 0; pass < 4; pass++) {
-      const forward = pass % 2 === 0;
-      const start = forward ? 1 : nonEmptyCols.length - 2;
-      const end = forward ? nonEmptyCols.length : -1;
-      const step = forward ? 1 : -1;
-      for (let c = start; c !== end; c += step) {
-        const colItems = nonEmptyCols[c];
-        const neighborColSet = new Set(nonEmptyCols[c - step].map((x) => x.id));
-        const scored = colItems.map((r, idx) => {
-          const adj = fullAdj.get(r.id);
-          let sum = 0;
-          let cnt = 0;
-          if (adj) {
-            adj.forEach((nId) => {
-              if (neighborColSet.has(nId) && rowPosMap.has(nId)) {
-                sum += rowPosMap.get(nId);
-                cnt++;
-              }
-            });
-          }
-          const origKey = idx - (colItems.length - 1) / 2;
-          const bary = cnt > 0 ? sum / cnt : origKey;
-          return { r, key: bary * 0.78 + origKey * 0.22 };
-        });
-        scored.sort((a, b) => a.key - b.key);
-        nonEmptyCols[c] = scored.map((x) => x.r);
-        syncRowPos();
+    if (nonEmptyCols.length > 1) {
+      for (let pass = 0; pass < 4; pass++) {
+        const forward = pass % 2 === 0;
+        const start = forward ? 1 : nonEmptyCols.length - 2;
+        const end = forward ? nonEmptyCols.length : -1;
+        const step = forward ? 1 : -1;
+        for (let c = start; c !== end; c += step) {
+          const colItems = nonEmptyCols[c];
+          const neighborCol = nonEmptyCols[c - step];
+          if (!colItems || !neighborCol) continue;
+          const neighborColSet = new Set(neighborCol.map((x) => x.id));
+          const scored = colItems.map((r, idx) => {
+            const adj = fullAdj.get(r.id);
+            let sum = 0;
+            let cnt = 0;
+            if (adj) {
+              adj.forEach((nId) => {
+                if (neighborColSet.has(nId) && rowPosMap.has(nId)) {
+                  sum += rowPosMap.get(nId);
+                  cnt++;
+                }
+              });
+            }
+            const origKey = idx - (colItems.length - 1) / 2;
+            const bary = cnt > 0 ? sum / cnt : origKey;
+            return { r, key: bary * 0.78 + origKey * 0.22 };
+          });
+          scored.sort((a, b) => a.key - b.key);
+          nonEmptyCols[c] = scored.map((x) => x.r);
+          syncRowPos();
+        }
       }
     }
 

@@ -75,7 +75,8 @@ function aiCacheKey(payload) {
   }
   const tasks = payload.personalTasks || [];
   const notes = payload.personalNotes || [];
-  const brainSig = `${tasks.length}:${tasks[0]?.updatedAt || tasks[0]?.status || ''}:${notes.length}:${notes[0]?.updatedAt || ''}`;
+  const pRes = payload.personalResources || [];
+  const brainSig = `${tasks.length}:${tasks[0]?.updatedAt || tasks[0]?.status || ''}:${notes.length}:${notes[0]?.updatedAt || ''}:${pRes.length}:${pRes[0]?.updatedAt || ''}`;
   const target = payload.targetItem;
   const hist = Array.isArray(payload.history) ? payload.history : [];
   const lastTurn = hist.length ? `${hist.length}:${(hist[hist.length - 1] && hist[hist.length - 1].text) || ''}`.slice(0, 64) : '';
@@ -153,6 +154,19 @@ export const edgeClient = {
                 isPinned: Boolean(n.isPinned),
                 linkedItemIds: Array.isArray(n.linkedItemIds) ? n.linkedItemIds : [],
                 updatedAt: n.updatedAt || '',
+              }))
+            : undefined,
+          personalResources: Array.isArray(payload.personalResources)
+            ? payload.personalResources.slice(0, 80).map((pr) => ({
+                id: pr.id,
+                title: pr.title || '',
+                url: pr.url || '',
+                kind: pr.kind || 'link',
+                notes: stripImagesFromBody(pr.notes || '').slice(0, 800),
+                project: pr.project || 'General',
+                tags: Array.isArray(pr.tags) ? pr.tags : [],
+                isPinned: Boolean(pr.isPinned),
+                updatedAt: pr.updatedAt || '',
               }))
             : undefined,
           history: Array.isArray(payload.history)

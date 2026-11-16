@@ -41,6 +41,13 @@ function formatDueNice(isoStr) {
   return `${MONTHS_FULL[Number(p[1]) - 1]?.slice(0, 3) || p[1]} ${Number(p[2])}, ${p[0]}`;
 }
 
+const RESOURCE_KINDS = [
+  { value: 'link', label: 'Web Link' },
+  { value: 'tool', label: 'Tool / Script' },
+  { value: 'snippet', label: 'Snippet / Rule' },
+  { value: 'template', label: 'Template' },
+];
+
 export function QuickCaptureModal({
   open,
   initialMode = 'task',
@@ -48,7 +55,9 @@ export function QuickCaptureModal({
   initialTask = null,
   initialRevisionParent = null,
   initialNote = null,
+  initialResource = null,
   initialProject = '',
+  initialLinkedSection = '',
   statuses = DEFAULT_PLANNER_STATUSES,
   categories = DEFAULT_PLANNER_CATEGORIES,
   projects = DEFAULT_PLANNER_PROJECTS,
@@ -59,16 +68,22 @@ export function QuickCaptureModal({
   onDeleteTask,
   onSaveNote,
   onDeleteNote,
+  onSaveResource,
+  onDeleteResource,
   onStartRevision,
 }) {
   const isEditingTask = Boolean(initialTask && initialTask.id);
   const isNewRevision = Boolean(!isEditingTask && initialRevisionParent && initialRevisionParent.id);
   const isEditingNote = Boolean(initialNote && initialNote.id);
-  const isEditingExisting = isEditingTask || isEditingNote || isNewRevision;
+  const isEditingResource = Boolean(initialResource && initialResource.id);
+  const isEditingExisting = isEditingTask || isEditingNote || isEditingResource || isNewRevision;
 
   const [mode, setMode] = useState(initialMode);
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
+  const [resUrl, setResUrl] = useState('');
+  const [resKind, setResKind] = useState('link');
+  const [linkedSection, setLinkedSection] = useState('');
   const [project, setProject] = useState('General');
   const [creatingProj, setCreatingProj] = useState(false);
   const [newProjName, setNewProjName] = useState('');
@@ -96,6 +111,9 @@ export function QuickCaptureModal({
     setCreatingCat(false);
     setNewCatName('');
     setLinkInput('');
+    setResUrl('');
+    setResKind('link');
+    setLinkedSection(initialLinkedSection || '');
 
     if (initialRevisionParent && initialRevisionParent.id) {
       const p = initialRevisionParent;
@@ -115,12 +133,39 @@ export function QuickCaptureModal({
       return;
     }
 
-    if (initialTask && initialTask.id) {
+    if (initialResource) {
+      setMode('resource');
+      setTitle(initialResource.title || '');
+      setResUrl(initialResource.url || '');
+      setResKind(initialResource.kind || 'link');
+      setNotes(initialResource.notes || '');
+      setProject(initialResource.project || initialProject || 'General');
+      setIsPinned(Boolean(initialResource.isPinned));
+      setLinkedDocId(initialResource.linkedItemId ? String(initialResource.linkedItemId) : initialDoc?.id ? String(initialDoc.id) : '');
+      setLinkedSection(initialResource.linkedSection || initialLinkedSection || '');
+      setLinks([]);
+      return;
+    }
+
+    if (initialNote) {
+      setMode('note');
+      setTitle(initialNote.title || '');
+      setNotes(initialNote.body || '');
+      setProject(initialNote.project || initialProject || 'General');
+      setIsPinned(Boolean(initialNote.isPinned));
+      const nid = Array.isArray(initialNote.linkedItemIds) && initialNote.linkedItemIds[0] ? String(initialNote.linkedItemIds[0]) : '';
+      setLinkedDocId(nid || (initialDoc && initialDoc.id ? String(initialDoc.id) : ''));
+      setLinkedSection(initialNote.linkedSection || initialLinkedSection || '');
+      setLinks([]);
+      return;
+    }
+
+    if (initialTask) {
       setMode('task');
       setTitle(initialTask.title || '');
       setNotes(initialTask.notes || '');
-      setProject(initialTask.project || 'General');
-      setCategory(initialTask.category || '');
+      setProject(initialTask.project || initialProject || (initialDoc && initialDoc.disc) || 'General');
+      setCategory(initialTask.category || (categories && categories[0]) || '');
       setLinks(Array.isArray(initialTask.links) ? initialTask.links.map((x) => ({ ...x })) : []);
       setStatus(initialTask.status || getFirstActiveStatus(statuses).id);
       const pVal = Number.isFinite(Number(initialTask.priority))
@@ -129,41 +174,38 @@ export function QuickCaptureModal({
         ? 3
         : 0;
       setPriority(pVal);
-      const dd = initialTask.dueDate || '';
+      const dd = initialTask.dueDate !== undefined ? initialTask.dueDate : isoOffset(0);
       setDueDate(dd);
       if (dd && /^\d{4}-\d{2}-\d{2}$/.test(dd)) {
         const parts = dd.split('-');
         setCalMonth({ y: Number(parts[0]), m: Number(parts[1]) - 1 });
       }
-      setLinkedDocId(initialTask.linkedItemId ? String(initialTask.linkedItemId) : '');
+      setLinkedDocId(initialTask.linkedItemId ? String(initialTask.linkedItemId) : initialDoc?.id ? String(initialDoc.id) : '');
+      setLinkedSection(initialTask.linkedSection || initialLinkedSection || '');
       return;
     }
 
-    if (initialNote && initialNote.id) {
-      setMode('note');
-      setTitle(initialNote.title || '');
-      setNotes(initialNote.body || '');
-      setProject(initialNote.project || 'General');
-      setIsPinned(Boolean(initialNote.isPinned));
-      setLinkedDocId('');
-      setLinks([]);
-      return;
-    }
-
+    const secSuffix = initialLinkedSection ? ` · § ${initialLinkedSection}` : '';
     setMode(initialMode || 'task');
-    setTitle(initialDoc && initialMode === 'task' ? `Follow up: ${initialDoc.title}` : (initialTask?.title || ''));
+    setTitle(
+      initialDoc && initialMode === 'task'
+        ? `Follow up: ${initialDoc.title}${secSuffix}`
+        : initialDoc
+        ? `${initialDoc.title}${secSuffix}`
+        : ''
+    );
     setNotes('');
     setProject(initialProject || (initialDoc && initialDoc.disc) || 'General');
     setCategory((categories && categories[0]) || '');
     setLinks([]);
     setStatus(getFirstActiveStatus(statuses).id);
-    setPriority(initialTask?.priority || 0);
+    setPriority(0);
     setDueDate(initialMode === 'task' ? isoOffset(0) : '');
     const n = new Date();
     setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
     setLinkedDocId(initialDoc && initialDoc.id ? String(initialDoc.id) : '');
     setIsPinned(false);
-  }, [open, initialMode, initialDoc?.id, initialTask?.id, initialRevisionParent?.id, initialNote?.id, initialProject]);
+  }, [open, initialMode, initialDoc?.id, initialTask, initialRevisionParent?.id, initialNote, initialResource, initialProject, initialLinkedSection]);
 
   const sortedDocs = useMemo(
     () => [...(docs || [])].sort((a, b) => (a.title || '').localeCompare(b.title || '')),
@@ -236,6 +278,8 @@ export function QuickCaptureModal({
   const canSubmit =
     mode === 'note'
       ? Boolean(title.trim() || notes.trim())
+      : mode === 'resource'
+      ? Boolean(title.trim() || resUrl.trim() || notes.trim()) && (!creatingProj || Boolean(newProjName.trim()))
       : Boolean(title.trim()) && (!creatingProj || Boolean(newProjName.trim()));
 
   const existingRevsFor = (parentId) =>
@@ -258,11 +302,33 @@ export function QuickCaptureModal({
 
     const docObj = linkedDocId ? sortedDocs.find((d) => String(d.id) === String(linkedDocId)) : null;
 
+    if (mode === 'resource') {
+      const trimmedNotes = notes.trim();
+      const isSnippetKind = resKind === 'snippet' || resKind === 'template';
+      onSaveResource &&
+        onSaveResource({
+          ...(initialResource || {}),
+          title: title.trim() || resUrl.trim() || 'Saved Resource',
+          url: resUrl.trim(),
+          kind: resKind,
+          snippet: isSnippetKind ? trimmedNotes : (initialResource?.snippet || ''),
+          notes: trimmedNotes,
+          project: finalProject,
+          isPinned,
+          linkedItemId: docObj ? docObj.id : null,
+          linkedItemTitle: docObj ? docObj.title : '',
+          linkedSection,
+        });
+      onClose && onClose();
+      return;
+    }
+
     if (mode === 'note') {
       const bodyStr = notes.trim();
+      const secSuffix = linkedSection ? ` · § ${linkedSection}` : '';
       const bodyWithLink =
         docObj && !bodyStr.includes(`|${docObj.id}]]`)
-          ? `${bodyStr}${bodyStr ? '\n\n' : ''}[[${docObj.title}|${docObj.id}]]`
+          ? `${bodyStr}${bodyStr ? '\n\n' : ''}[[${docObj.title}|${docObj.id}]]${secSuffix}`
           : bodyStr;
       const wikiIds = [...bodyWithLink.matchAll(/\[\[[^|\]]+\|(\d+)\]\]/g)].map((m) => Number(m[1]));
       onSaveNote &&
@@ -334,8 +400,12 @@ export function QuickCaptureModal({
     ? 'Edit Task'
     : isEditingNote
     ? 'Edit Note'
+    : isEditingResource
+    ? 'Edit Resource'
     : mode === 'note'
     ? 'New Private Note'
+    : mode === 'resource'
+    ? 'Save Personal Resource'
     : 'New Task';
 
   const contextHint =
@@ -370,7 +440,7 @@ export function QuickCaptureModal({
         <button type="button" className="qc-sh-cancel" onClick=${onClose}>Cancel</button>
         <b>${sheetTitle}</b>
         <button type="submit" className="btn p sm qc-sh-save" disabled=${!canSubmit}>
-          ${isEditingTask ? 'Save' : isEditingNote ? 'Save' : 'Add'}
+          ${isEditingTask || isEditingNote || isEditingResource ? 'Save' : 'Add'}
         </button>
       </div>
 
@@ -382,6 +452,9 @@ export function QuickCaptureModal({
         <button type="button" className=${mode === 'note' ? 'on' : ''} onClick=${() => setMode('note')}>
           Private Note
         </button>
+        <button type="button" className=${mode === 'resource' ? 'on' : ''} onClick=${() => setMode('resource')}>
+          Resource
+        </button>
       </div>`}
 
       ${contextHint && html`<div className="qc-ctx-note">${contextHint}</div>`}
@@ -390,15 +463,25 @@ export function QuickCaptureModal({
         <input
           autoFocus
           type="text"
-          placeholder=${mode === 'task' ? 'Title' : 'Note title'}
+          placeholder=${mode === 'task' ? 'Title' : mode === 'resource' ? 'Resource / link name' : 'Note title'}
           value=${title}
           onChange=${(e) => setTitle(e.target.value)}
         />
+        ${mode === 'resource' &&
+        html`<input
+          type="text"
+          inputMode="url"
+          placeholder="URL, Drive link, tool path, or command…"
+          value=${resUrl}
+          onChange=${(e) => setResUrl(e.target.value)}
+        />`}
         <textarea
           placeholder=${isNewRevision || (isEditingTask && initialTask.parentTaskId)
             ? 'What did the client change?'
             : mode === 'task'
             ? 'Description, Revit details, constraints…'
+            : mode === 'resource'
+            ? 'Why is this useful? Parameters, snippets, quick notes…'
             : 'Write private thoughts, meeting summary, or [[Standard links]]…'}
           value=${notes}
           onChange=${(e) => setNotes(e.target.value)}
@@ -678,13 +761,37 @@ export function QuickCaptureModal({
             </div>
           </${Fragment}>`
         : html`<div className="qc-cell">
+            ${mode === 'resource' &&
+            html`<${Fragment}>
+              <div className="qc-row">
+                <span className="qc-row-lbl">Type</span>
+                <${Select}
+                  variant="inline"
+                  value=${resKind}
+                  options=${RESOURCE_KINDS}
+                  ariaLabel="Resource type"
+                  onChange=${setResKind}
+                />
+              </div>
+              <div className="qc-row">
+                <span className="qc-row-lbl">Standard</span>
+                <${Select}
+                  variant="inline"
+                  value=${linkedDocId}
+                  options=${docOptions}
+                  ariaLabel="Linked standard"
+                  onChange=${setLinkedDocId}
+                  minMenuWidth=${250}
+                />
+              </div>
+            </${Fragment}>`}
             <div className="qc-row">
               <span className="qc-row-lbl">Pin to top</span>
               <button
                 type="button"
                 role="switch"
                 aria-checked=${isPinned}
-                aria-label="Pin note"
+                aria-label="Pin item"
                 className=${'pl-sw' + (isPinned ? ' on' : '')}
                 onClick=${() => setIsPinned((v) => !v)}
               />
@@ -708,7 +815,7 @@ export function QuickCaptureModal({
         </button>
       </div>`}
 
-      ${(isEditingTask && onDeleteTask) || (isEditingNote && onDeleteNote)
+      ${(isEditingTask && onDeleteTask) || (isEditingNote && onDeleteNote) || (isEditingResource && onDeleteResource)
         ? html`<div className="qc-cell">
             <button
               type="button"
@@ -716,10 +823,11 @@ export function QuickCaptureModal({
               onClick=${() => {
                 if (isEditingTask) onDeleteTask(initialTask.id);
                 else if (isEditingNote) onDeleteNote(initialNote.id);
+                else if (isEditingResource) onDeleteResource(initialResource.id);
                 onClose && onClose();
               }}
             >
-              ${isEditingTask ? 'Delete Task' : 'Delete Note'}
+              ${isEditingTask ? 'Delete Task' : isEditingResource ? 'Delete Resource' : 'Delete Note'}
             </button>
           </div>`
         : null}
