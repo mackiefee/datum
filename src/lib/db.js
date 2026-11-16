@@ -432,4 +432,64 @@ export const db = {
       return db.brain.postAction(email, { action: 'state_sync', state });
     },
   },
+
+  directory: {
+    headersFor(email) {
+      const s = ls.get('kb2-auth-session');
+      const cleanEmail = String(email || (s && s.claims && s.claims.email) || '').trim().toLowerCase();
+      const tok = getStoredSupabaseJwt();
+      const supaTok = s && typeof s.supaToken === 'string' ? s.supaToken : '';
+      const headers = { 'Content-Type': 'application/json' };
+      if (cleanEmail) headers['x-datum-user-email'] = cleanEmail;
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+      if (supaTok) headers['x-datum-supa-token'] = supaTok;
+      return headers;
+    },
+
+    async request(method, body = null, email = '') {
+      const res = await fetch('/api/users', {
+        method,
+        headers: db.directory.headersFor(email),
+        cache: 'no-store',
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error((data && data.error) || `Directory request failed (${res.status})`);
+      }
+      return data;
+    },
+
+    fetchAll(email = '') {
+      return db.directory.request('GET', null, email);
+    },
+
+    invite(payload, email = '') {
+      return db.directory.request('POST', { action: 'invite', ...payload }, email);
+    },
+
+    updateUser(payload, email = '') {
+      return db.directory.request('PATCH', { action: 'update', ...payload }, email);
+    },
+
+    deactivateUser(id, fallbackUserId = '', email = '') {
+      return db.directory.request('PATCH', { action: 'deactivate', id, fallbackUserId }, email);
+    },
+
+    reactivateUser(id, email = '') {
+      return db.directory.request('PATCH', { action: 'reactivate', id }, email);
+    },
+
+    deleteUser(id, fallbackUserId = '', email = '') {
+      return db.directory.request('DELETE', { id, fallbackUserId }, email);
+    },
+
+    createTeam(payload, email = '') {
+      return db.directory.request('POST', { action: 'team_create', ...payload }, email);
+    },
+
+    toggleTeamMember(teamId, userId, member, email = '') {
+      return db.directory.request('PATCH', { action: 'team_toggle_member', teamId, userId, member }, email);
+    },
+  },
 };

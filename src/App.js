@@ -82,24 +82,11 @@ export function App() {
   const [tree, setTree] = useState(() => db.load("kb2-tree", null) || TREE);
   const [users, setUsers] = useState(() => {
     const saved = db.load("kb2-users", null);
-    if (!saved || !Array.isArray(saved)) return USERS;
-    return saved.map((u) => {
-      if (u && (u.id === "local-dev-superadmin" || u.id === "local-dev-member" || (u.email && u.email.toLowerCase() === "maf@planit-inc.com"))) {
-        return { ...u, id: "local-dev-superadmin", role: "SuperAdmin", title: "Head of VDC & SuperAdmin" };
-      }
-      const def = USERS.find((d) => d.id === u.id || (u.email && d.email === u.email));
-      return def
-        ? {
-            ...def,
-            ...u,
-            avatar: u.avatar || def.avatar,
-            title: u.title || def.title,
-            provider: u.provider || def.provider,
-            emailVerified: u.emailVerified ?? def.emailVerified,
-          }
-        : u;
-    });
+    if (!saved || !Array.isArray(saved) || saved.length === 0) return USERS;
+    return saved;
   });
+  const [directorySyncState, setDirectorySyncState] = useState("synced");
+  const [adminTabSeed, setAdminTabSeed] = useState("gov");
   const [teams, setTeams] = useState(() => db.load("kb2-teams", null) || SEED_TEAMS);
   const [activeUserId, setActiveUserId] = useState(() => db.load("kb2-uid", "u1"));
   const [authSession, setAuthSession] = useState(() => loadStoredSession());
@@ -383,6 +370,7 @@ export function App() {
           (sessionEmail && u.email && u.email.toLowerCase() === sessionEmail)
       )
     : null;
+  const emptyFallbackUser = { id: "u-anon", name: "User", email: "", role: "Member", teams: [], status: "active" };
   const activeUser =
     matchedUser ||
     (sessionClaims
@@ -394,48 +382,54 @@ export function App() {
           avatar: sessionClaims.avatar || makeGooglePhotoFallback(sessionClaims.name || "Google User"),
           provider: sessionClaims.provider || "google",
           emailVerified: sessionClaims.emailVerified !== false,
-          teams: ["t-vdc"],
+          teams: ["VDC"],
           status: "active",
         }
-      : users.find((u) => u.id === activeUserId) || users[0]);
+      : users.find((u) => u.id === activeUserId) || users[0] || emptyFallbackUser);
   const userName = activeUser.name;
   const role = activeUser.status === "deactivated" ? "Guest" : normRole(activeUser.role);
   const userTeams = activeUser.teams || [];
   const isGuest = role === "Guest";
 
+  const applyDirectoryPayload = (data) => {
+    if (!data || !data.configured || !Array.isArray(data.users)) return;
+    setUsers(data.users);
+    db.save("kb2-users", data.users);
+    if (Array.isArray(data.teams) && data.teams.length > 0) {
+      const mergedTeams = data.teams.map((tm) => {
+        const seedMatch = SEED_TEAMS.find(
+          (st) => st.name.toLowerCase() === tm.name.toLowerCase() ||
+                  (tm.name.toLowerCase() === "interior" && st.name.toLowerCase().startsWith("interior"))
+        );
+        return {
+          ...tm,
+          desc: tm.desc || (seedMatch && seedMatch.desc) || "Workspace department & content contributors.",
+        };
+      });
+      setTeams(mergedTeams);
+      db.save("kb2-teams", mergedTeams);
+    }
+  };
+
+  const refreshDirectory = async (emailOverride = "") => {
+    const callerEmail = (emailOverride || sessionEmail || "").trim().toLowerCase();
+    if (!callerEmail) return null;
+    setDirectorySyncState((prev) => (prev === "saving" ? prev : "loading"));
+    try {
+      const data = await db.directory.fetchAll(callerEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      return data;
+    } catch (e) {
+      setDirectorySyncState("error");
+      return null;
+    }
+  };
+
   useEffect(() => {
-    if (!sessionClaims || matchedUser) return;
-    const sub = sessionClaims.sub || "";
-    const name = sessionClaims.name || (sessionEmail ? sessionEmail.split("@")[0] : "Google User");
-    const email = sessionClaims.email || "";
-    const roleVal = normRole(sessionClaims.role);
-    const avatar = sessionClaims.avatar || makeGooglePhotoFallback(name);
-    setUsers((prev) => {
-      const exists = prev.some(
-        (u) =>
-          (sub && (u.id === sub || u.googleSub === sub)) ||
-          (sessionEmail && u.email && u.email.toLowerCase() === sessionEmail)
-      );
-      if (exists) return prev;
-      return [
-        {
-          id: sub || activeUserId || "u-" + Date.now(),
-          googleSub: sub || undefined,
-          name,
-          email,
-          role: roleVal,
-          title: sessionClaims.title || "Team Member",
-          dept: "VDC",
-          teams: ["t-vdc"],
-          avatar,
-          provider: sessionClaims.provider || "google",
-          emailVerified: sessionClaims.emailVerified !== false,
-          status: "active",
-        },
-        ...prev,
-      ];
-    });
-  }, [sessionClaims, matchedUser, sessionEmail, activeUserId]);
+    if (!sessionEmail || isGuest) return;
+    refreshDirectory(sessionEmail);
+  }, [sessionEmail, isGuest]);
 
   const dxr = useRef(null);
   const [sc, setSc] = useState(false);
@@ -748,8 +742,12 @@ export function App() {
 
   const goV = (v) => {
     setRead(null);
+    if (v === "admin") setAdminTabSeed("gov");
     setView(v);
     setNav(false);
+    if ((v === "team" || v === "admin") && !isGuest) {
+      refreshDirectory();
+    }
     window.scrollTo({ top: 0 });
   };
 
@@ -1565,9 +1563,9 @@ export function App() {
   const saveCol = (c) => setCols((prev) => prev.map((x) => (x.id === c.id ? c : x)));
   const delCol = (id) => setCols((prev) => prev.filter((x) => x.id !== id));
 
-  // Deactivate User + Transfer Ownership
-  const handleDeactivateUser = (uid, oldName, targetName) => {
-    setUsers((prev) => prev.map((u) => (u.id === uid ? { ...u, status: "deactivated" } : u)));
+  // Sync Directory Handlers (Live Supabase public.users + auth.users)
+  const reassignLocalOwnership = (oldName, targetName) => {
+    if (!oldName || !targetName || oldName === targetName) return;
     setRes((prev) => prev.map((r) => (r.author === oldName ? { ...r, author: targetName } : r)));
     const reassignCats = (nodes) =>
       nodes.map((n) => ({
@@ -1578,8 +1576,112 @@ export function App() {
     setTree(reassignCats(tree));
     setCols((prev) => prev.map((c) => (c.owner === oldName && c.tier !== "personal" ? { ...c, owner: targetName } : c)));
     setShares((prev) => prev.filter((s) => s.grantee !== oldName));
-    logAct("Deactivated User & Transferred Ownership", "user", uid, oldName, `Items reassigned → ${targetName}`);
-    flash(`Deactivated ${oldName}; ownership transferred to ${targetName}`);
+  };
+
+  const handleInviteUser = async (payload) => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.invite(payload, sessionEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      logAct("Invited Member", "user", data.userId || payload.email, payload.name, payload.email);
+      flash(`Invited ${payload.name || payload.email} (saved to Supabase)`);
+      return true;
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to invite user");
+      return false;
+    }
+  };
+
+  const handleUpdateUserRole = async (targetUser, nextRole) => {
+    if (nextRole === "SuperAdmin" && !can.superAdmin(role)) {
+      flash("Only Super Admin can assign Super Admin role");
+      return;
+    }
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.updateUser({ id: targetUser.id, role: nextRole }, sessionEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      logAct("Updated User Role", "user", targetUser.id, targetUser.name, `Role → ${ROLES[nextRole]}`);
+      flash(`Updated ${targetUser.name} role to ${ROLES[nextRole]}`);
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to update role");
+    }
+  };
+
+  const handleDeactivateUser = async (uid, oldName, targetName, fallbackUserId = "") => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.deactivateUser(uid, fallbackUserId, sessionEmail);
+      applyDirectoryPayload(data);
+      reassignLocalOwnership(oldName, targetName);
+      setDirectorySyncState("synced");
+      logAct("Deactivated User & Transferred Ownership", "user", uid, oldName, `Items reassigned → ${targetName}`);
+      flash(`Deactivated ${oldName}; ownership transferred to ${targetName}`);
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to deactivate user");
+    }
+  };
+
+  const handleReactivateUser = async (targetUser) => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.reactivateUser(targetUser.id, sessionEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      logAct("Reactivated User", "user", targetUser.id, targetUser.name, targetUser.email);
+      flash(`Reactivated ${targetUser.name}`);
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to reactivate user");
+    }
+  };
+
+  const handleDeleteUser = async (targetUser, fallbackUserId = "", fallbackName = userName) => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.deleteUser(targetUser.id, fallbackUserId, sessionEmail);
+      applyDirectoryPayload(data);
+      reassignLocalOwnership(targetUser.name, fallbackName);
+      setDirectorySyncState("synced");
+      logAct("Deleted User", "user", targetUser.id, targetUser.name, `Ownership reassigned → ${fallbackName}`);
+      flash(`Deleted ${targetUser.name} from database`);
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to delete user");
+    }
+  };
+
+  const handleCreateTeamDb = async (teamPayload) => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.createTeam(teamPayload, sessionEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      flash(`Created team “${teamPayload.name}”`);
+      return true;
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to create team");
+      return false;
+    }
+  };
+
+  const handleToggleTeamMemberDb = async (tm, usr, add) => {
+    setDirectorySyncState("saving");
+    try {
+      const data = await db.directory.toggleTeamMember(tm.id, usr.id, add, sessionEmail);
+      applyDirectoryPayload(data);
+      setDirectorySyncState("synced");
+      flash(add ? `Added ${usr.name} to ${tm.name}` : `Removed ${usr.name} from ${tm.name}`);
+    } catch (e) {
+      setDirectorySyncState("error");
+      flash(e.message || "Failed to update team membership");
+    }
   };
 
   // Google Auth + Session Handlers
@@ -1640,6 +1742,9 @@ export function App() {
     const syncedSession = { ...session, claims: { ...claims, role: targetRole } };
     saveStoredSession(syncedSession);
     setAuthSession(syncedSession);
+    if (!isGuestAuth && email) {
+      refreshDirectory(email);
+    }
     setRead(null);
     setSel(null);
     setView(normRole(targetRole) === "Guest" ? "kb" : "home");
@@ -2089,7 +2194,7 @@ export function App() {
 
         <div className="bar-r">
           ${!rr &&
-          view !== "tasks" &&
+          !["tasks", "team", "admin"].includes(view) &&
           can.createDraft(role) &&
           html`<button
             className="btn p cr"
@@ -2550,13 +2655,22 @@ export function App() {
         !isGuest &&
         html`<${TeamView}
           users=${users}
-          setUsers=${setUsers}
           teams=${teams}
-          setTeams=${setTeams}
           res=${visibleRes}
           tree=${tree}
           role=${role}
           userName=${userName}
+          currentUserId=${activeUser.id}
+          directorySyncState=${directorySyncState}
+          onInviteUser=${handleInviteUser}
+          onDeactivateUser=${handleDeactivateUser}
+          onDeleteUser=${handleDeleteUser}
+          onCreateTeam=${handleCreateTeamDb}
+          onToggleTeamMember=${handleToggleTeamMemberDb}
+          onOpenAdminUsers=${() => {
+            setAdminTabSeed("users");
+            setView("admin");
+          }}
           onFilterByOwner=${(authorName) => {
             setF({ author: authorName });
             setCur("all");
@@ -2575,7 +2689,7 @@ export function App() {
           tree=${tree}
           setTree=${setTree}
           users=${users}
-          setUsers=${setUsers}
+          teams=${teams}
           cols=${cols}
           activities=${activities}
           searchLogs=${searchLogs}
@@ -2583,7 +2697,10 @@ export function App() {
           req=${req}
           role=${role}
           userName=${userName}
+          currentUserId=${activeUser.id}
           flaggedIds=${flaggedIds}
+          initialTab=${adminTabSeed}
+          directorySyncState=${directorySyncState}
           onRead=${rd}
           onApprove=${(id) => act.onStatus(id, "Approved")}
           onReject=${(id) => act.onStatus(id, "Draft")}
@@ -2609,7 +2726,18 @@ export function App() {
             setRes((prev) => prev.map((r) => ({ ...r, tags: r.tags.filter((x) => x !== t) })));
             flash(`Removed #${t}`);
           }}
+          onInviteUser=${handleInviteUser}
+          onUpdateUserRole=${handleUpdateUserRole}
           onDeactivateUser=${handleDeactivateUser}
+          onReactivateUser=${handleReactivateUser}
+          onDeleteUser=${handleDeleteUser}
+          onFilterByOwner=${(authorName) => {
+            setF({ author: authorName });
+            setCur("all");
+            setQ("");
+            setView("lib");
+            flash(`Filtered catalog by ${authorName}`);
+          }}
           onCreateForTopic=${(topic) => createNewDoc({ title: topic })}
           flash=${flash}
         />`}
