@@ -62,6 +62,7 @@ export function Reader(p) {
   const [curBlkLabel, setCurBlkLabel] = useState('Text');
   const [curBlkKey, setCurBlkKey] = useState('p');
   const [sl, setSl] = useState(null);
+  const [wiki, setWiki] = useState(null);
   const [hd, setHd] = useState(null);
   const [bm, setBm] = useState(null);
 
@@ -148,6 +149,7 @@ export function Reader(p) {
 
   const closeMenus = (except) => {
     if (except !== 'sl') setSl(null);
+    if (except !== 'wiki') setWiki(null);
     if (except !== 'bm') setBm(null);
     if (except !== 'lk') setLk(null);
     if (except !== 'fbPop') setFbPop(null);
@@ -1223,6 +1225,28 @@ export function Reader(p) {
   };
 
   const flt = sl ? EW_SL.filter((x) => !sl.q || (x[1] + ' ' + x[4]).toLowerCase().includes(sl.q)) : [];
+  const wikiMatches = useMemo(() => {
+    if (!wiki) return [];
+    const qLow = (wiki.q || '').trim().toLowerCase();
+    return (res || [])
+      .filter((x) => {
+        if (!x || x.id === r.id) return false;
+        if (!qLow) return true;
+        return (
+          (x.title || '').toLowerCase().includes(qLow) ||
+          (x.disc || '').toLowerCase().includes(qLow) ||
+          (x.desc || '').toLowerCase().includes(qLow)
+        );
+      })
+      .sort((a, b) => {
+        if (!qLow) return (b.upd || '').localeCompare(a.upd || '');
+        const aStarts = (a.title || '').toLowerCase().startsWith(qLow) ? 0 : 1;
+        const bStarts = (b.title || '').toLowerCase().startsWith(qLow) ? 0 : 1;
+        return aStarts - bStarts || (a.title || '').localeCompare(b.title || '');
+      })
+      .slice(0, 8);
+  }, [wiki, res, r.id]);
+
   const cTxt = () => {
     const s = getSelection();
     if (!s || !s.rangeCount || !s.isCollapsed) return null;
@@ -1289,6 +1313,72 @@ export function Reader(p) {
       i: 0,
       mode: 'slash',
     });
+  };
+
+  const wikiDetect = (b) => {
+    const c = cTxt();
+    if (!b || !c || b.tagName === 'PRE') {
+      setWiki(null);
+      return;
+    }
+    const [n, o] = c;
+    const mm = n.data.slice(0, o).replace(/\u00a0/g, ' ').match(/\[\[([^\]\n]*)$/);
+    if (!mm) {
+      setWiki(null);
+      return;
+    }
+    const sr = getSelection().rangeCount ? getSelection().getRangeAt(0).getBoundingClientRect() : null;
+    const bb = b.getBoundingClientRect();
+    const rawX = (sr && sr.left) || bb.left;
+    const rawY = ((sr && sr.bottom) || bb.bottom) + 6;
+    const pos = clampMenuPos(rawX, rawY, 278, 320);
+    closeMenus('wiki');
+    setWiki({
+      x: pos.left,
+      y: pos.top,
+      q: mm[1].trim().toLowerCase(),
+      i: 0,
+    });
+  };
+
+  const pickWiki = (doc) => {
+    const c = cTxt();
+    if (!c || !doc) {
+      setWiki(null);
+      return;
+    }
+    const [n, o] = c;
+    const before = n.data.slice(0, o);
+    const idx = before.lastIndexOf('[[');
+    if (idx >= 0) {
+      const rg = document.createRange();
+      rg.setStart(n, idx);
+      rg.setEnd(n, o);
+      rg.deleteContents();
+      const a = document.createElement('a');
+      a.href = `#doc-${doc.id}`;
+      a.setAttribute('data-wiki-id', String(doc.id));
+      a.className = 'datum-wiki-lk';
+      a.textContent = doc.title || 'Standard';
+      const sp = document.createTextNode('\u00a0');
+      rg.insertNode(sp);
+      rg.insertNode(a);
+      const nr = document.createRange();
+      nr.setStart(sp, 1);
+      nr.collapse(true);
+      const sel = getSelection();
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(nr);
+      }
+    }
+    setWiki(null);
+    sync();
+    const curLinks = Array.isArray(r.links) ? r.links : [];
+    const alreadyLinked = curLinks.some((l) => (typeof l === 'object' ? l.to === doc.id : l === doc.id));
+    if (!alreadyLinked && doc.id !== r.id) {
+      updateMetaField({ links: [...curLinks, { to: doc.id, kind: 'soft' }] });
+    }
   };
 
   const blkAt = (y) => {
@@ -1555,6 +1645,7 @@ export function Reader(p) {
       return;
     }
     slash(b);
+    wikiDetect(b);
     sync();
   };
 
@@ -1649,6 +1740,26 @@ export function Reader(p) {
       exec('strikeThrough');
       return;
     }
+    if (wiki) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (wikiMatches.length) {
+          e.preventDefault();
+          setWiki({ ...wiki, i: (wiki.i + (e.key === 'ArrowDown' ? 1 : -1) + wikiMatches.length) % wikiMatches.length });
+        }
+        return;
+      }
+      if ((e.key === 'Enter' || e.key === 'Tab') && wikiMatches.length) {
+        e.preventDefault();
+        pickWiki(wikiMatches[wiki.i] || wikiMatches[0]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        setWiki(null);
+        return;
+      }
+    }
     if (sl && flt.length) {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
@@ -1730,6 +1841,14 @@ export function Reader(p) {
 
   const onCanvasClick = (e) => {
     const tEl = e.target;
+    const wikiEl = tEl.closest && tEl.closest('a.datum-wiki-lk');
+    if (wikiEl) {
+      e.preventDefault();
+      if ((e.metaKey || e.ctrlKey) && wikiEl.dataset.wikiId) {
+        p.go && p.go(Number(wikiEl.dataset.wikiId));
+      }
+      return;
+    }
     if (tEl === root.current) {
       const last = root.current.lastElementChild;
       if (last && last.tagName === 'P' && !last.textContent.trim()) caret(last);
@@ -1886,6 +2005,10 @@ export function Reader(p) {
 
   const handleReaderSource = (s) => {
     if (!s || !s.id) return;
+    if (String(s.id).startsWith('task:') || String(s.id).startsWith('note:')) {
+      p.onOpenBrainSource && p.onOpenBrainSource(s);
+      return;
+    }
     if (String(s.id) === String(r.id)) {
       if (s.sectionId) {
         goToId(s.sectionId);
@@ -1997,6 +2120,38 @@ export function Reader(p) {
     );
   }, [res, r.id, titleVal, urlVal, canEditItem]);
 
+  const backlinks = useMemo(() => {
+    const idStr = String(r.id);
+    const wikiNeedle = `|${idStr}]]`;
+    const docs = (res || [])
+      .filter((x) => {
+        if (!x || x.id === r.id) return false;
+        if ((x.body || '').includes(wikiNeedle)) return true;
+        return (x.links || []).some((l) => (typeof l === 'object' ? l.to === r.id : l === r.id));
+      })
+      .map((x) => ({
+        kind: 'doc',
+        id: x.id,
+        title: x.title || 'Untitled',
+        sub: x.disc || 'Standard',
+        color: DC[x.disc] || '#0a84ff',
+      }));
+    const noteMentions = (p.privNotes || [])
+      .filter((n) => {
+        const linked = Array.isArray(n.linkedItemIds) && n.linkedItemIds.includes(r.id);
+        const inBody = (n.body || '').includes(wikiNeedle);
+        return linked || inBody;
+      })
+      .map((n) => ({
+        kind: 'note',
+        id: n.id,
+        title: n.title || 'Private Note',
+        sub: n.project ? `Note · ${n.project}` : 'Private Note',
+        color: '#bf5af2',
+      }));
+    return [...docs, ...noteMentions];
+  }, [res, r.id, p.privNotes]);
+
   const titlePeer = peers.find((x) => x.activeField === 'title');
   const descPeer = peers.find((x) => x.activeField === 'desc');
 
@@ -2102,6 +2257,18 @@ export function Reader(p) {
             <${Ic} n="spark" s=${13} />
             <span>Ask AI</span>
           </button>
+
+          ${!isGuest &&
+          p.onAddTaskForDoc &&
+          html`<button
+            type="button"
+            className="btn sm rd-task-btn"
+            onClick=${() => p.onAddTaskForDoc(r)}
+            title="Create personal task linked to this document"
+          >
+            <${Ic} n="check" s=${13} />
+            <span>+ Task</span>
+          </button>`}
 
           ${!isGuest &&
           html`<button
@@ -2343,7 +2510,7 @@ export function Reader(p) {
                       </button>
                     </div>`}
                     ${dp && html`<div className="ewdp" style=${{ top: dp.y - 1 }}></div>`}
-                    ${emp && html`<div className="notion-hint">Start writing, or type <code>/</code> for blocks…</div>`}
+                    ${emp && html`<div className="notion-hint">Start writing, <code>/</code> for blocks, or <code>[[</code> to link standards…</div>`}
                     ${emp &&
                     html`<div className="ew-starter" onMouseDown=${(e) => e.stopPropagation()}>
                       <span>Quick start:</span>
@@ -2359,6 +2526,12 @@ export function Reader(p) {
               className="prose"
               onClick=${(e) => {
                 const tEl = e.target;
+                const wikiEl = tEl.closest && tEl.closest('a.datum-wiki-lk');
+                if (wikiEl && wikiEl.dataset.wikiId) {
+                  e.preventDefault();
+                  p.go && p.go(Number(wikiEl.dataset.wikiId));
+                  return;
+                }
                 if (tEl.tagName === 'IMG') setZm(tEl.src);
                 else {
                   const li = tEl.closest && tEl.closest('li.ck');
@@ -2414,6 +2587,31 @@ export function Reader(p) {
               />`
             : html`<button type="button" className="rd-tag-add" onClick=${() => setAddingTag(true)}>+ Tag</button>`)}
         </div>
+
+        ${backlinks.length > 0 &&
+        html`<details className="rd-backlinks">
+          <summary>
+            <span>Backlinks (${backlinks.length})</span>
+            <small>Standards & notes referencing this page</small>
+          </summary>
+          <div className="rd-backlinks-list">
+            ${backlinks.map(
+              (b) => html`<button
+                key=${`${b.kind}-${b.id}`}
+                type="button"
+                className="rd-backlink-chip"
+                onClick=${() => {
+                  if (b.kind === 'doc') p.go && p.go(b.id);
+                  else if (p.onOpenNote) p.onOpenNote(b.id);
+                }}
+              >
+                <i className="rd-bl-dot" style=${{ background: b.color }} />
+                <span className="rd-bl-title">${b.title}</span>
+                <span className="rd-bl-sub">${b.sub}</span>
+              </button>`
+            )}
+          </div>
+        </details>`}
 
         <${LocalImpactGraph} item=${r} res=${res} collapsedByDefault=${true} onRead=${p.go} onInfo=${p.info} />
       </div>
@@ -2901,6 +3099,35 @@ export function Reader(p) {
                 </${Fragment}>`
               )
             : html`<div className="ewno">No matching blocks</div>`}
+        </div>
+      </div>`,
+      portalRoot
+    )}
+
+    ${portalRoot &&
+    isEditing &&
+    wiki &&
+    createPortal(
+      html`<div className="ewsl ewwiki" style=${{ left: wiki.x + 'px', top: wiki.y + 'px' }} onMouseDown=${(e) => e.preventDefault()}>
+        <div className="ew-scroll">
+          <div className="ew-mhdr">Link Standard ${wiki.q ? `· “${wiki.q}”` : ''}</div>
+          ${wikiMatches.length
+            ? wikiMatches.map(
+                (doc, k) => html`<button
+                  type="button"
+                  key=${doc.id}
+                  className=${k === wiki.i ? 'on' : ''}
+                  onMouseEnter=${() => setWiki((o) => (o && o.i !== k ? { ...o, i: k } : o))}
+                  onClick=${() => pickWiki(doc)}
+                >
+                  <span className="ew-ico" style=${{ borderColor: DC[doc.disc] || 'var(--line)' }}>
+                    <${Ic} n=${doc.type || 'doc'} s=${13} />
+                  </span>
+                  <span className="ew-lbl">${doc.title}</span>
+                  <span className="ew-mk">${doc.disc || 'Doc'}</span>
+                </button>`
+              )
+            : html`<div className="ewno">No matching standards</div>`}
         </div>
       </div>`,
       portalRoot

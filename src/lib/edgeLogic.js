@@ -102,11 +102,14 @@ export function runAiEdgeLogic(payload) {
     allowedCategories = [],
     directShareIds = [],
     items = [],
+    personalTasks = [],
+    personalNotes = [],
     targetItem = null,
     targetDocId = null,
     scope = "all",
     history = [],
     today = "2026-10-22",
+    clientDate = "",
   } = payload || {};
 
   if (action === "summarize" && targetItem) {
@@ -138,7 +141,7 @@ export function runAiEdgeLogic(payload) {
   const isUa = hasCyrillic(eff.q);
   const namingNote = lookupNamingQuery(eff.q) || (eff.isFollowUp ? lookupNamingQuery(eff.expandedTerms.join(" ")) : null);
 
-  const ranked = scopedPool
+  const rankedDocs = scopedPool
     .map((r) => {
       const primary = scoreDocument(r, eff.q, eff.baseTokens);
       let score = primary.score;
@@ -150,9 +153,104 @@ export function runAiEdgeLogic(payload) {
       if (targetDocId != null && String(r.id) === String(targetDocId)) {
         score += scope === "doc" ? 20 : 6;
       }
-      return { item: r, score };
+      return { item: r, score, kind: "doc" };
     })
-    .filter((x) => x.score > 0 || (scope === "doc" && targetDocId != null && String(x.item.id) === String(targetDocId)))
+    .filter((x) => x.score > 0 || (scope === "doc" && targetDocId != null && String(x.item.id) === String(targetDocId)));
+
+  const qLow = eff.q.toLowerCase();
+  const realToday = clientDate || new Date().toISOString().slice(0, 10);
+  const asksTasks = /(?:task|tasks|todo|to-do|urgent|deadline|overdue|today|tomorrow|таск|задач|завдан|термінов|сьогодні|завтра|справ|дедлайн|проєкт)/i.test(qLow);
+  const asksUrgent = /(?:urgent|asap|priority|термінов|пріоритет|гаряч)/i.test(qLow);
+  const asksToday = /(?:today|overdue|due|сьогодні|зараз|простроч)/i.test(qLow);
+  const asksNotes = /(?:note|notes|memo|capture|brain|нотатк|запис|памят|іде)/i.test(qLow);
+
+  const rankedBrain = [];
+  if (scope !== "doc") {
+    for (const t of personalTasks || []) {
+      if (!t || !t.title) continue;
+      const isDone = t.status === "done";
+      if (isDone && (asksUrgent || asksToday) && !/(?:done|completed|виконан|завершен)/i.test(qLow)) continue;
+      const fakeDoc = {
+        id: `task:${t.id}`,
+        title: t.title,
+        desc: `${t.project || "General"} ${t.isUrgent ? "urgent терміново" : ""} ${t.dueDate || ""} ${t.linkedItemTitle || ""}`,
+        body: t.notes || "",
+        disc: t.project || "General",
+        tags: [t.project || "General", t.status, t.isUrgent ? "urgent" : ""],
+      };
+      let score = scoreDocument(fakeDoc, eff.q, eff.baseTokens).score;
+      if (asksTasks && !isDone) {
+        score += 3;
+        if (asksUrgent && t.isUrgent) score += 10;
+        if (asksToday && t.dueDate && t.dueDate <= realToday) score += 9;
+        if (!asksUrgent && !asksToday && (t.isUrgent || (t.dueDate && t.dueDate <= realToday))) score += 4;
+      }
+      if (t.project && qLow.includes(String(t.project).toLowerCase())) score += 7;
+      if (score > 0) {
+        const metaParts = [
+          t.isUrgent ? "Urgent" : "",
+          t.project ? `Project: ${t.project}` : "",
+          t.dueDate ? `Due ${t.dueDate}` : "",
+          `Status: ${t.status === "in_progress" ? "In Progress" : t.status === "done" ? "Done" : "To Do"}`,
+        ].filter(Boolean);
+        rankedBrain.push({
+          kind: "task",
+          score,
+          item: {
+            id: `task:${t.id}`,
+            rawId: t.id,
+            title: t.title,
+            url: "",
+            disc: t.project || "General",
+            type: "doc",
+            brainKind: "task",
+            reviewDays: 9999,
+            verified: realToday,
+            upd: realToday,
+            desc: `${metaParts.join(" · ")}${t.notes ? ` — ${t.notes}` : ""}`,
+            body: `${metaParts.join(" · ")}${t.notes ? `\n${t.notes}` : ""}${t.linkedItemTitle ? `\nLinked standard: ${t.linkedItemTitle}` : ""}`,
+          },
+        });
+      }
+    }
+
+    for (const n of personalNotes || []) {
+      if (!n) continue;
+      const fakeDoc = {
+        id: `note:${n.id}`,
+        title: n.title || "Private Note",
+        desc: n.project || "General",
+        body: n.body || "",
+        disc: n.project || "General",
+        tags: n.tags || [],
+      };
+      let score = scoreDocument(fakeDoc, eff.q, eff.baseTokens).score;
+      if (asksNotes) score += n.isPinned ? 5 : 3;
+      if (n.project && qLow.includes(String(n.project).toLowerCase())) score += 6;
+      if (score > 0) {
+        rankedBrain.push({
+          kind: "note",
+          score,
+          item: {
+            id: `note:${n.id}`,
+            rawId: n.id,
+            title: n.title || "Private Note",
+            url: "",
+            disc: n.project || "General",
+            type: "doc",
+            brainKind: "note",
+            reviewDays: 9999,
+            verified: realToday,
+            upd: realToday,
+            desc: plainText(n.body || "").slice(0, 220),
+            body: n.body || "",
+          },
+        });
+      }
+    }
+  }
+
+  const ranked = [...rankedDocs, ...rankedBrain]
     .sort((a, b) => b.score - a.score)
     .slice(0, 4);
 
@@ -165,6 +263,7 @@ export function runAiEdgeLogic(payload) {
     return {
       index: idx + 1,
       id: item.id,
+      brainKind: item.brainKind || null,
       title: item.title,
       sectionId: (sec && sec.id) || "",
       sectionTitle: secTitle,
@@ -173,7 +272,10 @@ export function runAiEdgeLogic(payload) {
       type: item.type || "doc",
       stale: age > cycle,
       ageDays: age,
-      excerpt: extractBestExcerpt(excerptSource, eff.expandedTerms, 230),
+      excerpt:
+        item.brainKind === "task"
+          ? String(item.desc || excerptSource).slice(0, 230)
+          : extractBestExcerpt(excerptSource, eff.expandedTerms, 230),
     };
   };
 

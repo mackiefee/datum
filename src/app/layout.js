@@ -11,6 +11,7 @@ import '../styles/polish.css';
 import '../styles/editor.css';
 import '../styles/space3d.css';
 import '../styles/naming.css';
+import '../styles/brain.css';
 
 export const metadata = {
   title: 'Datum',

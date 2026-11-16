@@ -338,4 +338,98 @@ export const db = {
     if (!res.ok) throw new Error(`Supabase RPC error: ${res.status}`);
     return res.json();
   },
+
+  brain: {
+    normalizeEmail(email) {
+      return String(email || '').trim().toLowerCase();
+    },
+
+    headersFor(email) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      const tok = getStoredSupabaseJwt();
+      const headers = { 'Content-Type': 'application/json' };
+      if (cleanEmail) headers['x-datum-user-email'] = cleanEmail;
+      if (tok) headers.Authorization = `Bearer ${tok}`;
+      return headers;
+    },
+
+    loadLocal(email) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (!cleanEmail) return { tasks: [], notes: [], state: null };
+      return {
+        tasks: ls.get(`kb2-tasks:${cleanEmail}`) || [],
+        notes: ls.get(`kb2-privnotes:${cleanEmail}`) || [],
+        state: ls.get(`kb2-brain-state:${cleanEmail}`) || null,
+      };
+    },
+
+    saveLocalTasks(email, tasks) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (cleanEmail) ls.set(`kb2-tasks:${cleanEmail}`, Array.isArray(tasks) ? tasks : []);
+    },
+
+    saveLocalNotes(email, notes) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (cleanEmail) ls.set(`kb2-privnotes:${cleanEmail}`, Array.isArray(notes) ? notes : []);
+    },
+
+    saveLocalState(email, state) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (cleanEmail && state) ls.set(`kb2-brain-state:${cleanEmail}`, state);
+    },
+
+    async fetchSnapshot(email) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      if (!cleanEmail) return { configured: false, tasks: [], notes: [], state: null };
+      const res = await fetch(`/api/brain?email=${encodeURIComponent(cleanEmail)}`, {
+        method: 'GET',
+        headers: db.brain.headersFor(cleanEmail),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`Brain snapshot failed (${res.status})`);
+      const data = await res.json();
+      if (data && Array.isArray(data.tasks)) db.brain.saveLocalTasks(cleanEmail, data.tasks);
+      if (data && Array.isArray(data.notes)) db.brain.saveLocalNotes(cleanEmail, data.notes);
+      if (data && data.state && data.state.exists) db.brain.saveLocalState(cleanEmail, data.state);
+      return data;
+    },
+
+    async postAction(email, body) {
+      const cleanEmail = db.brain.normalizeEmail(email);
+      const res = await fetch('/api/brain', {
+        method: 'POST',
+        headers: db.brain.headersFor(cleanEmail),
+        body: JSON.stringify({ ...body, ownerEmail: cleanEmail }),
+      });
+      if (!res.ok) {
+        let msg = `Brain sync failed (${res.status})`;
+        try {
+          const j = await res.json();
+          if (j && j.error) msg = j.error;
+        } catch {}
+        throw new Error(msg);
+      }
+      return res.json();
+    },
+
+    upsertTask(email, task) {
+      return db.brain.postAction(email, { action: 'task_upsert', task });
+    },
+
+    deleteTask(email, id) {
+      return db.brain.postAction(email, { action: 'task_delete', id });
+    },
+
+    upsertNote(email, note) {
+      return db.brain.postAction(email, { action: 'note_upsert', note });
+    },
+
+    deleteNote(email, id) {
+      return db.brain.postAction(email, { action: 'note_delete', id });
+    },
+
+    syncState(email, state) {
+      return db.brain.postAction(email, { action: 'state_sync', state });
+    },
+  },
 };

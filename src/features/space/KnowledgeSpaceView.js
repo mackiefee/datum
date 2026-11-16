@@ -91,6 +91,12 @@ export function KnowledgeSpaceView({
   onCommand,
   kb = 'Ctrl K',
   omniRectRef = null,
+  todayTaskCount = 0,
+  openTasksCount = 0,
+  onOpenTasks = null,
+  onOpenQuickCapture = null,
+  onQuickCommand = null,
+  onOpenBrainSource = null,
 }) {
   const viewportRef = useRef(null);
   const sceneRef = useRef(null);
@@ -487,7 +493,15 @@ export function KnowledgeSpaceView({
 
   const runAi = async (question) => {
     const t = String(question || '').trim();
-    if (!t || !onSendChat) return;
+    if (!t) return;
+    if (/^\/(?:todo|task|таск|задача|note|нотатка)\s+/i.test(t) && onQuickCommand && onQuickCommand(t)) {
+      setSpaceQuery('');
+      setDebouncedQuery('');
+      setSearchIsolateMode('auto');
+      if (catalogQ && onCatalogQChange) onCatalogQChange('');
+      return;
+    }
+    if (!onSendChat) return;
     ensureStageOpen();
     setSpaceFilterMode('all');
     setMobMenuOpen(false);
@@ -1655,6 +1669,10 @@ export function KnowledgeSpaceView({
 
   const openSourceFromChat = (s) => {
     if (!s || !s.id) return;
+    if ((String(s.id).startsWith('task:') || String(s.id).startsWith('note:')) && onOpenBrainSource) {
+      onOpenBrainSource(s);
+      return;
+    }
     if (isMobile) {
       triggerOpenCard(s.id, -1, undefined, s.sectionId || null);
       return;
@@ -1923,6 +1941,9 @@ export function KnowledgeSpaceView({
 
     const actions = [
       ...(can.createDraft(role) ? [['Create article or resource', 'plus', 'new']] : []),
+      ...(!isGuest && onOpenTasks ? [[`My Tasks & Second Brain${openTasksCount > 0 ? ` (${openTasksCount})` : ''}`, 'check', 'tasks']] : []),
+      ...(!isGuest && onOpenQuickCapture ? [['New Personal Task (Alt+N)', 'plus', 'quick-task']] : []),
+      ...(!isGuest && onOpenQuickCapture ? [['New Private Note', 'note', 'quick-note']] : []),
       ...(onImportDocx ? [['Import .docx document', 'doc', 'import-docx']] : []),
       ['3D Space Carousel', 'globe', 'view-mode', 'space'],
       ['Grid View (Flat Matrix)', 'layout', 'view-mode', 'grid'],
@@ -1968,6 +1989,22 @@ export function KnowledgeSpaceView({
       })),
       ...(qLow
         ? [
+            ...(/^\/(?:todo|task|таск|задача|note|нотатка)\s+/i.test(qTrim)
+              ? [
+                  {
+                    t: /^\/(?:note|нотатка)/i.test(qTrim)
+                      ? `Save Private Note: “${qTrim.replace(/^\/\S+\s+/, '')}”`
+                      : `Add Personal Task: “${qTrim.replace(/^\/\S+\s+/, '')}”`,
+                    d: 'Instant capture → Supabase (Today)',
+                    n: 'check',
+                    c: '#30d158',
+                    run: () => {
+                      onSetCmdOpen && onSetCmdOpen(false);
+                      runAi(qTrim);
+                    },
+                  },
+                ]
+              : []),
             {
               t: `Ask Library AI: “${qTrim}”`,
               d: 'Permission-filtered synthesis & spotlight',
@@ -1991,7 +2028,7 @@ export function KnowledgeSpaceView({
           ]
         : []),
     ];
-  }, [spaceQuery, recentSearches, displayItems, tree, role, layout, onCommand, onSetCmdOpen, onSelectViewMode]);
+  }, [spaceQuery, recentSearches, displayItems, tree, role, layout, onCommand, onSetCmdOpen, onSelectViewMode, isGuest, openTasksCount, todayTaskCount]);
 
   const highlightCmdText = (text) => {
     const qLow = spaceQuery.trim().toLowerCase();
@@ -3480,6 +3517,19 @@ export function KnowledgeSpaceView({
                   <span className="kspace-mob-act-ico"><${Ic} n="star" s=${19} /></span>
                   <span>Bookmarks (${favs.length})</span>
                 </button>`}
+            ${!isGuest &&
+            onOpenTasks &&
+            html`<button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                onOpenTasks();
+              }}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="check" s=${19} /></span>
+              <span>Tasks${todayTaskCount > 0 ? ` (${todayTaskCount} today)` : openTasksCount > 0 ? ` (${openTasksCount})` : ''}</span>
+            </button>`}
             <button
               type="button"
               className="kspace-mob-act"
@@ -3724,6 +3774,17 @@ export function KnowledgeSpaceView({
                   <${Ic} n="folder" s=${12} />
                   <span>Kits</span>
                 </button>
+                ${!isGuest &&
+                onOpenTasks &&
+                html`<button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${onOpenTasks}
+                  title="Open Personal Tasks & Second Brain (Alt+N to quick add)"
+                >
+                  <${Ic} n="check" s=${12} />
+                  <span>${todayTaskCount > 0 ? `Today (${todayTaskCount})` : openTasksCount > 0 ? `Tasks (${openTasksCount})` : 'Tasks'}</span>
+                </button>`}
               </${Fragment}>`
             : html`<${Fragment}>
                 ${!isGuest &&

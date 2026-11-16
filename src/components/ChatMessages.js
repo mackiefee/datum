@@ -98,11 +98,17 @@ export function ChatMessages({
               onMouseEnter=${() => onHoverSource && onHoverSource(s.id)}
               onMouseLeave=${() => onHoverSource && onHoverSource(null)}
               onClick=${() => onSelectSource && onSelectSource(s)}
-              title=${s.sectionTitle ? `Jump to § ${s.sectionTitle}` : 'Open standard'}
+              title=${s.brainKind === 'task'
+                ? 'Open in Personal Tasks'
+                : s.brainKind === 'note'
+                ? 'Open in Private Notes'
+                : s.sectionTitle
+                ? `Jump to § ${s.sectionTitle}`
+                : 'Open standard'}
             >
               <b>${s.index}</b>
               <span>
-                ${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}${s.stale ? ' (Review)' : ''}
+                ${s.brainKind === 'task' ? 'Task · ' : s.brainKind === 'note' ? 'Note · ' : ''}${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}${s.stale ? ' (Review)' : ''}
               </span>
               <span className="kspace-src-go">↗</span>
             </button>`
@@ -137,6 +143,8 @@ export function ChatMessages({
           ${primarySrc &&
           !isGuest &&
           onToggleFav &&
+          !String(primarySrc.id).startsWith('task:') &&
+          !String(primarySrc.id).startsWith('note:') &&
           html`<button
             type="button"
             className=${'chat-act-chip' + (isPrimaryFav ? ' on' : '')}

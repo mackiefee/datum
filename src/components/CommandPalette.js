@@ -146,6 +146,9 @@ export function Pal(p) {
 
   const A = [
     ...(can.createDraft(p.role) ? [["Create article or resource", "plus", "new"]] : []),
+    ["My Tasks & Second Brain", "check", "tasks"],
+    ["New Personal Task (Alt+N)", "plus", "quick-task"],
+    ["New Private Note", "note", "quick-note"],
     ["Knowledge Space (3D)", "globe", "kb-space"],
     ["Naming Studio (Wall & Element Builder)", "layers", "view", "naming"],
     ["Knowledge Base (Grid)", "layout", "view", "kb"],

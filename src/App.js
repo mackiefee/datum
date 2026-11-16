@@ -43,6 +43,8 @@ import { NamingStudioView } from './features/naming/NamingStudioView.js';
 import { KnowledgeSpaceView } from './features/space/KnowledgeSpaceView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
+import { SecondBrainView } from './features/brain/SecondBrainView.js';
+import { QuickCaptureModal } from './components/QuickCaptureModal.js';
 
 const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
@@ -486,6 +488,10 @@ export function App() {
         e.preventDefault();
         setNav((v) => !v);
       }
+      if (e.altKey && !e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        setQcModal((prev) => (prev ? null : { mode: "task", doc: null }));
+      }
       if (e.key === "Escape" && navRef.current) {
         e.preventDefault();
         setNav(false);
@@ -800,6 +806,12 @@ export function App() {
     setPal(false);
     if (k === "read") rd(a, b ? { sectionId: b } : undefined);
     else if (k === "new") createNewDoc();
+    else if (k === "quick-task") setQcModal({ mode: "task", doc: null });
+    else if (k === "quick-note") setQcModal({ mode: "note", doc: null });
+    else if (k === "tasks") {
+      setBrainTabSeed(a || "all");
+      goV("tasks");
+    }
     else if (k === "home") goHome();
     else if (k === "kits") {
       selectSpatialMode("kits");
@@ -902,6 +914,290 @@ export function App() {
     setActiveChatId(loadActiveChatId(chatOwnerKey));
   }, [chatOwnerKey]);
 
+  const localIsoToday = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  };
+  const makeUuid = () =>
+    typeof crypto !== "undefined" && crypto.randomUUID
+      ? crypto.randomUUID()
+      : "00000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12);
+
+  const brainOwnerEmail = db.brain.normalizeEmail(activeUser?.email || (activeUser?.id ? `${activeUser.id}@datum.local` : ""));
+  const [tasks, setTasks] = useState(() => db.brain.loadLocal(brainOwnerEmail).tasks);
+  const [privNotes, setPrivNotes] = useState(() => db.brain.loadLocal(brainOwnerEmail).notes);
+  const [brainSyncState, setBrainSyncState] = useState("synced");
+  const [brainTabSeed, setBrainTabSeed] = useState("all");
+  const [brainHighlightId, setBrainHighlightId] = useState(null);
+  const [qcModal, setQcModal] = useState(null);
+  const brainHydratedEmailRef = useRef("");
+  const brainStateSyncTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!brainOwnerEmail || isGuest) {
+      setTasks([]);
+      setPrivNotes([]);
+      brainHydratedEmailRef.current = "";
+      return;
+    }
+    let alive = true;
+    brainHydratedEmailRef.current = "";
+    const local = db.brain.loadLocal(brainOwnerEmail);
+    setTasks(Array.isArray(local.tasks) ? local.tasks : []);
+    setPrivNotes(Array.isArray(local.notes) ? local.notes : []);
+    setBrainHighlightId(null);
+
+    db.brain
+      .fetchSnapshot(brainOwnerEmail)
+      .then((snap) => {
+        if (!alive || !snap) return;
+        if (Array.isArray(snap.tasks)) setTasks(snap.tasks);
+        if (Array.isArray(snap.notes)) setPrivNotes(snap.notes);
+        if (snap.state && snap.state.exists) {
+          if (Array.isArray(snap.state.favs)) setFavs(snap.state.favs);
+          if (Array.isArray(snap.state.pinned)) setPinned(snap.state.pinned);
+          if (snap.state.acks && typeof snap.state.acks === "object") setAcks(snap.state.acks);
+          if (snap.state.chk && typeof snap.state.chk === "object") setChk(snap.state.chk);
+          if (Array.isArray(snap.state.chats) && snap.state.chats.length > 0) {
+            setChats(snap.state.chats);
+            saveChats(snap.state.chats, chatOwnerKey);
+            if (snap.state.activeChatId) {
+              setActiveChatId(snap.state.activeChatId);
+              saveActiveChatId(snap.state.activeChatId, chatOwnerKey);
+            }
+          }
+        }
+        brainHydratedEmailRef.current = brainOwnerEmail;
+        setBrainSyncState("synced");
+      })
+      .catch(() => {
+        if (!alive) return;
+        brainHydratedEmailRef.current = brainOwnerEmail;
+        setBrainSyncState("error");
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [brainOwnerEmail, isGuest]);
+
+  useEffect(() => {
+    if (!brainOwnerEmail || isGuest || brainHydratedEmailRef.current !== brainOwnerEmail) return;
+    const payload = { favs, pinned, acks, chk, chats, activeChatId };
+    db.brain.saveLocalState(brainOwnerEmail, payload);
+    clearTimeout(brainStateSyncTimerRef.current);
+    brainStateSyncTimerRef.current = setTimeout(() => {
+      db.brain.syncState(brainOwnerEmail, payload).catch(() => {});
+    }, 900);
+    return () => clearTimeout(brainStateSyncTimerRef.current);
+  }, [favs, pinned, acks, chk, chats, activeChatId, brainOwnerEmail, isGuest]);
+
+  const saveTask = async (taskInput) => {
+    if (!brainOwnerEmail || isGuest) return null;
+    const id = taskInput.id || makeUuid();
+    const nowIso = new Date().toISOString();
+    const nextStatus = taskInput.status || "todo";
+    const pri = Number.isFinite(Number(taskInput.priority)) ? Math.max(0, Math.min(3, Math.trunc(Number(taskInput.priority)))) : (taskInput.isUrgent ? 3 : 0);
+    const isUrgent = Boolean(taskInput.isUrgent || pri >= 3);
+    const optimistic = {
+      id,
+      ownerEmail: brainOwnerEmail,
+      title: String(taskInput.title || "").trim(),
+      notes: taskInput.notes || "",
+      project: taskInput.project || "General",
+      category: taskInput.category || "",
+      priority: isUrgent && pri === 0 ? 3 : pri,
+      dueDate: taskInput.dueDate || "",
+      isUrgent,
+      status: nextStatus,
+      linkedItemId: taskInput.linkedItemId ?? null,
+      linkedItemTitle: taskInput.linkedItemTitle || "",
+      sortOrder: Number(taskInput.sortOrder || 0),
+      completedAt: nextStatus === "done" ? taskInput.completedAt || nowIso : null,
+      createdAt: taskInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    if (!optimistic.title) return null;
+    edgeClient.clearAiCache();
+    setTasks((prev) => {
+      const exists = prev.some((x) => x.id === id);
+      const next = exists ? prev.map((x) => (x.id === id ? optimistic : x)) : [optimistic, ...prev];
+      db.brain.saveLocalTasks(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      const resSync = await db.brain.upsertTask(brainOwnerEmail, optimistic);
+      if (resSync && resSync.task) {
+        setTasks((prev) => {
+          const next = prev.map((x) => (x.id === id ? resSync.task : x));
+          db.brain.saveLocalTasks(brainOwnerEmail, next);
+          return next;
+        });
+      }
+      setBrainSyncState("synced");
+      return (resSync && resSync.task) || optimistic;
+    } catch (e) {
+      setBrainSyncState("error");
+      return optimistic;
+    }
+  };
+
+  const deleteTask = async (id) => {
+    if (!brainOwnerEmail || isGuest || !id) return;
+    edgeClient.clearAiCache();
+    setTasks((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      db.brain.saveLocalTasks(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      await db.brain.deleteTask(brainOwnerEmail, id);
+      setBrainSyncState("synced");
+    } catch (e) {
+      setBrainSyncState("error");
+    }
+  };
+
+  const savePrivNote = async (noteInput) => {
+    if (!brainOwnerEmail || isGuest) return null;
+    const id = noteInput.id || makeUuid();
+    const nowIso = new Date().toISOString();
+    const optimistic = {
+      id,
+      ownerEmail: brainOwnerEmail,
+      title: String(noteInput.title || "").trim() || "Quick Note",
+      body: String(noteInput.body || ""),
+      project: String(noteInput.project || "General").trim() || "General",
+      tags: Array.isArray(noteInput.tags) ? noteInput.tags : [],
+      isPinned: Boolean(noteInput.isPinned),
+      linkedItemIds: Array.isArray(noteInput.linkedItemIds) ? noteInput.linkedItemIds : [],
+      createdAt: noteInput.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+    edgeClient.clearAiCache();
+    setPrivNotes((prev) => {
+      const exists = prev.some((x) => x.id === id);
+      const next = exists ? prev.map((x) => (x.id === id ? optimistic : x)) : [optimistic, ...prev];
+      db.brain.saveLocalNotes(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      const resSync = await db.brain.upsertNote(brainOwnerEmail, optimistic);
+      if (resSync && resSync.note) {
+        setPrivNotes((prev) => {
+          const next = prev.map((x) => (x.id === id ? resSync.note : x));
+          db.brain.saveLocalNotes(brainOwnerEmail, next);
+          return next;
+        });
+      }
+      setBrainSyncState("synced");
+      return (resSync && resSync.note) || optimistic;
+    } catch (e) {
+      setBrainSyncState("error");
+      return optimistic;
+    }
+  };
+
+  const deletePrivNote = async (id) => {
+    if (!brainOwnerEmail || isGuest || !id) return;
+    edgeClient.clearAiCache();
+    setPrivNotes((prev) => {
+      const next = prev.filter((x) => x.id !== id);
+      db.brain.saveLocalNotes(brainOwnerEmail, next);
+      return next;
+    });
+    setBrainSyncState("saving");
+    try {
+      await db.brain.deleteNote(brainOwnerEmail, id);
+      setBrainSyncState("synced");
+    } catch (e) {
+      setBrainSyncState("error");
+    }
+  };
+
+  const handleQuickCommand = (rawText) => {
+    if (isGuest) return false;
+    const t = String(rawText || "").trim();
+    const todoM = t.match(/^\/(?:todo|task|таск|задача)\s+(.+)$/i);
+    if (todoM) {
+      let title = todoM[1].trim();
+      let isUrgent = false;
+      let project = "General";
+      if (/\s!(?:urgent|терміново)\b/i.test(title)) {
+        isUrgent = true;
+        title = title.replace(/\s!(?:urgent|терміново)\b/gi, "").trim();
+      }
+      const pM = title.match(/\s#([A-Za-z0-9_&-]+)$/);
+      if (pM) {
+        project = pM[1];
+        title = title.slice(0, pM.index).trim();
+      }
+      if (!title) return false;
+      saveTask({
+        title,
+        project,
+        dueDate: localIsoToday(),
+        isUrgent,
+        status: "todo",
+      });
+      flash(`Task saved to Supabase · ${project}${isUrgent ? " · Urgent" : ""}`);
+      return true;
+    }
+    const noteM = t.match(/^\/(?:note|нотатка)\s+(.+)$/i);
+    if (noteM) {
+      const body = noteM[1].trim();
+      const firstLine = body.split("\n")[0].slice(0, 64);
+      savePrivNote({
+        title: firstLine || "Quick Note",
+        body,
+        project: "General",
+      });
+      flash("Private note saved to Supabase");
+      return true;
+    }
+    return false;
+  };
+
+  const openBrainSource = (s) => {
+    if (!s || !s.id) return;
+    const raw = String(s.id);
+    if (raw.startsWith("task:")) {
+      setRead(null);
+      setBrainHighlightId(raw.slice(5));
+      setBrainTabSeed("all");
+      goV("tasks");
+      return true;
+    }
+    if (raw.startsWith("note:")) {
+      setRead(null);
+      setBrainHighlightId(raw.slice(5));
+      setBrainTabSeed("notes");
+      goV("tasks");
+      return true;
+    }
+    return false;
+  };
+
+  const brainProjects = useMemo(() => {
+    const s = new Set(["General", "P&C", "Warehouse R21", "CL-RFI Standards"]);
+    tasks.forEach((t) => t.project && s.add(t.project));
+    privNotes.forEach((n) => n.project && s.add(n.project));
+    return [...s].sort();
+  }, [tasks, privNotes]);
+
+  const todayIso = localIsoToday();
+  const todayPendingTasksCount = useMemo(
+    () => tasks.filter((t) => t.status !== "done" && t.dueDate && t.dueDate <= todayIso).length,
+    [tasks, todayIso]
+  );
+  const openTasksCount = useMemo(
+    () => tasks.filter((t) => t.status !== "done").length,
+    [tasks]
+  );
+
   // Sync URL ?doc=#section when reading/closing a standard (keeps /open Revit links untouched)
   const didInitDocSyncRef = useRef(false);
   useEffect(() => {
@@ -963,6 +1259,9 @@ export function App() {
       allowedCategories: allowedCatIds,
       directShareIds,
       items: visibleRes,
+      personalTasks: isGuest ? [] : tasks,
+      personalNotes: isGuest ? [] : privNotes,
+      clientDate: todayIso,
       targetDocId: scopeDocId,
       scope,
       history: turn.historyBeforeTurn,
@@ -1117,6 +1416,8 @@ export function App() {
       ? (revitTypeCtx && revitTypeCtx.typeName) || "Revit Type"
       : view === "naming"
       ? "Naming Studio"
+      : view === "tasks"
+      ? "Tasks & Brain"
       : view === "reslib"
       ? "Resource Library"
       : view === "boards"
@@ -1352,7 +1653,7 @@ export function App() {
   const activeSwitcherKey =
     view === "kb" && catFilter === "kits"
       ? "kits"
-      : view === "naming" || view === "team" || view === "admin"
+      : view === "naming" || view === "team" || view === "admin" || view === "tasks"
       ? view
       : view === "lib" && (cur === "fav" || cur === "drafts" || cur === "recent")
       ? cur
@@ -1374,7 +1675,8 @@ export function App() {
       setCatFilter("kits");
       setSpaceStageOpen(true);
       goV("kb");
-    } else if (key === "naming" || key === "team" || key === "admin") {
+    } else if (key === "naming" || key === "team" || key === "admin" || key === "tasks") {
+      if (key === "tasks") setBrainTabSeed("all");
       goV(key);
     } else if (key === "fav" || key === "drafts" || key === "recent") {
       setSpaceStageOpen(true);
@@ -1548,6 +1850,11 @@ export function App() {
       ${!isGuest &&
       html`<div>
         <div className="sec">Personal</div>
+        <button type="button" className=${"ti" + (view === "tasks" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => handleNavSwitch("tasks")}>
+          <span className="side-ico"><${Ic} n="check" s=${15} /></span>
+          <span className="tn">Tasks & Notes</span>
+          ${openTasksCount > 0 && html`<span className="ct">${openTasksCount}</span>`}
+        </button>
         <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
           <span className="side-ico"><${Ic} n="star" s=${15} /></span>
           <span className="tn">Bookmarks</span>
@@ -1746,6 +2053,10 @@ export function App() {
           logAct("Flagged Outdated", "item", id, titleOf(id));
         }}
         onOpenPublic=${(t) => setPubTarget(t)}
+        privNotes=${isGuest ? [] : privNotes}
+        onAddTaskForDoc=${!isGuest ? (doc) => setQcModal({ mode: "task", doc }) : null}
+        onOpenNote=${(noteId) => openBrainSource({ id: "note:" + noteId })}
+        onOpenBrainSource=${openBrainSource}
       />`}
 
       <div className=${"pad" + (isSpaceView ? " pad-space" : "")} hidden=${!!rr}>
@@ -1931,6 +2242,12 @@ export function App() {
               onCommand=${pa}
               kb=${KB}
               omniRectRef=${omniRectRef}
+              todayTaskCount=${todayPendingTasksCount}
+              openTasksCount=${openTasksCount}
+              onOpenTasks=${() => handleNavSwitch("tasks")}
+              onOpenQuickCapture=${(mode = "task") => setQcModal({ mode, doc: null })}
+              onQuickCommand=${handleQuickCommand}
+              onOpenBrainSource=${openBrainSource}
             />`;
           }
 
@@ -2085,6 +2402,32 @@ export function App() {
           revitCtx=${revitTypeCtx}
           onReadDoc=${rd}
           onToast=${setToast}
+        />`}
+
+        ${view === "tasks" &&
+        !isGuest &&
+        html`<${SecondBrainView}
+          tasks=${tasks}
+          notes=${privNotes}
+          docs=${visibleRes}
+          ownerName=${userName}
+          syncState=${brainSyncState}
+          canPromote=${can.createDraft(role)}
+          initialTab=${brainTabSeed}
+          highlightId=${brainHighlightId}
+          onSaveTask=${saveTask}
+          onDeleteTask=${deleteTask}
+          onSaveNote=${savePrivNote}
+          onDeleteNote=${deletePrivNote}
+          onOpenSheet=${(payload) => setQcModal(payload)}
+          onOpenDoc=${(id) => rd(id)}
+          onPromoteNoteToDoc=${(note) =>
+            createNewDoc({
+              title: note.title || "From Private Note",
+              body: note.body || "",
+              tags: [note.project || "General", ...(note.tags || [])].filter(Boolean),
+            })
+          }
         />`}
 
         ${view === "team" &&
@@ -2244,6 +2587,35 @@ export function App() {
         setView("type");
       }}
       flash=${flash}
+    />`}
+    ${!isGuest &&
+    qcModal &&
+    html`<${QuickCaptureModal}
+      open=${true}
+      initialMode=${qcModal.mode || "task"}
+      initialDoc=${qcModal.doc || null}
+      initialTask=${qcModal.task || null}
+      initialNote=${qcModal.note || null}
+      initialProject=${qcModal.project || ""}
+      projects=${brainProjects}
+      docs=${visibleRes}
+      onClose=${() => setQcModal(null)}
+      onSaveTask=${async (taskObj) => {
+        await saveTask(taskObj);
+        flash(taskObj.id ? `Updated “${taskObj.title}”` : `Task saved · ${taskObj.project || "General"}`);
+      }}
+      onDeleteTask=${async (id) => {
+        await deleteTask(id);
+        flash("Task deleted");
+      }}
+      onSaveNote=${async (noteObj) => {
+        await savePrivNote(noteObj);
+        flash(noteObj.id ? "Note updated" : "Private note saved");
+      }}
+      onDeleteNote=${async (id) => {
+        await deletePrivNote(id);
+        flash("Note deleted");
+      }}
     />`}
     ${toast && html`<div className="toast" role="status">${toast}</div>`}
   </div>`;

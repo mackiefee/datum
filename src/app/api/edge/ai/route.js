@@ -24,7 +24,7 @@ async function synthesizeWithOptionalLlm(body, baseResult) {
     .join('\n\n');
 
   const systemPrompt =
-    'You are Datum AI, a concise BIM & AEC standards assistant. Answer strictly using the provided cited library excerpts. Preserve [1], [2], [3] citation markers inline after claims. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs or bullet points.';
+    'You are Datum AI, a personal engineering Second Brain & BIM/AEC standards assistant. Answer strictly using the provided cited library excerpts, personal tasks, and private notes. Preserve [1], [2], [3] citation markers inline after claims. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs or bullet points.';
 
   const userPrompt = [
     history ? `Conversation history:\n${history}` : '',

@@ -73,6 +73,9 @@ function aiCacheKey(payload) {
   for (let i = 0; i < items.length; i++) {
     if (items[i].upd && items[i].upd > maxUpd) maxUpd = items[i].upd;
   }
+  const tasks = payload.personalTasks || [];
+  const notes = payload.personalNotes || [];
+  const brainSig = `${tasks.length}:${tasks[0]?.updatedAt || tasks[0]?.status || ''}:${notes.length}:${notes[0]?.updatedAt || ''}`;
   const target = payload.targetItem;
   const hist = Array.isArray(payload.history) ? payload.history : [];
   const lastTurn = hist.length ? `${hist.length}:${(hist[hist.length - 1] && hist[hist.length - 1].text) || ''}`.slice(0, 64) : '';
@@ -83,9 +86,11 @@ function aiCacheKey(payload) {
     payload.userName || '',
     payload.targetDocId || '',
     payload.scope || '',
+    payload.clientDate || '',
     lastTurn,
     items.length,
     maxUpd,
+    brainSig,
     target ? `${target.id}:${target.upd || ''}` : '',
   ].join('|');
 }
@@ -119,6 +124,32 @@ export const edgeClient = {
           ...payload,
           items: Array.isArray(payload.items) ? payload.items.map(projectAiItem) : undefined,
           targetItem: payload.targetItem ? projectAiItem(payload.targetItem) : null,
+          personalTasks: Array.isArray(payload.personalTasks)
+            ? payload.personalTasks.slice(0, 80).map((t) => ({
+                id: t.id,
+                title: t.title || '',
+                notes: String(t.notes || '').slice(0, 500),
+                project: t.project || 'General',
+                dueDate: t.dueDate || '',
+                isUrgent: Boolean(t.isUrgent),
+                status: t.status || 'todo',
+                linkedItemId: t.linkedItemId ?? null,
+                linkedItemTitle: t.linkedItemTitle || '',
+                updatedAt: t.updatedAt || '',
+              }))
+            : undefined,
+          personalNotes: Array.isArray(payload.personalNotes)
+            ? payload.personalNotes.slice(0, 60).map((n) => ({
+                id: n.id,
+                title: n.title || '',
+                body: stripImagesFromBody(n.body || '').slice(0, 1400),
+                project: n.project || 'General',
+                tags: Array.isArray(n.tags) ? n.tags : [],
+                isPinned: Boolean(n.isPinned),
+                linkedItemIds: Array.isArray(n.linkedItemIds) ? n.linkedItemIds : [],
+                updatedAt: n.updatedAt || '',
+              }))
+            : undefined,
           history: Array.isArray(payload.history)
             ? payload.history.slice(-6).map((m) => ({
                 role: m.role,
