@@ -1,4 +1,4 @@
-import { DISC } from '../../config/constants.js';
+import { DC, DISC } from '../../config/constants.js';
 
 export function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
@@ -155,11 +155,31 @@ export function computeGridLayout(displayItems, vpWidth, vpHeight, hasOverlayShe
   };
 }
 
+const FLOW_STAGE_LABELS = [
+  'Foundation',
+  'Core Standards',
+  'Specs & Assemblies',
+  'Detailing & Guides',
+  'QA & Deliverables',
+];
+
+function discOrderIndex(disc) {
+  const idx = DISC.indexOf(disc || 'VDC');
+  return idx >= 0 ? idx : DISC.length;
+}
+
 /**
- * Deterministic force-directed spatial graph layout for live tile cards.
+ * Structured spatial graph layout for live tile cards.
+ * Supports two clean, non-chaotic modes:
+ * - 'flow': Left-to-right hierarchical dependency columns with crossing minimization
+ * - 'clusters': Discipline/category grouped mini-grids with bounding frames
  */
 export function computeGraphData(displayItems, options = {}) {
-  const { includeSoft = true, includeOrphans = true, discFocus = '' } = options;
+  const {
+    includeSoft = true,
+    includeOrphans = true,
+    layoutMode = 'flow',
+  } = options;
   const byId = new Map();
   displayItems.forEach((r) => byId.set(r.id, r));
 
@@ -219,31 +239,300 @@ export function computeGraphData(displayItems, options = {}) {
   const activeSet = new Set(activeItems.map((r) => r.id));
   edges = edges.filter((e) => activeSet.has(e.a) && activeSet.has(e.b));
 
-  const cardW = 228;
-  const cardH = 92;
-  const minSepW = 266;
-  const minSepH = 122;
+  const cardW = 238;
+  const cardH = 112;
 
-  const discAngles = new Map();
-  DISC.forEach((d, idx) => {
-    discAngles.set(d, (idx / Math.max(1, DISC.length)) * Math.PI * 2 - Math.PI / 2);
-  });
+  const nodes = [];
+  const clusters = [];
 
-  const nodes = activeItems.map((r, idx) => {
-    const deg = fullAdj.get(r.id)?.size || 0;
-    const baseAngle = discAngles.has(r.disc) ? discAngles.get(r.disc) : idx * 2.399963;
-    const jitterAngle = baseAngle + ((idx % 7) - 3) * 0.24 + idx * 0.17;
-    const ring = deg > 0 ? Math.max(120, 440 - Math.sqrt(deg) * 95 + (idx % 5) * 42) : 640 + (idx % 6) * 58;
-    return {
-      id: r.id,
-      disc: r.disc || 'VDC',
-      deg,
-      x: Math.cos(jitterAngle) * ring,
-      y: Math.sin(jitterAngle) * ring * 0.78,
-      vx: 0,
-      vy: 0,
+  if (layoutMode === 'clusters') {
+    const groupsMap = new Map();
+    activeItems.forEach((r) => {
+      const d = r.disc || 'VDC';
+      if (!groupsMap.has(d)) groupsMap.set(d, []);
+      groupsMap.get(d).push(r);
+    });
+
+    const groups = [...groupsMap.entries()]
+      .sort(([da, la], [db, lb]) => {
+        const diff = discOrderIndex(da) - discOrderIndex(db);
+        return diff !== 0 ? diff : lb.length - la.length;
+      })
+      .map(([disc, list]) => {
+        const sorted = [...list].sort((a, b) => {
+          const da = fullAdj.get(a.id)?.size || 0;
+          const db = fullAdj.get(b.id)?.size || 0;
+          return db - da || String(a.title || '').localeCompare(String(b.title || ''));
+        });
+        const colsInGrp = sorted.length <= 2 ? sorted.length : sorted.length <= 8 ? 2 : sorted.length <= 15 ? 3 : 4;
+        const rowsInGrp = Math.ceil(sorted.length / Math.max(1, colsInGrp));
+        const gapX = 18;
+        const gapY = 18;
+        const padX = 22;
+        const padTop = 50;
+        const padBottom = 22;
+        const w = colsInGrp * cardW + Math.max(0, colsInGrp - 1) * gapX + padX * 2;
+        const h = rowsInGrp * cardH + Math.max(0, rowsInGrp - 1) * gapY + padTop + padBottom;
+        return { disc, items: sorted, colsInGrp, rowsInGrp, gapX, gapY, padX, padTop, w, h };
+      });
+
+    const topCount = groups.length <= 3 ? groups.length : Math.ceil(groups.length / 2);
+    const rowBuckets = [groups.slice(0, topCount), groups.slice(topCount)].filter((row) => row.length > 0);
+    const clusterGapX = 58;
+    const clusterGapY = 62;
+
+    let curY = 0;
+    const rowMeta = rowBuckets.map((rowGrps) => {
+      const totalW = rowGrps.reduce((sum, g) => sum + g.w, 0) + Math.max(0, rowGrps.length - 1) * clusterGapX;
+      const maxH = rowGrps.reduce((mx, g) => Math.max(mx, g.h), 0);
+      const yTop = curY;
+      curY += maxH + clusterGapY;
+      return { rowGrps, totalW, maxH, yTop };
+    });
+
+    rowMeta.forEach(({ rowGrps, totalW, yTop }) => {
+      let curX = -totalW / 2;
+      rowGrps.forEach((g) => {
+        const gx = curX;
+        const gy = yTop;
+        clusters.push({
+          id: `cluster-${g.disc}`,
+          label: `${g.disc} · ${g.items.length}`,
+          color: DC[g.disc] || '#2997ff',
+          x: gx,
+          y: gy,
+          w: g.w,
+          h: g.h,
+        });
+        g.items.forEach((r, idx) => {
+          const c = idx % g.colsInGrp;
+          const row = Math.floor(idx / g.colsInGrp);
+          const nx = gx + g.padX + c * (cardW + g.gapX) + cardW / 2;
+          const ny = gy + g.padTop + row * (cardH + g.gapY) + cardH / 2;
+          nodes.push({
+            id: r.id,
+            disc: r.disc || 'VDC',
+            deg: fullAdj.get(r.id)?.size || 0,
+            x: nx,
+            y: ny,
+          });
+        });
+        curX += g.w + clusterGapX;
+      });
+    });
+  } else {
+    // Layered Hierarchical Flow (Left-to-Right DAG + barycenter crossing reduction)
+    const connected = activeItems.filter((r) => (fullAdj.get(r.id)?.size || 0) > 0);
+    const orphans = activeItems.filter((r) => (fullAdj.get(r.id)?.size || 0) === 0);
+
+    const authMap = new Map();
+    connected.forEach((r) => {
+      const ins = inMap.get(r.id) || [];
+      const outs = outMap.get(r.id) || [];
+      const hardIn = ins.filter((x) => x.kind === 'hard').length;
+      const totalIn = ins.length;
+      const totalOut = outs.length;
+      const rootBoost = r.id === 100 ? 14 : r.id <= 104 ? 4 : 0;
+      authMap.set(r.id, hardIn * 3.5 + totalIn * 2.0 + rootBoost - totalOut * 0.25);
+    });
+
+    // Build acyclic directed edges from higher authority -> lower authority
+    const dagChildren = new Map();
+    const dagParents = new Map();
+    connected.forEach((r) => {
+      dagChildren.set(r.id, []);
+      dagParents.set(r.id, []);
+    });
+    edges.forEach((e) => {
+      if (!dagChildren.has(e.a) || !dagChildren.has(e.b)) return;
+      const authA = authMap.get(e.a) || 0;
+      const authB = authMap.get(e.b) || 0;
+      const fromId = authA > authB || (authA === authB && e.a < e.b) ? e.a : e.b;
+      const toId = fromId === e.a ? e.b : e.a;
+      dagChildren.get(fromId).push(toId);
+      dagParents.get(toId).push(fromId);
+    });
+
+    // Topological longest-path layer assignment
+    const topoOrder = [...connected].sort(
+      (a, b) => (authMap.get(b.id) || 0) - (authMap.get(a.id) || 0) || a.id - b.id
+    );
+    const rawLayer = new Map();
+    topoOrder.forEach((r) => {
+      const parents = dagParents.get(r.id) || [];
+      let lvl = 0;
+      parents.forEach((pId) => {
+        const pl = rawLayer.get(pId) || 0;
+        if (pl + 1 > lvl) lvl = pl + 1;
+      });
+      rawLayer.set(r.id, lvl);
+    });
+
+    const maxRawLayer = Math.max(1, ...[...rawLayer.values(), 0]);
+    const targetCols = connected.length <= 6 ? Math.min(3, Math.max(2, maxRawLayer + 1)) : connected.length <= 16 ? 4 : 5;
+    const columns = Array.from({ length: targetCols }, () => []);
+
+    if (connected.length > 0) {
+      // Compress raw DAG levels cleanly across targetCols while keeping foundation nodes at col 0
+      const ranked = [...connected].sort((a, b) => {
+        const la = rawLayer.get(a.id) || 0;
+        const lb = rawLayer.get(b.id) || 0;
+        if (la !== lb) return la - lb;
+        return (authMap.get(b.id) || 0) - (authMap.get(a.id) || 0);
+      });
+
+      const maxPerCol = Math.max(4, Math.ceil(connected.length / targetCols) + 1);
+      ranked.forEach((r, idx) => {
+        const rLvl = rawLayer.get(r.id) || 0;
+        let cIdx =
+          rLvl === 0
+            ? 0
+            : Math.min(targetCols - 1, Math.max(1, Math.round((rLvl / Math.max(1, maxRawLayer)) * (targetCols - 1))));
+        // Keep columns balanced so no column grows too tall
+        while (cIdx < targetCols - 1 && columns[cIdx].length >= maxPerCol) {
+          cIdx++;
+        }
+        // Fallback if trailing column filled up
+        if (columns[cIdx].length >= maxPerCol + 1) {
+          let best = cIdx;
+          for (let k = targetCols - 1; k >= 0; k--) {
+            if (columns[k].length < columns[best].length) best = k;
+          }
+          cIdx = best;
+        }
+        columns[cIdx].push(r);
+      });
+    }
+
+    const nonEmptyCols = columns.filter((c) => c.length > 0);
+    // Initial discipline + degree sort per column
+    nonEmptyCols.forEach((colItems) => {
+      colItems.sort((a, b) => {
+        const dd = discOrderIndex(a.disc) - discOrderIndex(b.disc);
+        if (dd !== 0) return dd;
+        const da = fullAdj.get(a.id)?.size || 0;
+        const db = fullAdj.get(b.id)?.size || 0;
+        return db - da || a.id - b.id;
+      });
+    });
+
+    // Barycenter crossing reduction passes (left->right, right->left)
+    const rowPosMap = new Map();
+    const syncRowPos = () => {
+      nonEmptyCols.forEach((colItems) => {
+        colItems.forEach((r, rowIdx) => {
+          rowPosMap.set(r.id, rowIdx - (colItems.length - 1) / 2);
+        });
+      });
     };
-  });
+    syncRowPos();
+
+    for (let pass = 0; pass < 4; pass++) {
+      const forward = pass % 2 === 0;
+      const start = forward ? 1 : nonEmptyCols.length - 2;
+      const end = forward ? nonEmptyCols.length : -1;
+      const step = forward ? 1 : -1;
+      for (let c = start; c !== end; c += step) {
+        const colItems = nonEmptyCols[c];
+        const neighborColSet = new Set(nonEmptyCols[c - step].map((x) => x.id));
+        const scored = colItems.map((r, idx) => {
+          const adj = fullAdj.get(r.id);
+          let sum = 0;
+          let cnt = 0;
+          if (adj) {
+            adj.forEach((nId) => {
+              if (neighborColSet.has(nId) && rowPosMap.has(nId)) {
+                sum += rowPosMap.get(nId);
+                cnt++;
+              }
+            });
+          }
+          const origKey = idx - (colItems.length - 1) / 2;
+          const bary = cnt > 0 ? sum / cnt : origKey;
+          return { r, key: bary * 0.78 + origKey * 0.22 };
+        });
+        scored.sort((a, b) => a.key - b.key);
+        nonEmptyCols[c] = scored.map((x) => x.r);
+        syncRowPos();
+      }
+    }
+
+    const colPitchX = cardW + 96;
+    const rowPitchY = cardH + 26;
+    let maxFlowY = 0;
+
+    nonEmptyCols.forEach((colItems, cIdx) => {
+      const cx = (cIdx - (nonEmptyCols.length - 1) / 2) * colPitchX;
+      const colH = colItems.length * cardH + Math.max(0, colItems.length - 1) * 26;
+      const topY = -colH / 2 + cardH / 2;
+      const stageLabel =
+        cIdx === nonEmptyCols.length - 1 && nonEmptyCols.length > 2
+          ? FLOW_STAGE_LABELS[4]
+          : FLOW_STAGE_LABELS[Math.min(cIdx, FLOW_STAGE_LABELS.length - 1)];
+
+      clusters.push({
+        id: `flow-col-${cIdx}`,
+        label: `${stageLabel} · ${colItems.length}`,
+        color: null,
+        x: cx - cardW / 2 - 14,
+        y: -colH / 2 - 40,
+        w: cardW + 28,
+        h: colH + 54,
+      });
+
+      colItems.forEach((r, rIdx) => {
+        const ny = topY + rIdx * rowPitchY;
+        if (ny + cardH / 2 > maxFlowY) maxFlowY = ny + cardH / 2;
+        nodes.push({
+          id: r.id,
+          disc: r.disc || 'VDC',
+          deg: fullAdj.get(r.id)?.size || 0,
+          x: cx,
+          y: ny,
+        });
+      });
+    });
+
+    if (orphans.length > 0) {
+      const sortedOrphans = [...orphans].sort((a, b) => {
+        const dd = discOrderIndex(a.disc) - discOrderIndex(b.disc);
+        return dd !== 0 ? dd : String(a.title || '').localeCompare(String(b.title || ''));
+      });
+      const oCols = Math.min(Math.max(4, nonEmptyCols.length), Math.max(1, sortedOrphans.length));
+      const oRows = Math.ceil(sortedOrphans.length / oCols);
+      const oGapX = 22;
+      const oGapY = 20;
+      const oW = oCols * cardW + Math.max(0, oCols - 1) * oGapX + 36;
+      const oH = oRows * cardH + Math.max(0, oRows - 1) * oGapY + 62;
+      const oTop = (nonEmptyCols.length > 0 ? maxFlowY + 84 : -oH / 2) + 42;
+
+      clusters.push({
+        id: 'flow-standalone',
+        label: `Standalone Docs · ${sortedOrphans.length}`,
+        color: null,
+        x: -oW / 2,
+        y: oTop - 42,
+        w: oW,
+        h: oH,
+      });
+
+      sortedOrphans.forEach((r, idx) => {
+        const c = idx % oCols;
+        const row = Math.floor(idx / oCols);
+        const rowLen = Math.min(oCols, sortedOrphans.length - row * oCols);
+        const rowW = rowLen * cardW + Math.max(0, rowLen - 1) * oGapX;
+        const nx = -rowW / 2 + c * (cardW + oGapX) + cardW / 2;
+        const ny = oTop + row * (cardH + oGapY) + cardH / 2;
+        nodes.push({
+          id: r.id,
+          disc: r.disc || 'VDC',
+          deg: 0,
+          x: nx,
+          y: ny,
+        });
+      });
+    }
+  }
 
   const nodeById = new Map(nodes.map((n) => [n.id, n]));
   const simEdges = edges.map((e, ei) => ({
@@ -253,88 +542,22 @@ export function computeGraphData(displayItems, options = {}) {
     curveSign: ei % 2 === 0 ? 1 : -1,
   }));
 
-  // Warm-start deterministic force simulation (~220 steps)
-  const steps = Math.min(240, Math.max(110, 90 + nodes.length * 3));
-  for (let step = 0; step < steps; step++) {
-    const alpha = Math.max(0.06, 1 - step / steps);
-    const idealLen = 295;
-
-    for (const e of simEdges) {
-      const s = e.s;
-      const t = e.t;
-      if (!s || !t) continue;
-      let dx = t.x - s.x;
-      let dy = t.y - s.y;
-      const dist = Math.hypot(dx, dy) || 1e-4;
-      const pull = ((dist - idealLen) / dist) * alpha * (e.kind === 'hard' ? 0.34 : 0.2);
-      dx *= pull;
-      dy *= pull;
-      const bias = (s.deg + 1) / (s.deg + t.deg + 2);
-      t.vx -= dx * bias;
-      t.vy -= dy * bias;
-      s.vx += dx * (1 - bias);
-      s.vy += dy * (1 - bias);
-    }
-
-    for (let i = 0; i < nodes.length; i++) {
-      const A = nodes[i];
-      for (let j = i + 1; j < nodes.length; j++) {
-        const B = nodes[j];
-        let dx = B.x - A.x;
-        let dy = B.y - A.y;
-        let d2 = dx * dx + dy * dy;
-        if (d2 < 1) {
-          dx = (j - i) * 0.7 || 0.5;
-          dy = 0.5;
-          d2 = dx * dx + dy * dy + 0.1;
-        }
-        if (d2 < 460000) {
-          const sameDisc = A.disc === B.disc;
-          const rep = (sameDisc ? 9500 : 14500) * alpha / d2;
-          A.vx -= dx * rep;
-          A.vy -= dy * rep;
-          B.vx += dx * rep;
-          B.vy += dy * rep;
-        }
-        // Strict card bounding-box separation so node tiles never overlap
-        const ox = minSepW - Math.abs(dx);
-        const oy = minSepH - Math.abs(dy);
-        if (ox > 0 && oy > 0) {
-          if (ox * 0.55 < oy) {
-            const pushX = ox * 0.28 * (dx < 0 ? -1 : 1);
-            A.vx -= pushX;
-            B.vx += pushX;
-          } else {
-            const pushY = oy * 0.28 * (dy < 0 ? -1 : 1);
-            A.vy -= pushY;
-            B.vy += pushY;
-          }
-        }
-      }
-    }
-
-    for (const n of nodes) {
-      const grav = n.deg > 0 ? 0.045 : 0.03;
-      const discCenter = discFocus && n.disc === discFocus ? 0.08 : grav;
-      n.vx -= n.x * discCenter * alpha * 0.7;
-      n.vy -= n.y * discCenter * alpha * 1.05;
-      n.vx *= 0.58;
-      n.vy *= 0.58;
-      n.x += n.vx;
-      n.y += n.vy;
-    }
-  }
-
-  // Final overlap-free pass & centering
+  // Center the entire bounding box cleanly
   let minX = Infinity;
   let maxX = -Infinity;
   let minY = Infinity;
   let maxY = -Infinity;
   nodes.forEach((n) => {
-    if (n.x < minX) minX = n.x;
-    if (n.x > maxX) maxX = n.x;
-    if (n.y < minY) minY = n.y;
-    if (n.y > maxY) maxY = n.y;
+    if (n.x - cardW / 2 < minX) minX = n.x - cardW / 2;
+    if (n.x + cardW / 2 > maxX) maxX = n.x + cardW / 2;
+    if (n.y - cardH / 2 < minY) minY = n.y - cardH / 2;
+    if (n.y + cardH / 2 > maxY) maxY = n.y + cardH / 2;
+  });
+  clusters.forEach((c) => {
+    if (c.x < minX) minX = c.x;
+    if (c.x + c.w > maxX) maxX = c.x + c.w;
+    if (c.y < minY) minY = c.y;
+    if (c.y + c.h > maxY) maxY = c.y + c.h;
   });
 
   if (nodes.length > 0 && Number.isFinite(minX)) {
@@ -343,6 +566,10 @@ export function computeGraphData(displayItems, options = {}) {
     nodes.forEach((n) => {
       n.x -= cx;
       n.y -= cy;
+    });
+    clusters.forEach((c) => {
+      c.x -= cx;
+      c.y -= cy;
     });
     minX -= cx;
     maxX -= cx;
@@ -355,15 +582,15 @@ export function computeGraphData(displayItems, options = {}) {
     maxY = 120;
   }
 
-  const worldW = Math.max(320, maxX - minX + cardW + 40);
-  const worldH = Math.max(220, maxY - minY + cardH + 40);
+  const worldW = Math.max(360, maxX - minX + 56);
+  const worldH = Math.max(240, maxY - minY + 56);
 
   const fitCamera = (vpW, vpH, hasOverlaySheet, topOffset = 0) => {
     const topClear = (vpW <= 768 ? 64 : 74) + topOffset;
     const bottomClear = hasOverlaySheet ? 348 : 138;
     const availW = Math.max(320, vpW - 88);
     const availH = Math.max(220, vpH - topClear - bottomClear);
-    const zoom = clamp(Math.min(availW / worldW, availH / worldH), 0.36, 1.06);
+    const zoom = clamp(Math.min(availW / worldW, availH / worldH), 0.34, 1.04);
     const panX = 0;
     const panY = (topClear - bottomClear) / 2;
     return { panX, panY, zoom };
@@ -371,10 +598,12 @@ export function computeGraphData(displayItems, options = {}) {
 
   return {
     mode: 'graph',
+    layoutMode,
     cardW,
     cardH,
     nodes,
     nodeById,
+    clusters,
     activeSet,
     edges: simEdges,
     adjMap: fullAdj,
@@ -387,13 +616,91 @@ export function computeGraphData(displayItems, options = {}) {
 }
 
 /**
- * Compute smooth quadratic Bezier edge + edge-intersected arrowhead between two cards.
+ * Compute crisp Bezier edge + arrowhead between two graph cards.
+ * Uses left-to-right orthogonal port curves in 'flow' mode and smart perimeter arcs otherwise.
  */
-export function computeGraphEdgeSvg(ax, ay, hwA, hhA, bx, by, hwB, hhB, curveSign = 1, arrowSize = 6.5) {
+export function computeGraphEdgeSvg(
+  ax,
+  ay,
+  hwA,
+  hhA,
+  bx,
+  by,
+  hwB,
+  hhB,
+  curveSign = 1,
+  arrowSize = 6.5,
+  layoutMode = 'flow'
+) {
   const dx = bx - ax;
   const dy = by - ay;
   const dist = Math.hypot(dx, dy);
   if (dist < 12) return null;
+
+  if (layoutMode === 'flow') {
+    const colGap = hwA + hwB + 14;
+    if (dx > colGap) {
+      // Standard left-to-right flow curve
+      const sx = ax + hwA;
+      const sy = ay;
+      const tx = bx - hwB;
+      const ty = by;
+      const span = Math.max(36, Math.min(130, (tx - sx) * 0.46));
+      const cx1 = sx + span;
+      const cx2 = tx - span;
+      const pathD = `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${cx1.toFixed(1)} ${sy.toFixed(1)}, ${cx2.toFixed(1)} ${ty.toFixed(1)}, ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+      const adx = tx - cx2;
+      const ady = ty - ty;
+      const alen = Math.hypot(adx, ady) || 1;
+      const aux = adx / alen;
+      const auy = ady / alen;
+      const p1x = tx - aux * arrowSize + auy * (arrowSize * 0.56);
+      const p1y = ty - auy * arrowSize - aux * (arrowSize * 0.56);
+      const p2x = tx - aux * arrowSize - auy * (arrowSize * 0.56);
+      const p2y = ty - auy * arrowSize + aux * (arrowSize * 0.56);
+      return {
+        pathD,
+        arrowPoints: `${tx.toFixed(1)},${ty.toFixed(1)} ${p1x.toFixed(1)},${p1y.toFixed(1)} ${p2x.toFixed(1)},${p2y.toFixed(1)}`,
+      };
+    }
+    if (dx < -colGap) {
+      // Reverse dependency right-to-left curve
+      const sx = ax - hwA;
+      const sy = ay;
+      const tx = bx + hwB;
+      const ty = by;
+      const span = Math.max(36, Math.min(130, (sx - tx) * 0.46));
+      const cx1 = sx - span;
+      const cx2 = tx + span;
+      const pathD = `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${cx1.toFixed(1)} ${sy.toFixed(1)}, ${cx2.toFixed(1)} ${ty.toFixed(1)}, ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+      const p1x = tx + arrowSize;
+      const p1y = ty - arrowSize * 0.56;
+      const p2x = tx + arrowSize;
+      const p2y = ty + arrowSize * 0.56;
+      return {
+        pathD,
+        arrowPoints: `${tx.toFixed(1)},${ty.toFixed(1)} ${p1x.toFixed(1)},${p1y.toFixed(1)} ${p2x.toFixed(1)},${p2y.toFixed(1)}`,
+      };
+    }
+    // Same-column connection: route gently around the side gutter
+    const sideSign = curveSign >= 0 ? 1 : -1;
+    const sx = ax + hwA * sideSign;
+    const sy = ay;
+    const tx = bx + hwB * sideSign;
+    const ty = by;
+    const gutter = clamp(Math.abs(dy) * 0.24, 34, 88) * sideSign;
+    const cx = Math.max(sx, tx) * (sideSign > 0 ? 1 : 0) + Math.min(sx, tx) * (sideSign < 0 ? 1 : 0) + gutter;
+    const pathD = `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${cx.toFixed(1)} ${sy.toFixed(1)}, ${cx.toFixed(1)} ${ty.toFixed(1)}, ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+    const aux = -sideSign;
+    const p1x = tx - aux * arrowSize;
+    const p1y = ty - arrowSize * 0.56;
+    const p2x = tx - aux * arrowSize;
+    const p2y = ty + arrowSize * 0.56;
+    return {
+      pathD,
+      arrowPoints: `${tx.toFixed(1)},${ty.toFixed(1)} ${p1x.toFixed(1)},${p1y.toFixed(1)} ${p2x.toFixed(1)},${p2y.toFixed(1)}`,
+    };
+  }
 
   const ux = dx / dist;
   const uy = dy / dist;

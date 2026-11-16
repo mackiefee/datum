@@ -33,7 +33,10 @@ const SYNONYM_GROUPS = [
   ['бетон', 'залізобетон', 'цегла', 'блок', 'блоки', 'перемичка', 'плита', 'concrete', 'cmu', 'masonry', 'lintel', 'lintels', 'pouring', 'slab'],
   ['кухня', 'кухні', 'меблі', 'обладнання', 'прилади', 'техніка', 'kitchen', 'kitchens', 'millwork', 'casework', 'appliance', 'appliances', 'fec'],
   ['електрика', 'сантехніка', 'вентиляція', 'інженерія', 'труби', 'кабель', 'mep', 'plumbing', 'hvac', 'electrical', 'pipe', 'piping'],
-  ['висота', 'товщина', 'розмір', 'розміри', 'допуск', 'допуски', 'height', 'width', 'thickness', 'dimension', 'tolerance', 'tolerances'],
+  ['висота', 'висоти', 'висоту', 'висоті', 'height', 'heights'],
+  ['товщина', 'товщини', 'товщину', 'thickness', 'thick'],
+  ['ширина', 'ширини', 'ширину', 'width', 'wide'],
+  ['розмір', 'розміри', 'розмірів', 'допуск', 'допуски', 'допусків', 'dimension', 'dimensions', 'tolerance', 'tolerances'],
   ['аксесуари', 'доступність', 'інклюзивність', 'пандус', 'санвузол', 'accessibility', 'egress', 'corridor', 'ada'],
   ['креслення', 'аркуш', 'аркуші', 'штамп', 'легенда', 'специфікація', 'sheet', 'sheets', 'plan', 'plans', 'legend', 'legends', 'title', 'blocks', 'specs', 'schedule'],
 ];
@@ -60,15 +63,26 @@ export const tok = (s = '') =>
 export const tokenizeUnique = (s = '') => [...new Set(tok(s))];
 
 /**
- * Expands original tokens with bilingual UA/EN & BIM synonyms.
+ * Expands original tokens with bilingual UA/EN & BIM synonyms while preserving
+ * which original query token index (`origins`) produced each expanded term.
  * Original terms receive full weight (1), synonyms receive 0.65 so exact matches win ties.
  */
 export function expandTokens(tokens = []) {
-  const weights = new Map();
+  const entries = new Map();
+  const upsert = (term, weight, originIdx) => {
+    const existing = entries.get(term);
+    if (!existing) {
+      entries.set(term, { term, weight, origins: new Set([originIdx]) });
+    } else {
+      if (weight > existing.weight) existing.weight = weight;
+      existing.origins.add(originIdx);
+    }
+  };
+
   for (let i = 0; i < tokens.length; i++) {
     const raw = String(tokens[i] || '').toLowerCase();
     if (!raw) continue;
-    weights.set(raw, Math.max(weights.get(raw) || 0, 1));
+    upsert(raw, 1, i);
 
     const matchedGroups = new Set(STEM_INDEX.get(raw) || []);
     if (!matchedGroups.size && raw.length >= 4) {
@@ -81,12 +95,11 @@ export function expandTokens(tokens = []) {
     matchedGroups.forEach((gIdx) => {
       const group = SYNONYM_GROUPS[gIdx] || [];
       for (let j = 0; j < group.length; j++) {
-        const syn = group[j];
-        weights.set(syn, Math.max(weights.get(syn) || 0, 0.65));
+        upsert(group[j], 0.65, i);
       }
     });
   }
-  return [...weights.entries()].map(([term, weight]) => ({ term, weight }));
+  return [...entries.values()];
 }
 
 const QUESTION_RE =
@@ -134,7 +147,7 @@ export const getCachedTokens = (r) => {
  */
 export function scoreDocument(r, rawQuery = '', precomputedTokens = null) {
   const s = String(rawQuery || '').trim().toLowerCase();
-  if (!s || !r) return { score: 0, matched: 0 };
+  if (!s || !r) return { score: 0, matched: 0, exactHits: 0 };
 
   const tokens = precomputedTokens || tokenizeUnique(s);
   const expanded = expandTokens(tokens);
@@ -145,36 +158,52 @@ export function scoreDocument(r, rawQuery = '', precomputedTokens = null) {
   const hayL = hay(r);
 
   let score = 0;
-  let matched = 0;
+  let exactHits = 0;
 
-  if (titleL.includes(s)) score += 16;
-  else if (hayL.includes(s)) score += 7;
+  if (titleL.includes(s)) score += 18;
+  else if (hayL.includes(s)) score += 8;
 
-  // Track which original query tokens found at least one hit (either direct or via synonym)
-  const hitOriginal = new Set();
+  // Count distinct original query tokens satisfied (either directly or via that token's synonyms)
+  // and track how many matched via the exact query terms themselves (`directMatched`).
+  const hitTokenIndices = new Set();
+  const directHitIndices = new Set();
+  const bestPerOrigin = new Map();
+
   for (let i = 0; i < expanded.length; i++) {
-    const { term: w, weight } = expanded[i];
-    const stem = w.length >= 4 ? w.slice(0, w.length - 1) : w;
+    const { term: w, weight, origins } = expanded[i];
+    const allowStem = weight >= 1 && w.length >= 4;
+    const stem = allowStem ? w.slice(0, w.length - 1) : w;
     let termScore = 0;
 
-    if (titleL.includes(w)) termScore += 7 * weight;
-    else if (stem.length >= 3 && titleL.includes(stem)) termScore += 4.5 * weight;
+    if (titleL.includes(w)) termScore += 8 * weight;
+    else if (allowStem && stem.length >= 3 && titleL.includes(stem)) termScore += 4.5 * weight;
 
-    if (tagsL.includes(w) || (stem.length >= 3 && tagsL.includes(stem))) termScore += 5 * weight;
+    if (tagsL.includes(w) || (allowStem && stem.length >= 3 && tagsL.includes(stem))) termScore += 5.5 * weight;
     if (discL.includes(w)) termScore += 3.5 * weight;
-    if (descL.includes(w) || (stem.length >= 3 && descL.includes(stem))) termScore += 3 * weight;
-    if (hayL.includes(w) || (stem.length >= 3 && hayL.includes(stem))) termScore += 1.5 * weight;
+    if (descL.includes(w) || (allowStem && stem.length >= 3 && descL.includes(stem))) termScore += 3 * weight;
+    if (hayL.includes(w) || (allowStem && stem.length >= 3 && hayL.includes(stem))) termScore += 1.5 * weight;
 
     if (termScore > 0) {
-      score += termScore;
-      matched++;
-      if (weight >= 1) hitOriginal.add(w);
+      if (weight >= 1) exactHits++;
+      const originList = origins && origins.size ? origins : [i];
+      originList.forEach((originIdx) => {
+        hitTokenIndices.add(originIdx);
+        if (weight >= 1) directHitIndices.add(originIdx);
+        const prev = bestPerOrigin.get(originIdx) || 0;
+        if (termScore > prev) bestPerOrigin.set(originIdx, termScore);
+      });
     }
   }
 
+  bestPerOrigin.forEach((v) => {
+    score += v;
+  });
+
   return {
     score,
-    matched: Math.max(hitOriginal.size, Math.min(tokens.length || 1, matched)),
+    matched: hitTokenIndices.size,
+    directMatched: directHitIndices.size,
+    exactHits,
   };
 }
 

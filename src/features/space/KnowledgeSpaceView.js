@@ -118,6 +118,8 @@ export function KnowledgeSpaceView({
   const graphNodeByIdRef = useRef(new Map());
   const graphEdgesRef = useRef([]);
   const graphEdgeGroupRefs = useRef([]);
+  const graphClusterGroupRefs = useRef([]);
+  const lastAutoSearchAngleRef = useRef('');
   const gridHudRef = useRef(null);
 
   const [vpSize, setVpSize] = useState(() =>
@@ -131,6 +133,8 @@ export function KnowledgeSpaceView({
   const [reducedMotion, setReducedMotion] = useState(false);
 
   const [spaceQuery, setSpaceQuery] = useState(() => catalogQ || '');
+  const [debouncedQuery, setDebouncedQuery] = useState(() => (catalogQ || '').trim());
+  const [searchIsolateMode, setSearchIsolateMode] = useState('auto'); // 'auto' | 'only' | 'all'
   const [spaceFilterMode, setSpaceFilterMode] = useState('all'); // 'all' | 'bookmarks'
   const [showAllAfterAi, setShowAllAfterAi] = useState(false);
   const [desktopChatOpen, setDesktopChatOpen] = useState(false);
@@ -146,6 +150,7 @@ export function KnowledgeSpaceView({
   // Graph & Kits spatial interaction states
   const [graphSelectedId, setGraphSelectedId] = useState(null);
   const [graphHoverId, setGraphHoverId] = useState(null);
+  const [graphLayoutMode, setGraphLayoutMode] = useState('flow'); // 'flow' | 'clusters'
   const [graphIncludeSoft, setGraphIncludeSoft] = useState(true);
   const [graphIncludeOrphans, setGraphIncludeOrphans] = useState(true);
   const [graphOptsOpen, setGraphOptsOpen] = useState(false);
@@ -287,8 +292,24 @@ export function KnowledgeSpaceView({
   };
 
   const queryIntent = useMemo(() => detectSearchIntent(spaceQuery), [spaceQuery]);
+  const debouncedIntent = useMemo(() => detectSearchIntent(debouncedQuery), [debouncedQuery]);
 
-  // Reactive items: responds to AI citations, live keyword search, Bookmarks spotlight, or Active Kit items
+  // Debounce live spatial search (~190ms) so typing never jitters tiles on every keystroke
+  useEffect(() => {
+    const trimmed = spaceQuery.trim();
+    if (!trimmed) {
+      setDebouncedQuery('');
+      setSearchIsolateMode('auto');
+      lastAutoSearchAngleRef.current = '';
+      return undefined;
+    }
+    const timer = setTimeout(() => {
+      setDebouncedQuery(trimmed);
+    }, 190);
+    return () => clearTimeout(timer);
+  }, [spaceQuery]);
+
+  // Reactive items: responds to AI citations, calm AND-filtered keyword search, Bookmarks spotlight, or Active Kit items
   const reactive = useMemo(() => {
     const base = sourceBaseItems;
     const sourceOrderMap = new Map();
@@ -297,18 +318,47 @@ export function KnowledgeSpaceView({
       activeAiTurn.src.forEach((s, i) => sourceOrderMap.set(s.id, s.index || i + 1));
     }
 
-    const rawQ = spaceQuery.trim();
+    const rawQ = debouncedQuery.length >= 2 ? debouncedQuery : '';
     const tokens = tokenizeUnique(rawQ);
     const matchMap = new Map();
+    let matchedList = [];
 
     if (rawQ) {
       const searchSource = base.length ? base : poolAll;
       const scored = searchSource
         .map((r) => ({ r, ...scoreDocument(r, rawQ, tokens) }))
         .filter((x) => x.score > 0);
-      scored.sort((a, b) => b.matched - a.matched || b.score - a.score);
-      scored.forEach((x) => matchMap.set(x.r.id, x));
+      scored.sort((a, b) => b.directMatched - a.directMatched || b.matched - a.matched || b.score - a.score);
+
+      if (tokens.length >= 2) {
+        // Prefer exact multi-word AND matches first; fall back to semantic AND, then tight partial hits
+        const directAll = scored.filter((x) => x.directMatched >= tokens.length);
+        const exactAll = directAll.length > 0 ? directAll : scored.filter((x) => x.matched >= tokens.length);
+        if (exactAll.length > 0) {
+          const topScore = exactAll[0] ? exactAll[0].score : 0;
+          matchedList =
+            topScore >= 14
+              ? exactAll.filter((x) => x.score >= Math.max(6, topScore * 0.42))
+              : exactAll;
+        } else {
+          matchedList = scored.filter((x) => x.score >= 3.5).slice(0, 6);
+        }
+      } else {
+        const directSingle = scored.filter((x) => x.directMatched >= 1 && x.score >= 2.5);
+        const pool = directSingle.length > 0 ? directSingle : scored.filter((x) => x.score >= 2.5);
+        const topScore = pool[0] ? pool[0].score : 0;
+        matchedList =
+          topScore >= 14
+            ? pool.filter((x) => x.score >= Math.max(4.5, topScore * 0.36))
+            : pool.length > 0
+            ? pool
+            : scored.slice(0, 6);
+      }
+      matchedList.forEach((x) => matchMap.set(x.r.id, x));
     }
+
+    const matchIds = new Set(matchMap.keys());
+    const topMatchId = matchedList[0] ? matchedList[0].r.id : null;
 
     // Mode 1: Personal Bookmarks spotlight
     if (spaceFilterMode === 'bookmarks') {
@@ -317,6 +367,12 @@ export function KnowledgeSpaceView({
         displayItems: bmList,
         sourceOrderMap,
         matchMap,
+        matchIds,
+        matchCount: bmList.length,
+        topMatchId: null,
+        isSearchFiltering: false,
+        isSearchSpotlight: false,
+        isolateMatches: true,
         mode: 'bookmarks',
       };
     }
@@ -338,6 +394,12 @@ export function KnowledgeSpaceView({
         displayItems: citedItems,
         sourceOrderMap,
         matchMap,
+        matchIds,
+        matchCount: citedItems.length,
+        topMatchId: null,
+        isSearchFiltering: false,
+        isSearchSpotlight: false,
+        isolateMatches: true,
         mode: 'ai',
       };
     }
@@ -357,25 +419,37 @@ export function KnowledgeSpaceView({
         displayItems: [...front, ...rest],
         sourceOrderMap,
         matchMap,
+        matchIds,
+        matchCount: base.length,
+        topMatchId: null,
+        isSearchFiltering: false,
+        isSearchSpotlight: false,
+        isolateMatches: false,
         mode: 'ai-all',
       };
     }
 
-    // Mode 3: Live smart keyword search filtering
-    if (rawQ && (isMobile || (!desktopChatOpen && queryIntent === 'search')) && !isKitsOverview) {
-      const scoredList = [];
-      matchMap.forEach((entry) => scoredList.push(entry));
-      scoredList.sort((a, b) => b.matched - a.matched || b.score - a.score);
-      const topMatched = scoredList[0] ? scoredList[0].matched : 0;
-      const filtered =
-        tokens.length >= 2 && topMatched >= 2
-          ? scoredList.filter((x) => x.matched >= Math.max(1, topMatched - 1))
-          : scoredList;
+    // Mode 3: Calm hybrid search (Spotlight in-place in 3D Space & Graph; debounced filter in Grid)
+    if (rawQ && (isMobile || (!desktopChatOpen && debouncedIntent === 'search')) && !isKitsOverview) {
+      const isolateMatches =
+        searchIsolateMode === 'only'
+          ? true
+          : searchIsolateMode === 'all'
+          ? false
+          : activeFormation === 'grid' || isMobile;
+
+      const filteredItems = matchedList.map((x) => x.r);
       return {
-        displayItems: filtered.map((x) => x.r),
+        displayItems: isolateMatches ? filteredItems : base,
         sourceOrderMap,
         matchMap,
-        mode: 'search',
+        matchIds,
+        matchCount: filteredItems.length,
+        topMatchId,
+        isSearchFiltering: true,
+        isSearchSpotlight: !isolateMatches,
+        isolateMatches,
+        mode: isolateMatches ? 'search' : 'search-spotlight',
       };
     }
 
@@ -383,9 +457,29 @@ export function KnowledgeSpaceView({
       displayItems: base,
       sourceOrderMap,
       matchMap,
+      matchIds,
+      matchCount: base.length,
+      topMatchId: null,
+      isSearchFiltering: false,
+      isSearchSpotlight: false,
+      isolateMatches: false,
       mode: 'gallery',
     };
-  }, [sourceBaseItems, poolAll, favs, spaceQuery, queryIntent, isMobile, desktopChatOpen, activeAiTurn, spaceFilterMode, showAllAfterAi, isKitsOverview]);
+  }, [
+    sourceBaseItems,
+    poolAll,
+    favs,
+    debouncedQuery,
+    debouncedIntent,
+    isMobile,
+    desktopChatOpen,
+    activeAiTurn,
+    spaceFilterMode,
+    showAllAfterAi,
+    isKitsOverview,
+    activeFormation,
+    searchIsolateMode,
+  ]);
 
   const displayItems = reactive.displayItems;
   const count = displayItems.length;
@@ -404,6 +498,9 @@ export function KnowledgeSpaceView({
     if (!isMobile) setDesktopChatOpen(true);
 
     setSpaceQuery('');
+    setDebouncedQuery('');
+    setSearchIsolateMode('auto');
+    lastAutoSearchAngleRef.current = '';
     if (catalogQ && onCatalogQChange) onCatalogQChange('');
 
     await onSendChat({ query: t });
@@ -424,6 +521,9 @@ export function KnowledgeSpaceView({
   useEffect(() => {
     if (!heroResetSignal) return;
     setSpaceQuery('');
+    setDebouncedQuery('');
+    setSearchIsolateMode('auto');
+    lastAutoSearchAngleRef.current = '';
     setDesktopChatOpen(false);
     setDesktopHistoryOpen(false);
     setSpaceFilterMode('all');
@@ -633,9 +733,10 @@ export function KnowledgeSpaceView({
       computeGraphData(displayItems, {
         includeSoft: graphIncludeSoft,
         includeOrphans: graphIncludeOrphans,
+        layoutMode: graphLayoutMode,
         discFocus: f && f.disc ? f.disc : '',
       }),
-    [displayItems, graphIncludeSoft, graphIncludeOrphans, f?.disc, graphLayoutRev]
+    [displayItems, graphIncludeSoft, graphIncludeOrphans, graphLayoutMode, f?.disc, graphLayoutRev]
   );
 
   const activeLayout =
@@ -711,6 +812,9 @@ export function KnowledgeSpaceView({
   if (graphEdgeGroupRefs.current.length > graphData.edges.length) {
     graphEdgeGroupRefs.current.length = graphData.edges.length;
   }
+  if (graphClusterGroupRefs.current.length > (graphData.clusters ? graphData.clusters.length : 0)) {
+    graphClusterGroupRefs.current.length = graphData.clusters ? graphData.clusters.length : 0;
+  }
 
   const motionRef = useRef({
     yaw: 0,
@@ -746,7 +850,7 @@ export function KnowledgeSpaceView({
     lastZoomShown: 78,
   });
 
-  // Reset local Space / Grid / Graph camera when filter, chat spotlight, or active kit changes
+  // Reset local camera only when workspace mode/kit/AI/isolation changes (never jitter on keystrokes)
   useEffect(() => {
     const m = motionRef.current;
     m.lastColShown = -1;
@@ -756,7 +860,7 @@ export function KnowledgeSpaceView({
     m.targetScrollY = 0;
     m.velScrollY = 0;
     const isFocusedSet = Boolean(
-      (spaceQuery.trim() && (isMobile || (!desktopChatOpen && queryIntent === 'search'))) ||
+      (reactive.isolateMatches && reactive.isSearchFiltering) ||
         (!isMobile && desktopChatOpen && activeAiTurn) ||
         spaceFilterMode === 'bookmarks' ||
         activeKit
@@ -764,8 +868,8 @@ export function KnowledgeSpaceView({
     m.targetSceneZOffset = isFocusedSet && count > 0 && count <= 6 ? 55 : 0;
     wakeMotionRef.current();
   }, [
-    spaceQuery,
-    queryIntent,
+    Boolean(debouncedQuery),
+    reactive.isolateMatches,
     isMobile,
     activeAiTurn?.id,
     activeAiTurn?.busy,
@@ -773,6 +877,21 @@ export function KnowledgeSpaceView({
     activeKit?.id,
     pageTitle,
   ]);
+
+  // Smoothly rotate 3D Space carousel toward #1 search result without shuffling tiles
+  useEffect(() => {
+    if (activeFormation !== 'space' || isHeroMode || isMobile) return;
+    if (!reactive.isSearchSpotlight || !reactive.topMatchId) return;
+    const sig = `${debouncedQuery}|${reactive.topMatchId}`;
+    if (lastAutoSearchAngleRef.current === sig) return;
+    const idx = displayItems.findIndex((x) => x.id === reactive.topMatchId);
+    if (idx < 0) return;
+    const pos = spaceLayout.positions[idx];
+    if (pos) {
+      lastAutoSearchAngleRef.current = sig;
+      rotateToAngle(pos.angle);
+    }
+  }, [activeFormation, isHeroMode, isMobile, debouncedQuery, reactive.isSearchSpotlight, reactive.topMatchId, displayItems, spaceLayout]);
 
   // Fit Graph camera cleanly whenever entering Graph or updating graph topology
   useEffect(() => {
@@ -997,6 +1116,8 @@ export function KnowledgeSpaceView({
       const gFocSet = graphFocusNeighborsRef.current;
       const gSelId = graphSelectedIdRef.current;
       const aiSrcMap = reactiveRef.current.sourceOrderMap;
+      const sMatchIds = reactiveRef.current.matchIds;
+      const sSpotlight = reactiveRef.current.isSearchSpotlight;
 
       for (let i = 0; i < itemsArr.length; i++) {
         const r = itemsArr[i];
@@ -1061,6 +1182,18 @@ export function KnowledgeSpaceView({
             targetZIdx = Math.round(200 - absRel + lift * 20);
             isCenterCol = absRel < l.stepDeg * 0.45;
             isPeripheral = absRel > focusDeg;
+            if (sSpotlight && sMatchIds) {
+              const isMatch = sMatchIds.has(r.id);
+              if (isMatch) {
+                top = Math.max(0.9, top);
+                tsc += 0.025;
+                targetZIdx += 40;
+              } else {
+                top = Math.min(top, 0.14);
+                tsc *= 0.94;
+                targetZIdx = Math.max(1, targetZIdx - 60);
+              }
+            }
           }
         } else if (mode === 'grid') {
           const pos = gL.positions[i];
@@ -1073,6 +1206,11 @@ export function KnowledgeSpaceView({
           top = 1;
           targetZIdx = Math.round(60 + lift * 30);
           isCenterCol = true;
+          if (sSpotlight && sMatchIds) {
+            const isMatch = sMatchIds.has(r.id);
+            top = isMatch ? 1 : 0.14;
+            if (isMatch) targetZIdx += 25;
+          }
           const outOfView = ty < -vpHeight * 0.65 || ty > vpHeight * 0.65;
           if (outOfView) {
             top = 0;
@@ -1104,10 +1242,14 @@ export function KnowledgeSpaceView({
               top = isNbr ? 1 : 0.16;
             } else if (aiSrcMap && aiSrcMap.size > 0) {
               top = aiSrcMap.has(r.id) ? 1 : 0.28;
+            } else if (sSpotlight && sMatchIds) {
+              const isMatch = sMatchIds.has(r.id);
+              top = isMatch ? 1 : 0.14;
+              if (isMatch) tsc += 0.03;
             } else {
               top = 1;
             }
-            targetZIdx = isFocNode || isSel ? 260 : isNbr ? 170 : Math.round(70 + lift * 40);
+            targetZIdx = isFocNode || isSel ? 260 : isNbr ? 170 : sSpotlight && sMatchIds && sMatchIds.has(r.id) ? 140 : Math.round(70 + lift * 40);
             isCenterCol = isSel || isFocNode || m.zoom >= 0.85;
             if (m.dragging && m.dragMode === 'graph-node' && m.dragNodeId === r.id) {
               snapImmediate = true;
@@ -1190,10 +1332,36 @@ export function KnowledgeSpaceView({
         }
       }
 
-      // 3. Synchronize Graph SVG edges seamlessly to exact live card positions
+      // 3. Synchronize Graph SVG cluster backdrops & edges seamlessly to live card positions
       if (mode === 'graph' && !isHero) {
         const hwVp = vpWidth / 2;
         const hhVp = vpHeight / 2;
+        const gClusters = grD.clusters || [];
+        for (let ci = 0; ci < gClusters.length; ci++) {
+          const cl = gClusters[ci];
+          const clGrp = graphClusterGroupRefs.current[ci];
+          if (!clGrp) continue;
+          const rx = hwVp + cl.x * m.zoom + m.panX;
+          const ry = hhVp + cl.y * m.zoom + m.panY;
+          const rw = cl.w * m.zoom;
+          const rh = cl.h * m.zoom;
+          const rectEl = clGrp.children[0];
+          const txtEl = clGrp.children[1];
+          if (rectEl) {
+            rectEl.setAttribute('x', rx.toFixed(1));
+            rectEl.setAttribute('y', ry.toFixed(1));
+            rectEl.setAttribute('width', Math.max(0, rw).toFixed(1));
+            rectEl.setAttribute('height', Math.max(0, rh).toFixed(1));
+            rectEl.setAttribute('rx', (14 * Math.min(1, Math.max(0.65, m.zoom))).toFixed(1));
+          }
+          if (txtEl) {
+            txtEl.setAttribute('x', (rx + Math.max(10, 14 * m.zoom)).toFixed(1));
+            txtEl.setAttribute('y', (ry + Math.max(16, 24 * m.zoom)).toFixed(1));
+            txtEl.style.opacity = m.zoom < 0.28 ? '0' : '1';
+          }
+          clGrp.style.opacity = gFocId ? '0.42' : sSpotlight ? '0.52' : '1';
+        }
+
         const gEdges = grD.edges;
         for (let k = 0; k < gEdges.length; k++) {
           const e = gEdges[k];
@@ -1218,7 +1386,7 @@ export function KnowledgeSpaceView({
           const hwB = grD.cardW * cB.sc * 0.5 + 3;
           const hhB = grD.cardH * cB.sc * 0.5 + 3;
           const arrowSz = clamp(6.8 * ((cA.sc + cB.sc) * 0.5), 5.2, 8.5);
-          const svgRes = computeGraphEdgeSvg(ax, ay, hwA, hhA, bx, by, hwB, hhB, e.curveSign, arrowSz);
+          const svgRes = computeGraphEdgeSvg(ax, ay, hwA, hhA, bx, by, hwB, hhB, e.curveSign, arrowSz, grD.layoutMode);
           if (!svgRes) {
             grpEl.style.opacity = '0';
             continue;
@@ -1231,12 +1399,25 @@ export function KnowledgeSpaceView({
           const isIn = gFocId && e.to === gFocId;
           const isHot = Boolean(isOut || isIn);
           const isAiHot = Boolean(aiSrcMap && aiSrcMap.size > 0 && aiSrcMap.has(e.from) && aiSrcMap.has(e.to));
+          const isSearchHot = Boolean(sSpotlight && sMatchIds && (sMatchIds.has(e.from) || sMatchIds.has(e.to)));
 
           grpEl.classList.toggle('is-out', Boolean(isOut));
           grpEl.classList.toggle('is-in', Boolean(isIn));
           grpEl.classList.toggle('is-ai', isAiHot);
 
-          const targetEdgeOp = gFocId ? (isHot ? 0.96 : 0.09) : isAiHot ? 0.92 : e.kind === 'hard' ? 0.42 : 0.24;
+          const targetEdgeOp = gFocId
+            ? isHot
+              ? 0.95
+              : 0.04
+            : isAiHot
+            ? 0.92
+            : sSpotlight
+            ? isSearchHot
+              ? 0.72
+              : 0.04
+            : e.kind === 'hard'
+            ? 0.28
+            : 0.06;
           const minNodeOp = Math.min(cA.op, cB.op);
           grpEl.style.opacity = (targetEdgeOp * minNodeOp).toFixed(3);
         }
@@ -1487,6 +1668,9 @@ export function KnowledgeSpaceView({
   const clearSpaceSearch = () => {
     ensureStageOpen();
     setSpaceQuery('');
+    setDebouncedQuery('');
+    setSearchIsolateMode('auto');
+    lastAutoSearchAngleRef.current = '';
     setDesktopChatOpen(false);
     setDesktopHistoryOpen(false);
     setSpaceFilterMode('all');
@@ -1510,6 +1694,9 @@ export function KnowledgeSpaceView({
     setSpaceFilterMode('all');
     setShowAllAfterAi(false);
     setSpaceQuery('');
+    setDebouncedQuery('');
+    setSearchIsolateMode('auto');
+    lastAutoSearchAngleRef.current = '';
     setHoveredSourceId(null);
     if (catalogQ && onCatalogQChange) onCatalogQChange('');
     askInputRef.current && askInputRef.current.focus();
@@ -1817,7 +2004,7 @@ export function KnowledgeSpaceView({
   const activeDisc = f.disc || '';
   const envAccent = (f.disc && DC[f.disc]) || (curCat && curCat.color) || '#2997ff';
   const hasReactiveFilter = Boolean(
-    (spaceQuery.trim() && (isMobile || (!desktopChatOpen && queryIntent === 'search'))) ||
+    reactive.isSearchFiltering ||
       (!isMobile && desktopChatOpen && activeAiTurn) ||
       spaceFilterMode === 'bookmarks'
   );
@@ -2135,6 +2322,26 @@ export function KnowledgeSpaceView({
           !isHeroMode &&
           !isKitsOverview &&
           html`<svg className="kspace-graph-svg" aria-hidden="true">
+            <g className="kspace-graph-clusters">
+              ${(graphData.clusters || []).map(
+                (cl, ci) => html`<g
+                  key=${cl.id}
+                  ref=${(el) => {
+                    graphClusterGroupRefs.current[ci] = el;
+                  }}
+                  className="kspace-graph-cluster"
+                >
+                  <rect
+                    className="kspace-graph-cluster-box"
+                    style=${cl.color ? { stroke: cl.color } : undefined}
+                  />
+                  <text
+                    className="kspace-graph-cluster-lbl"
+                    style=${cl.color ? { fill: cl.color } : undefined}
+                  >${cl.label}</text>
+                </g>`
+              )}
+            </g>
             ${graphData.edges.map(
               (e, eIdx) => html`<g
                 key=${`${e.from}-${e.to}-${e.kind}-${eIdx}`}
@@ -2166,7 +2373,8 @@ export function KnowledgeSpaceView({
               const colAngle = layout.positions[idx] ? layout.positions[idx].angle : 0;
               const citeNum = reactive.sourceOrderMap.get(r.id);
               const isAiSource = Boolean(citeNum);
-              const isSearchMatch = Boolean(!isAiSource && spaceQuery.trim() && reactive.matchMap.has(r.id));
+              const isSearchMatch = Boolean(!isAiSource && reactive.isSearchFiltering && reactive.matchIds.has(r.id));
+              const isSearchDim = Boolean(!isAiSource && reactive.isSearchSpotlight && !reactive.matchIds.has(r.id));
               const isHighlighted = hoveredSourceId === r.id;
               const isGraphSelected = activeFormation === 'graph' && graphSelectedId === r.id;
               const isGraphHover = activeFormation === 'graph' && graphHoverId === r.id;
@@ -2192,6 +2400,7 @@ export function KnowledgeSpaceView({
                   (isGraphDim ? ' is-graph-dim' : '') +
                   (isAiSource ? ' is-ai-source' : '') +
                   (isSearchMatch ? ' is-search-match' : '') +
+                  (isSearchDim ? ' is-search-dim' : '') +
                   (isHighlighted ? ' is-spotlight' : '')}
                 role="button"
                 tabIndex="0"
@@ -3399,11 +3608,28 @@ export function KnowledgeSpaceView({
                 setMobBrowseOpen((v) => !v);
               }}
             >
-              ${count} ${count === 1 ? 'match' : 'matches'}
+              ${reactive.matchCount} ${reactive.matchCount === 1 ? 'match' : 'matches'}
             </button>`
-          : html`<span className="kspace-match-pill">
-              ${count} ${count === 1 ? 'match' : 'matches'}
-            </span>`)}
+          : html`<div className="kspace-match-wrap">
+              <span className="kspace-match-pill">
+                ${reactive.matchCount} ${reactive.matchCount === 1 ? 'match' : 'matches'}
+              </span>
+              ${reactive.isSearchFiltering &&
+              reactive.matchCount > 0 &&
+              reactive.matchCount < sourceBaseItems.length &&
+              html`<button
+                type="button"
+                className=${'kspace-match-iso' + (reactive.isolateMatches ? ' on' : '')}
+                title=${reactive.isolateMatches ? 'Show all cards with spotlight' : 'Isolate only matching cards'}
+                onClick=${() =>
+                  setSearchIsolateMode((prev) =>
+                    prev === 'only' || (prev === 'auto' && reactive.isolateMatches) ? 'all' : 'only'
+                  )
+                }
+              >
+                ${reactive.isolateMatches ? 'Show all' : 'Only matches'}
+              </button>`}
+            </div>`)}
         ${(spaceQuery || (!isMobile && desktopChatOpen && activeChat) || spaceFilterMode !== 'all' || (!isMobile && graphSelectedId)) &&
         html`<button
           type="button"
@@ -3542,6 +3768,24 @@ export function KnowledgeSpaceView({
         !isKitsOverview &&
         (activeFormation === 'graph'
           ? html`<div className="kspace-hud is-graph-hud" role="toolbar" aria-label="Graph navigation controls">
+              <div className="kspace-graph-modes" role="group" aria-label="Graph layout">
+                <button
+                  type="button"
+                  className=${'kspace-hud-mode' + (graphLayoutMode === 'flow' ? ' on' : '')}
+                  title="Left-to-right hierarchical dependency flow"
+                  onClick=${() => setGraphLayoutMode('flow')}
+                >
+                  Flow
+                </button>
+                <button
+                  type="button"
+                  className=${'kspace-hud-mode' + (graphLayoutMode === 'clusters' ? ' on' : '')}
+                  title="Group cards by discipline cluster"
+                  onClick=${() => setGraphLayoutMode('clusters')}
+                >
+                  Clusters
+                </button>
+              </div>
               <button
                 type="button"
                 className="kspace-hud-btn"

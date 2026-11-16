@@ -429,8 +429,14 @@
 }
 
 .card.kspace-card.is-search-match {
-  border-color: rgba(56, 189, 248, 0.52);
-  box-shadow: 0 20px 52px -8px rgba(14, 165, 233, 0.24);
+  border-color: rgba(56, 189, 248, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.34),
+    0 20px 52px -8px rgba(14, 165, 233, 0.32);
+}
+
+.card.kspace-card.is-search-dim {
+  filter: saturate(0.35);
 }
 
 .card.kspace-card.is-ai-source {
@@ -3520,7 +3526,7 @@
 }
 
 .card.kspace-card.is-graph-node {
-  padding: 9px 11px;
+  padding: 10px 12px 9px;
   border-radius: 13px;
   cursor: pointer;
 }
@@ -3549,7 +3555,7 @@
   font-size: 12px;
   line-height: 1.24;
   -webkit-line-clamp: 2;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .card.kspace-card.is-graph-node p {
@@ -3558,6 +3564,8 @@
 
 .card.kspace-card.is-graph-node .row {
   margin-top: auto;
+  padding-top: 2px;
+  border-top-color: transparent;
   gap: 5px;
   font-size: 10px;
 }
@@ -4311,6 +4319,176 @@
   color: #0071e3;
   background: rgba(0, 113, 227, 0.1);
   border-color: rgba(0, 113, 227, 0.25);
+}
+
+/* Search isolate pill & Graph cluster backdrops + layout mode toggle */
+.kspace-match-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+.kspace-match-iso {
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: rgba(245, 245, 247, 0.85);
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease, border-color 0.14s ease;
+}
+
+.kspace-match-iso:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+}
+
+.kspace-match-iso.on {
+  background: rgba(10, 132, 255, 0.24);
+  border-color: rgba(10, 132, 255, 0.55);
+  color: #bae6fd;
+}
+
+.kspace-graph-modes {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-right: 4px;
+}
+
+.kspace-hud-mode {
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(235, 235, 245, 0.65);
+  font-size: 11px;
+  font-weight: 550;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.kspace-hud-mode:hover {
+  color: #ffffff;
+}
+
+.kspace-hud-mode.on {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.kspace-graph-cluster {
+  transition: opacity 0.2s ease;
+}
+
+.kspace-graph-cluster-box {
+  fill: rgba(255, 255, 255, 0.018);
+  stroke: rgba(255, 255, 255, 0.09);
+  stroke-width: 1;
+  stroke-opacity: 0.28;
+}
+
+.kspace-graph-cluster-lbl {
+  fill: rgba(235, 235, 245, 0.52);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  fill-opacity: 0.78;
+}
+
+:root[data-theme="light"] .kspace-match-iso {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.1);
+  color: #515156;
+}
+
+:root[data-theme="light"] .kspace-match-iso:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-match-iso.on {
+  background: rgba(0, 113, 227, 0.12);
+  border-color: rgba(0, 113, 227, 0.34);
+  color: #0071e3;
+}
+
+:root[data-theme="light"] .kspace-graph-modes {
+  background: rgba(0, 0, 0, 0.05);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+:root[data-theme="light"] .kspace-hud-mode {
+  color: #6e6e73;
+}
+
+:root[data-theme="light"] .kspace-hud-mode:hover {
+  color: #1d1d1f;
+}
+
+:root[data-theme="light"] .kspace-hud-mode.on {
+  background: #ffffff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme="light"] .kspace-graph-cluster-box {
+  fill: rgba(15, 23, 42, 0.022);
+  stroke: rgba(15, 23, 42, 0.1);
+}
+
+:root[data-theme="light"] .kspace-graph-cluster-lbl {
+  fill: #6e6e73;
+}
+
+:root[data-theme="light"] .card.kspace-card.is-graph-node .row {
+  border-top-color: transparent;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .kspace-match-iso {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.1);
+    color: #515156;
+  }
+  :root:not([data-theme="dark"]) .kspace-match-iso.on {
+    background: rgba(0, 113, 227, 0.12);
+    border-color: rgba(0, 113, 227, 0.34);
+    color: #0071e3;
+  }
+  :root:not([data-theme="dark"]) .kspace-graph-modes {
+    background: rgba(0, 0, 0, 0.05);
+    border-color: rgba(0, 0, 0, 0.08);
+  }
+  :root:not([data-theme="dark"]) .kspace-hud-mode {
+    color: #6e6e73;
+  }
+  :root:not([data-theme="dark"]) .kspace-hud-mode.on {
+    background: #ffffff;
+    color: #1d1d1f;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  }
+  :root:not([data-theme="dark"]) .kspace-graph-cluster-box {
+    fill: rgba(15, 23, 42, 0.022);
+    stroke: rgba(15, 23, 42, 0.1);
+  }
+  :root:not([data-theme="dark"]) .kspace-graph-cluster-lbl {
+    fill: #6e6e73;
+  }
+  :root:not([data-theme="dark"]) .card.kspace-card.is-graph-node .row {
+    border-top-color: transparent;
+  }
 }
 
 @keyframes kspaceMobFadeUp {
