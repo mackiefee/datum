@@ -480,8 +480,8 @@ export const db = {
       return db.directory.request('PATCH', { action: 'reactivate', id }, email);
     },
 
-    deleteUser(id, fallbackUserId = '', email = '') {
-      return db.directory.request('DELETE', { id, fallbackUserId }, email);
+    deleteUser(id, fallbackUserId = '', email = '', targetEmail = '') {
+      return db.directory.request('DELETE', { id, fallbackUserId, ...(targetEmail ? { email: targetEmail } : {}) }, email);
     },
 
     createTeam(payload, email = '') {

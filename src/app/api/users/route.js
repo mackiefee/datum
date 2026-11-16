@@ -1,7 +1,7 @@
 export const runtime = 'edge';
 
 const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DB_TO_APP_ROLE = {
   super_admin: 'SuperAdmin',
@@ -480,13 +480,19 @@ export async function PATCH(req) {
       return jsonResp({ ok: true, ...payload });
     }
 
-    const id = String(body.id || '').trim();
-    if (!UUID_RE.test(id)) {
+    const rawId = String(body.id || '').trim();
+    const rawEmail = String(body.email || '').trim().toLowerCase();
+    const lookupFilter = UUID_RE.test(rawId)
+      ? `id=eq.${encodeURIComponent(rawId)}`
+      : rawEmail && rawEmail.includes('@')
+      ? `email=eq.${encodeURIComponent(rawEmail)}`
+      : '';
+    if (!lookupFilter) {
       return jsonResp({ error: 'Valid user UUID required' }, 400);
     }
 
     const tgtRes = await fetch(
-      `${admin.url}/rest/v1/users?id=eq.${encodeURIComponent(id)}&select=id,email,name,role,status,session_version&limit=1`,
+      `${admin.url}/rest/v1/users?${lookupFilter}&select=id,email,name,role,status,session_version&limit=1`,
       { headers: admin.headers }
     );
     const tgtRows = tgtRes.ok ? await tgtRes.json() : [];
@@ -583,24 +589,31 @@ export async function DELETE(req) {
     } catch {}
     const urlId = new URL(req.url).searchParams.get('id') || '';
     const urlFallback = new URL(req.url).searchParams.get('fallbackUserId') || '';
-    const id = String(body?.id || urlId || '').trim();
+    const rawId = String(body?.id || urlId || '').trim();
+    const rawEmail = String(body?.email || '').trim().toLowerCase();
     const preferredFallback = String(body?.fallbackUserId || urlFallback || '').trim();
 
-    if (!UUID_RE.test(id)) {
+    const lookupFilter = UUID_RE.test(rawId)
+      ? `id=eq.${encodeURIComponent(rawId)}`
+      : rawEmail && rawEmail.includes('@')
+      ? `email=eq.${encodeURIComponent(rawEmail)}`
+      : '';
+    if (!lookupFilter) {
       return jsonResp({ error: 'Valid user UUID is required' }, 400);
-    }
-    if (id === auth.caller.id) {
-      return jsonResp({ error: 'You cannot delete your own account' }, 400);
     }
 
     const tgtRes = await fetch(
-      `${admin.url}/rest/v1/users?id=eq.${encodeURIComponent(id)}&select=id,auth_uid,email,name,role&limit=1`,
+      `${admin.url}/rest/v1/users?${lookupFilter}&select=id,auth_uid,email,name,role&limit=1`,
       { headers: admin.headers }
     );
     const tgtRows = tgtRes.ok ? await tgtRes.json() : [];
     const target = Array.isArray(tgtRows) && tgtRows[0] ? tgtRows[0] : null;
     if (!target) {
       return jsonResp({ error: 'User not found in database' }, 404);
+    }
+    const id = target.id;
+    if (id === auth.caller.id) {
+      return jsonResp({ error: 'You cannot delete your own account' }, 400);
     }
     if (target.role === 'super_admin' && auth.caller.role !== 'super_admin') {
       return jsonResp({ error: 'Only Super Admin can delete another Super Admin' }, 403);

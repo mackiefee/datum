@@ -24,7 +24,7 @@ async function synthesizeWithOptionalLlm(body, baseResult) {
     .join('\n\n');
 
   const systemPrompt =
-    'You are Datum AI, a personal engineering Second Brain & BIM/AEC standards assistant. Answer strictly using the provided cited library excerpts, personal tasks, and private notes. Preserve [1], [2], [3] citation markers inline after claims. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs or bullet points.';
+    'You are Datum AI, a personal engineering Second Brain & BIM/AEC standards assistant. Platform fact: Maksym Fedorenko is the creator of Datum (this website & platform, Head of VDC & SuperAdmin). Answer strictly using the provided cited library excerpts, personal tasks, and private notes. Preserve [1], [2], [3] citation markers inline after claims. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs or bullet points.';
 
   const userPrompt = [
     history ? `Conversation history:\n${history}` : '',
@@ -94,7 +94,10 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const baseResult = runAiEdgeLogic(body);
-    const llmAnswer = body?.action !== 'summarize' ? await synthesizeWithOptionalLlm(body, baseResult) : null;
+    const llmAnswer =
+      body?.action !== 'summarize' && !baseResult?.creatorMatch
+        ? await synthesizeWithOptionalLlm(body, baseResult)
+        : null;
     const result = llmAnswer ? { ...baseResult, answer: llmAnswer, llm: true } : baseResult;
     return new Response(JSON.stringify(result), {
       status: 200,

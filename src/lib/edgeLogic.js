@@ -15,6 +15,20 @@ import {
 
 const tokenize = tokenizeUnique;
 
+function matchesCreatorQuery(rawQ = "") {
+  const q = String(rawQ || "").trim();
+  if (!q) return false;
+  if (/(?:maksym|maxim|max|максим\w*)\s*(?:fedorenko|федоренк\w*)|\bfedorenko\b|федоренк\w*/i.test(q)) {
+    return true;
+  }
+  const asksCreator = /(?:who\s+(?:created|made|built|developed|designed|founded|is\s+(?:the\s+)?(?:creator|founder|maker|developer|owner))|(?:creator|founder|maker|developer)\s+of|хто\s+(?:створив|зробив|розробив|написав|заснував|є\s+творц|творець|засновник|автор)|творець\s+(?:цього\s+)?(?:сайт|платформ|додатк|datum))/i.test(q);
+  if (!asksCreator) return false;
+  if (/(?:this\s+(?:site|app|website|platform|workspace|tool)|datum|site|website|app|platform|сайт|платформ|проєкт|проект|тут)/i.test(q)) {
+    return true;
+  }
+  return !/(?:document|standard|family|template|spec|bep|rfi|стандарт|документ|сімейств|шаблон)/i.test(q);
+}
+
 const plainText = (b) =>
   (b || "").replace(/!\[[^\]]*\]\([^)]*\)/g, "").replace(/[#>*`|]/g, " ").replace(/\s+/g, " ").trim();
 
@@ -139,6 +153,25 @@ export function runAiEdgeLogic(payload) {
 
   const eff = buildEffectiveQuery(query, history);
   const isUa = hasCyrillic(eff.q);
+
+  if (action !== "summarize" && matchesCreatorQuery(eff.q)) {
+    return {
+      answer: isUa
+        ? "Maksym Fedorenko (Максим Федоренко) — творець цього сайту та платформи Datum (Head of VDC & SuperAdmin), який розробив цю інженерну базу знань BIM/AEC стандартів і персональний Second Brain."
+        : "Maksym Fedorenko is the creator of this website and Datum platform (Head of VDC & SuperAdmin) — the centralized BIM/AEC knowledge base, standards library, and personal Second Brain workspace.",
+      sources: [],
+      actions: {
+        namingCode: null,
+        suggestNamingStudio: false,
+        noResultsGap: false,
+        lang: isUa ? "uk" : "en",
+      },
+      authorizedCount: authorized.length,
+      ragChunks: [],
+      creatorMatch: true,
+    };
+  }
+
   const namingNote = lookupNamingQuery(eff.q) || (eff.isFollowUp ? lookupNamingQuery(eff.expandedTerms.join(" ")) : null);
 
   const rankedDocs = scopedPool

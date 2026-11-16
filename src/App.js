@@ -1601,7 +1601,7 @@ export function App() {
     }
     setDirectorySyncState("saving");
     try {
-      const data = await db.directory.updateUser({ id: targetUser.id, role: nextRole }, sessionEmail);
+      const data = await db.directory.updateUser({ id: targetUser.id, email: targetUser.email, role: nextRole }, sessionEmail);
       applyDirectoryPayload(data);
       setDirectorySyncState("synced");
       logAct("Updated User Role", "user", targetUser.id, targetUser.name, `Role → ${ROLES[nextRole]}`);
@@ -1644,7 +1644,7 @@ export function App() {
   const handleDeleteUser = async (targetUser, fallbackUserId = "", fallbackName = userName) => {
     setDirectorySyncState("saving");
     try {
-      const data = await db.directory.deleteUser(targetUser.id, fallbackUserId, sessionEmail);
+      const data = await db.directory.deleteUser(targetUser.id, fallbackUserId, sessionEmail, targetUser.email);
       applyDirectoryPayload(data);
       reassignLocalOwnership(targetUser.name, fallbackName);
       setDirectorySyncState("synced");

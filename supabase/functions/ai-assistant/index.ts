@@ -88,6 +88,23 @@ Deno.serve(async (req: Request) => {
       canUserView(it, userRole, userName, allowedCategories, directShareIds)
     );
 
+    if (
+      /(?:maksym|maxim|max|максим\w*)\s*(?:fedorenko|федоренк\w*)|\bfedorenko\b|федоренк\w*/i.test(query || "") ||
+      /(?:who\s+(?:created|made|built|founded)|хто\s+(?:створив|зробив|розробив|автор|творець))\s*(?:this\s+(?:site|app|website)|datum|сайт|платформ)?/i.test(query || "")
+    ) {
+      const isUa = /[а-яА-ЯіІїЇєЄґҐ]/.test(query || "");
+      return new Response(
+        JSON.stringify({
+          answer: isUa
+            ? "Maksym Fedorenko (Максим Федоренко) — творець цього сайту та платформи Datum (Head of VDC & SuperAdmin)."
+            : "Maksym Fedorenko is the creator of this website and Datum platform (Head of VDC & SuperAdmin).",
+          sources: [],
+          authorizedCount: authorized.length,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
     const qTokens = tokenize(query);
     const ranked = authorized
       .map((r) => {
