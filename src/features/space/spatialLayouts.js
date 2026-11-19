@@ -187,9 +187,11 @@ export function computeGraphData(displayItems, options = {}) {
   displayItems.forEach((r) => {
     (r.links || []).forEach(([toId, rawKind]) => {
       if (!byId.has(toId) || toId === r.id) return;
-      const kind = rawKind === 'hard' ? 'hard' : 'soft';
+      const targetDoc = byId.get(toId);
+      const isPrivEdge = Boolean(r.isPrivate || (targetDoc && targetDoc.isPrivate));
+      const kind = isPrivEdge ? 'private' : rawKind === 'hard' ? 'hard' : 'soft';
       if (kind === 'soft' && !includeSoft) return;
-      const key = r.id < toId ? `${r.id}|${toId}` : `${toId}|${r.id}`;
+      const key = String(r.id) < String(toId) ? `${r.id}|${toId}` : `${toId}|${r.id}`;
       const existing = edgeMap.get(key);
       if (!existing) {
         edgeMap.set(key, {
@@ -199,6 +201,7 @@ export function computeGraphData(displayItems, options = {}) {
           from: r.id,
           to: toId,
           kind,
+          isPrivate: isPrivEdge,
           both: false,
         });
       } else if (kind === 'hard' && existing.kind === 'soft') {
@@ -347,7 +350,7 @@ export function computeGraphData(displayItems, options = {}) {
       if (!dagChildren.has(e.a) || !dagChildren.has(e.b)) return;
       const authA = authMap.get(e.a) || 0;
       const authB = authMap.get(e.b) || 0;
-      const fromId = authA > authB || (authA === authB && e.a < e.b) ? e.a : e.b;
+      const fromId = authA > authB || (authA === authB && String(e.a) < String(e.b)) ? e.a : e.b;
       const toId = fromId === e.a ? e.b : e.a;
       dagChildren.get(fromId).push(toId);
       dagParents.get(toId).push(fromId);
@@ -355,7 +358,7 @@ export function computeGraphData(displayItems, options = {}) {
 
     // Topological longest-path layer assignment
     const topoOrder = [...connected].sort(
-      (a, b) => (authMap.get(b.id) || 0) - (authMap.get(a.id) || 0) || a.id - b.id
+      (a, b) => (authMap.get(b.id) || 0) - (authMap.get(a.id) || 0) || String(a.id).localeCompare(String(b.id))
     );
     const rawLayer = new Map();
     topoOrder.forEach((r) => {
@@ -412,7 +415,7 @@ export function computeGraphData(displayItems, options = {}) {
         if (dd !== 0) return dd;
         const da = fullAdj.get(a.id)?.size || 0;
         const db = fullAdj.get(b.id)?.size || 0;
-        return db - da || a.id - b.id;
+        return db - da || String(a.id).localeCompare(String(b.id));
       });
     });
 

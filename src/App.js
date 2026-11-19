@@ -117,12 +117,14 @@ export function App() {
   const [cur, setCur] = useState("all");
   const [catFilter, setCatFilter] = useState("all");
   const [kbDisplay, setKbDisplay] = useState("space");
+  const [brainLayer, setBrainLayer] = useState("all"); // 'all' | 'mine' | 'team'
+  const [spaceProject, setSpaceProject] = useState("all");
   const kbDisplayLoaded = useRef(false);
   useEffect(() => {
     if (!kbDisplayLoaded.current) {
       kbDisplayLoaded.current = true;
       const saved = db.load("kb2-display-v2", "space");
-      if (saved === "grid" || saved === "space" || saved === "graph") {
+      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "tasks") {
         setKbDisplay(saved);
       }
       return;
@@ -894,7 +896,7 @@ export function App() {
     if (catFilter === "kits" && !activeKitId) {
       setCatFilter("all");
     }
-    setKbDisplay(mode === "grid" || mode === "graph" ? mode : "space");
+    setKbDisplay(mode === "grid" || mode === "graph" || mode === "tasks" ? mode : "space");
     setSpaceStageOpen(true);
   };
 
@@ -949,7 +951,10 @@ export function App() {
     else if (k === "quick-resource") setQcModal({ mode: "resource", doc: null });
     else if (k === "focus") {
       setBrainTabSeed("focus");
-      goV("tasks");
+      setBrainLayer("mine");
+      setKbDisplay("tasks");
+      setSpaceStageOpen(true);
+      goV("kb");
     }
     else if (k === "team-resources") handleNavSwitch("team-resources");
     else if (k === "open-brain-task") openBrainSource({ id: "task:" + a });
@@ -957,7 +962,10 @@ export function App() {
     else if (k === "open-brain-resource") openBrainSource({ id: "res:" + a });
     else if (k === "tasks") {
       setBrainTabSeed(a || "all");
-      goV("tasks");
+      setBrainLayer("mine");
+      setKbDisplay("tasks");
+      setSpaceStageOpen(true);
+      goV("kb");
     }
     else if (k === "home") goHome();
     else if (k === "kits") {
@@ -965,6 +973,7 @@ export function App() {
     } else if (k === "kb-space") {
       setActiveKitId(null);
       if (catFilter === "kits") setCatFilter("all");
+      setBrainLayer("all");
       setKbDisplay("space");
       setSpaceStageOpen(true);
       goV("kb");
@@ -1585,31 +1594,46 @@ export function App() {
       flash("Private note saved to Supabase");
       return true;
     }
+    const resM = t.match(/^\/(?:res|link|ресурс)\s+(.+)$/i);
+    if (resM) {
+      const raw = resM[1].trim();
+      const urlMatch = raw.match(/(https?:\/\/\S+)/i);
+      const url = urlMatch ? urlMatch[1] : "";
+      const title = url ? raw.replace(url, "").trim() || url : raw;
+      savePrivResource({
+        title,
+        url,
+        kind: url ? "link" : "snippet",
+        notes: url ? "" : raw,
+        project: spaceProject !== "all" ? spaceProject : "General",
+      });
+      flash("Personal resource saved to Supabase");
+      return true;
+    }
     return false;
   };
 
   const openBrainSource = (s) => {
     if (!s || !s.id) return;
     const raw = String(s.id);
-    if (raw.startsWith("task:")) {
+    if (raw.startsWith("task:") || raw.startsWith("note:") || raw.startsWith("res:")) {
       setRead(null);
-      setBrainHighlightId(raw.slice(5));
-      setBrainTabSeed("all");
-      goV("tasks");
-      return true;
-    }
-    if (raw.startsWith("note:")) {
-      setRead(null);
-      setBrainHighlightId(raw.slice(5));
-      setBrainTabSeed("notes");
-      goV("tasks");
-      return true;
-    }
-    if (raw.startsWith("res:")) {
-      setRead(null);
-      setBrainHighlightId(raw.slice(4));
-      setBrainTabSeed("resources");
-      goV("tasks");
+      setActiveKitId(null);
+      setCatFilter("all");
+      setBrainLayer("mine");
+      setKbDisplay("tasks");
+      setSpaceStageOpen(true);
+      if (raw.startsWith("task:")) {
+        setBrainHighlightId(raw.slice(5));
+        setBrainTabSeed("all");
+      } else if (raw.startsWith("note:")) {
+        setBrainHighlightId(raw.slice(5));
+        setBrainTabSeed("notes");
+      } else {
+        setBrainHighlightId(raw.slice(4));
+        setBrainTabSeed("resources");
+      }
+      goV("kb");
       return true;
     }
     return false;
@@ -1852,12 +1876,16 @@ export function App() {
     catFilter === "kits" &&
     !activeKitId
       ? "kits"
+      : kbDisplay === "tasks" && !isGuest
+      ? "tasks"
       : kbDisplay === "grid" || kbDisplay === "graph"
       ? kbDisplay
       : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
   const pageTitle =
-    catFilter === "res" && (view === "kb" || view === "home" || view === "space" || view === "lib")
+    activeViewMode === "tasks" && isSpaceView
+      ? "My Work"
+      : catFilter === "res" && (view === "kb" || view === "home" || view === "space" || view === "lib")
       ? "Team Resources"
       : view === "kb" || view === "home" || view === "space"
       ? "Knowledge Space"
@@ -2226,7 +2254,9 @@ export function App() {
       ? "kits"
       : (view === "kb" || view === "lib") && catFilter === "res"
       ? "team-resources"
-      : view === "naming" || view === "team" || view === "admin" || view === "tasks"
+      : (view === "kb" && kbDisplay === "tasks") || view === "tasks"
+      ? "my-work"
+      : view === "naming" || view === "team" || view === "admin"
       ? view
       : view === "lib" && (cur === "fav" || cur === "drafts" || cur === "recent")
       ? cur
@@ -2239,7 +2269,18 @@ export function App() {
       setActiveKitId(null);
       setCatFilter("all");
       setCur("all");
-      setKbDisplay("space");
+      setBrainLayer("all");
+      if (kbDisplay === "tasks") setKbDisplay("space");
+      setSpaceStageOpen(true);
+      goV("kb");
+    } else if (key === "my-work" || key === "tasks") {
+      setRead(null);
+      setActiveKitId(null);
+      setCatFilter("all");
+      setCur("all");
+      setBrainTabSeed("tasks");
+      setBrainLayer("mine");
+      setKbDisplay("tasks");
       setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "team-resources") {
@@ -2441,9 +2482,9 @@ export function App() {
       ${!isGuest &&
       html`<div>
         <div className="sec">Personal</div>
-        <button type="button" className=${"ti" + (view === "tasks" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => handleNavSwitch("tasks")}>
+        <button type="button" className=${"ti" + (activeSwitcherKey === "my-work" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => handleNavSwitch("my-work")}>
           <span className="side-ico"><${Ic} n="check" s=${15} /></span>
-          <span className="tn">Second Brain</span>
+          <span className="tn">My Work</span>
           ${openTasksCount > 0 && html`<span className="ct">${openTasksCount}</span>`}
         </button>
         <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
@@ -2576,17 +2617,19 @@ export function App() {
           ${!rr &&
           !["tasks", "team", "admin"].includes(view) &&
           can.createDraft(role) &&
-          html`<button
-            className="btn p cr"
-            title="Create Document or Resource"
-            onClick=${() => createNewDoc()}
-          >
-            <${Ic} n="plus" s=${16} /><span>Create</span>
-          </button>
+          html`<${Fragment}>
+            <button
+              className="btn p cr"
+              title="Create Document or Resource"
+              onClick=${() => createNewDoc()}
+            >
+              <${Ic} n="plus" s=${16} /><span>Create</span>
+            </button>
 
-          <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current && dxr.current.click()}>
-            ${html`<${Ic} n="doc" s=${18} />`}
-          </button>`}
+            <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current && dxr.current.click()}>
+              ${html`<${Ic} n="doc" s=${18} />`}
+            </button>
+          </${Fragment}>`}
           ${!isGuest &&
           html`<button className="ib bar-r-bell" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
             ${html`<${Ic} n="bell" s=${18} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
@@ -2667,6 +2710,7 @@ export function App() {
               viewMode=${activeViewMode}
               stageOpen=${spaceStageOpen}
               visibleColsCount=${visibleCols.length}
+              showTasks=${!isGuest}
               onSelectMode=${selectSpatialMode}
             />
             <${FilterPopover}
@@ -2850,6 +2894,44 @@ export function App() {
               onOpenBrainSource=${openBrainSource}
               onSaveToNote=${!isGuest ? saveAiMessageToNote : null}
               onSaveToTask=${!isGuest ? saveAiMessageToTask : null}
+              brainLayer=${brainLayer}
+              onBrainLayerChange=${setBrainLayer}
+              projectFilter=${spaceProject}
+              brainProjects=${brainProjects}
+              onProjectFilterChange=${setSpaceProject}
+              privTasks=${isGuest ? [] : tasks}
+              privNotes=${isGuest ? [] : privNotes}
+              privResources=${isGuest ? [] : privResources}
+              brainUsers=${users}
+              currentEmail=${brainOwnerEmail}
+              activities=${activities}
+              requiredIds=${req}
+              acks=${Object.keys(acks || {}).filter((k) => acks[k]).map(Number)}
+              plannerPrefs=${plannerPrefs}
+              brainCategories=${brainCategories}
+              brainSyncState=${brainSyncState}
+              canPromote=${can.createDraft(role)}
+              brainInitialTab=${brainTabSeed}
+              brainHighlightId=${brainHighlightId}
+              onSaveTask=${saveTask}
+              onDeleteTask=${deleteTask}
+              onSaveNote=${savePrivNote}
+              onDeleteNote=${deletePrivNote}
+              onSaveResource=${savePrivResource}
+              onDeleteResource=${deletePrivResource}
+              onShareResource=${shareResourceWithTeammates}
+              onSuggestResourceToTeam=${suggestResourceToTeamKb}
+              onSuggestNoteToTeam=${suggestNoteToTeamKb}
+              onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
+              onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
+              onPromoteNoteToDoc=${(note) =>
+                createNewDoc({
+                  title: note.title || "From Private Note",
+                  body: note.body || "",
+                  tags: [note.project || "General", ...(note.tags || [])].filter(Boolean),
+                })
+              }
+              onOpenBrainSheet=${(payload) => setQcModal(payload)}
             />`;
           }
 

@@ -3,11 +3,13 @@ import { DC, DISC, TY, can, normRole, isResType } from '../../config/constants.j
 import { byId } from '../../data/spaces.js';
 import { fmt } from '../../utils/format.js';
 import { scoreDocument, tokenizeUnique, detectSearchIntent } from '../../utils/search.js';
-import { plain } from '../../utils/markdown.js';
+import { plain, md } from '../../utils/markdown.js';
 import { Ic, DatumMark } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
 import { Select } from '../../components/Select.js';
+import { isDoneStatus, DEFAULT_PLANNER_STATUSES } from '../../utils/planner.js';
+import { SecondBrainView } from '../brain/SecondBrainView.js';
 import { TIER_LABEL, TIER_COL, canEditCol, KitComposerModal } from '../collections/CollectionsView.js';
 import {
   clamp,
@@ -99,7 +101,41 @@ export function KnowledgeSpaceView({
   onOpenBrainSource = null,
   onSaveToNote = null,
   onSaveToTask = null,
+  brainLayer = 'all',
+  onBrainLayerChange = null,
+  projectFilter = 'all',
+  brainProjects = [],
+  onProjectFilterChange = null,
+  privTasks = [],
+  privNotes = [],
+  privResources = [],
+  brainUsers = [],
+  currentEmail = '',
+  activities = [],
+  requiredIds = [],
+  acks = [],
+  plannerPrefs = null,
+  brainCategories = [],
+  brainSyncState = 'synced',
+  canPromote = false,
+  brainInitialTab = 'tasks',
+  brainHighlightId = null,
+  onSaveTask = null,
+  onDeleteTask = null,
+  onSaveNote = null,
+  onDeleteNote = null,
+  onSaveResource = null,
+  onDeleteResource = null,
+  onShareResource = null,
+  onSuggestResourceToTeam = null,
+  onSuggestNoteToTeam = null,
+  onOpenManageSheet = null,
+  onStartRevision = null,
+  onPromoteNoteToDoc = null,
+  onOpenBrainSheet = null,
 }) {
+  const [drawerBrainRef, setDrawerBrainRef] = useState(null);
+  const [drawerCopiedId, setDrawerCopiedId] = useState(null);
   const viewportRef = useRef(null);
   const sceneRef = useRef(null);
   const dockWrapRef = useRef(null);
@@ -268,27 +304,161 @@ export function KnowledgeSpaceView({
     });
   }, [visibleKits, kitTier, spaceQuery]);
 
-  const sourceBaseItems = useMemo(() => {
-    if (!activeKit) return items;
-    const discFilter = f && f.disc;
-    const res = [];
-    (activeKit.items || []).forEach((entry, idx) => {
-      const doc = poolById.get(entry.id) || items.find((r) => r.id === entry.id);
-      if (!doc) return;
-      if (discFilter && doc.disc !== discFilter) return;
-      res.push({
-        ...doc,
-        _kitStep: idx + 1,
-        _kitNote: entry.note || '',
+  const plannerStatuses =
+    (plannerPrefs && Array.isArray(plannerPrefs.statuses) && plannerPrefs.statuses.length
+      ? plannerPrefs.statuses
+      : DEFAULT_PLANNER_STATUSES);
+
+  const privBadgeByDocId = useMemo(() => {
+    const map = new Map();
+    if (isGuest) return map;
+    const bump = (docId, key) => {
+      const idNum = Number(docId);
+      if (!Number.isFinite(idNum) || idNum <= 0) return;
+      const cur = map.get(idNum) || { notes: 0, tasks: 0, res: 0 };
+      cur[key] += 1;
+      map.set(idNum, cur);
+    };
+    (privNotes || []).forEach((n) => {
+      (Array.isArray(n.linkedItemIds) ? n.linkedItemIds : []).forEach((id) => bump(id, 'notes'));
+    });
+    (privTasks || []).forEach((t) => {
+      if (!isDoneStatus(plannerStatuses, t.status) && t.linkedItemId) bump(t.linkedItemId, 'tasks');
+    });
+    (privResources || []).forEach((r) => {
+      if (r.linkedItemId) bump(r.linkedItemId, 'res');
+      if (Array.isArray(r.linkedItemIds)) r.linkedItemIds.forEach((id) => bump(id, 'res'));
+    });
+    return map;
+  }, [isGuest, privNotes, privTasks, privResources, plannerStatuses]);
+
+  const privateSpatialItems = useMemo(() => {
+    if (isGuest) return [];
+    const out = [];
+    (privNotes || []).forEach((n) => {
+      const linked = Array.isArray(n.linkedItemIds) ? n.linkedItemIds : [];
+      out.push({
+        id: `note:${n.id}`,
+        isPrivate: true,
+        brainKind: 'note',
+        rawItem: n,
+        title: n.title || 'Private Note',
+        desc: plain(n.body || '').slice(0, 140) || 'Private note in Second Brain',
+        disc: 'Interior',
+        type: 'doc',
+        status: n.isPinned ? 'Pinned' : 'Private',
+        vis: 'Private',
+        project: n.project || 'General',
+        isPinned: Boolean(n.isPinned),
+        upd: (n.updatedAt || '').slice(0, 10) || 'Today',
+        tags: [n.project || 'General', 'Private Note'],
+        links: linked.map((id) => [Number(id), 'soft']),
       });
     });
-    return res;
-  }, [activeKit, items, poolById, f]);
+    (privResources || []).forEach((r) => {
+      const linked = [];
+      if (r.linkedItemId) linked.push(Number(r.linkedItemId));
+      if (Array.isArray(r.linkedItemIds)) r.linkedItemIds.forEach((id) => linked.push(Number(id)));
+      out.push({
+        id: `res:${r.id}`,
+        isPrivate: true,
+        brainKind: 'resource',
+        rawItem: r,
+        title: r.title || 'Personal Resource',
+        desc: r.notes || r.snippet || r.url || 'Saved personal resource',
+        url: r.url || '',
+        disc: 'VDC',
+        type: 'link',
+        status: r.isPinned ? 'Pinned' : 'Private',
+        vis: 'Private',
+        project: r.project || 'General',
+        isPinned: Boolean(r.isPinned),
+        upd: (r.updatedAt || '').slice(0, 10) || 'Today',
+        tags: [r.project || 'General', r.kind || 'resource'],
+        links: [...new Set(linked)].map((id) => [id, 'soft']),
+      });
+    });
+    (privTasks || []).forEach((t) => {
+      if (isDoneStatus(plannerStatuses, t.status)) return;
+      out.push({
+        id: `task:${t.id}`,
+        isPrivate: true,
+        brainKind: 'task',
+        rawItem: t,
+        title: t.title || 'Personal Task',
+        desc: t.notes || (t.dueDate ? `Due ${t.dueDate}` : 'Active personal task'),
+        disc: 'MEP',
+        type: 'doc',
+        status: t.isUrgent || Number(t.priority) >= 3 ? 'Urgent' : 'Task',
+        vis: 'Private',
+        project: t.project || 'General',
+        isPinned: Boolean(t.isUrgent || Number(t.priority) >= 3),
+        upd: t.dueDate || (t.updatedAt || '').slice(0, 10) || 'Today',
+        tags: [t.project || 'General', 'Personal Task'],
+        links: t.linkedItemId ? [[Number(t.linkedItemId), 'soft']] : [],
+      });
+    });
+    return out;
+  }, [isGuest, privNotes, privResources, privTasks, plannerStatuses]);
+
+  const effectiveLayer = isGuest ? 'team' : brainLayer || 'all';
+
+  const sourceBaseItems = useMemo(() => {
+    if (activeKit) {
+      const discFilter = f && f.disc;
+      const res = [];
+      (activeKit.items || []).forEach((entry, idx) => {
+        const doc = poolById.get(entry.id) || items.find((r) => r.id === entry.id);
+        if (!doc) return;
+        if (discFilter && doc.disc !== discFilter) return;
+        res.push({
+          ...doc,
+          _kitStep: idx + 1,
+          _kitNote: entry.note || '',
+        });
+      });
+      return res;
+    }
+
+    const activeProj = projectFilter && projectFilter !== 'all' ? projectFilter.trim() : '';
+    const activeProjLow = activeProj.toLowerCase();
+
+    const privForProj = activeProj
+      ? privateSpatialItems.filter((x) => (x.project || 'General').trim().toLowerCase() === activeProjLow)
+      : privateSpatialItems;
+
+    let teamList = items;
+    if (activeProj) {
+      const linkedToProjIds = new Set();
+      privForProj.forEach((p) => (p.links || []).forEach(([id]) => linkedToProjIds.add(Number(id))));
+      const tokens = activeProjLow.split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
+      teamList = items.filter((d) => {
+        if (linkedToProjIds.has(Number(d.id))) return true;
+        const hay = `${d.title || ''} ${d.desc || ''} ${d.disc || ''} ${(d.tags || []).join(' ')}`.toLowerCase();
+        if (hay.includes(activeProjLow)) return true;
+        return tokens.length > 0 && tokens.some((tk) => hay.includes(tk));
+      });
+    }
+
+    if (effectiveLayer === 'team') return teamList;
+    if (effectiveLayer === 'mine') return privForProj;
+
+    // 'all': Team standards + linked/pinned/project personal notes & resources alongside them
+    const selectedPriv = privForProj.filter(
+      (x) =>
+        x.brainKind !== 'task' &&
+        (activeProj || x.isPinned || (x.links && x.links.length > 0))
+    );
+    return [...selectedPriv, ...teamList];
+  }, [activeKit, items, poolById, f, effectiveLayer, projectFilter, privateSpatialItems]);
 
   const isKitsOverview = viewMode === 'kits' && !activeKit;
-  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !activeKit;
+  const isTasksView = !isGuest && viewMode === 'tasks' && !activeKit;
+  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !isTasksView && !activeKit;
   const activeFormation = isKitsOverview
     ? 'kits'
+    : isTasksView
+    ? 'tasks'
     : viewMode === 'grid'
     ? 'grid'
     : viewMode === 'graph'
@@ -1661,8 +1831,100 @@ export function KnowledgeSpaceView({
     wakeMotionRef.current();
   };
 
+  const drawerBrainObj = useMemo(() => {
+    if (!drawerBrainRef) return null;
+    const { kind, id } = drawerBrainRef;
+    if (kind === 'note') {
+      const n = (privNotes || []).find((x) => String(x.id) === String(id));
+      return n ? { kind: 'note', item: n } : null;
+    }
+    if (kind === 'resource') {
+      const r = (privResources || []).find((x) => String(x.id) === String(id));
+      return r ? { kind: 'resource', item: r } : null;
+    }
+    if (kind === 'task') {
+      const t = (privTasks || []).find((x) => String(x.id) === String(id));
+      return t ? { kind: 'task', item: t } : null;
+    }
+    return null;
+  }, [drawerBrainRef, privNotes, privResources, privTasks]);
+
+  const heroTodayChips = useMemo(() => {
+    if (isGuest) return [];
+    const list = [];
+    const now = new Date();
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const urgentOrToday = (privTasks || []).filter(
+      (t) => !isDoneStatus(plannerStatuses, t.status) && (t.isUrgent || Number(t.priority) >= 3 || (t.dueDate && t.dueDate <= todayIso))
+    );
+    if (urgentOrToday.length > 0) {
+      list.push({
+        key: 'today-tasks',
+        dot: '#ff453a',
+        label: `${urgentOrToday.length} priority / today`,
+        onClick: () => {
+          ensureStageOpen();
+          onBrainLayerChange && onBrainLayerChange('mine');
+          onSelectViewMode && onSelectViewMode('tasks');
+        },
+      });
+    }
+    const pinnedNote = (privNotes || []).find((n) => n.isPinned);
+    if (pinnedNote) {
+      list.push({
+        key: `pin-note-${pinnedNote.id}`,
+        dot: '#bf5af2',
+        label: `Note: ${pinnedNote.title || 'Pinned'}`,
+        onClick: () => setDrawerBrainRef({ kind: 'note', id: pinnedNote.id }),
+      });
+    }
+    const pinnedRes = (privResources || []).find((r) => r.isPinned);
+    if (pinnedRes) {
+      list.push({
+        key: `pin-res-${pinnedRes.id}`,
+        dot: '#30d158',
+        label: `Resource: ${pinnedRes.title || 'Pinned'}`,
+        onClick: () => setDrawerBrainRef({ kind: 'resource', id: pinnedRes.id }),
+      });
+    }
+    const ackSet = new Set((acks || []).map(Number));
+    const unreadReqId = (requiredIds || []).find((id) => !ackSet.has(Number(id)));
+    if (unreadReqId && poolById.get(Number(unreadReqId))) {
+      const reqDoc = poolById.get(Number(unreadReqId));
+      list.push({
+        key: `req-${reqDoc.id}`,
+        dot: '#ff9f0a',
+        label: `Required: ${reqDoc.title}`,
+        onClick: () => onRead && onRead(reqDoc.id),
+      });
+    }
+    return list.slice(0, 4);
+  }, [isGuest, privTasks, privNotes, privResources, plannerStatuses, acks, requiredIds, poolById, onRead]);
+
+  const openBrainItemInDrawer = (rawId) => {
+    const str = String(rawId || '');
+    if (str.startsWith('note:')) {
+      setDrawerBrainRef({ kind: 'note', id: str.slice(5) });
+      return true;
+    }
+    if (str.startsWith('res:')) {
+      setDrawerBrainRef({ kind: 'resource', id: str.slice(4) });
+      return true;
+    }
+    if (str.startsWith('task:')) {
+      setDrawerBrainRef({ kind: 'task', id: str.slice(5) });
+      return true;
+    }
+    return false;
+  };
+
   const triggerOpenCard = (itemId, _idx = -1, _colAngle, sectionId = null) => {
-    if (!onRead || !itemId) return;
+    if (!itemId) return;
+    if (openBrainItemInDrawer(itemId)) {
+      if (onSetCmdOpen) onSetCmdOpen(false);
+      return;
+    }
+    if (!onRead) return;
     recordAskBarRect();
     if (onSetCmdOpen) onSetCmdOpen(false);
     const readOpts = sectionId ? { sectionId } : undefined;
@@ -1671,6 +1933,10 @@ export function KnowledgeSpaceView({
 
   const openSourceFromChat = (s) => {
     if (!s || !s.id) return;
+    if (openBrainItemInDrawer(s.id)) {
+      if (onSetCmdOpen) onSetCmdOpen(false);
+      return;
+    }
     if (
       (String(s.id).startsWith('task:') ||
         String(s.id).startsWith('note:') ||
@@ -2106,6 +2372,54 @@ export function KnowledgeSpaceView({
         <div className="kspace-title-row">
           ${spaceLeftNav || html`<h1>${pageTitle}</h1>`}
           ${!isHeroMode &&
+          !isGuest &&
+          !isKitsOverview &&
+          !activeKit &&
+          onBrainLayerChange &&
+          html`<div className="kspace-view-seg" role="group" aria-label="Knowledge layer">
+            ${[
+              ['all', 'All'],
+              ['mine', 'Mine'],
+              ['team', 'Team'],
+            ].map(
+              ([lk, llbl]) => html`<button
+                key=${'layer-' + lk}
+                type="button"
+                className=${effectiveLayer === lk ? 'on' : ''}
+                aria-pressed=${effectiveLayer === lk}
+                onClick=${() => {
+                  ensureStageOpen();
+                  if (isTasksView && (lk === 'all' || lk === 'team')) {
+                    onSelectViewMode && onSelectViewMode('space');
+                  }
+                  onBrainLayerChange(lk);
+                }}
+              >
+                ${llbl}
+              </button>`
+            )}
+          </div>`}
+          ${!isHeroMode &&
+          !isGuest &&
+          !isKitsOverview &&
+          !activeKit &&
+          onProjectFilterChange &&
+          brainProjects.length > 0 &&
+          html`<${Select}
+            variant="filter"
+            className="kspace-proj-asel"
+            ariaLabel="Filter by project"
+            placeholder="All projects"
+            displayLabel=${projectFilter && projectFilter !== 'all' ? projectFilter : 'All projects'}
+            value=${projectFilter && projectFilter !== 'all' ? projectFilter : ''}
+            options=${[['', 'All projects'], ...brainProjects.map((pr) => [pr, pr])]}
+            minMenuWidth=${180}
+            onChange=${(val) => {
+              ensureStageOpen();
+              onProjectFilterChange(val || 'all');
+            }}
+          />`}
+          ${!isHeroMode &&
           curCat &&
           html`<span className="kspace-cat-pill" style=${{ '--cc': curCat.color || '#0a84ff' }}>
             <i></i>
@@ -2139,6 +2453,7 @@ export function KnowledgeSpaceView({
           </span>`}
           ${!isHeroMode &&
           !isKitsOverview &&
+          !isTasksView &&
           isNarrowed &&
           html`<span
             className="kspace-cnt"
@@ -2348,8 +2663,48 @@ export function KnowledgeSpaceView({
           </div>`}
     </div>`}
 
-    ${!isMobile &&
-    (count
+    ${isTasksView
+      ? html`<div className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+          <${SecondBrainView}
+            embedded=${true}
+            externalQuery=${spaceQuery}
+            externalProject=${projectFilter || 'all'}
+            onExternalProjectChange=${onProjectFilterChange}
+            tasks=${privTasks}
+            notes=${privNotes}
+            resources=${privResources}
+            docs=${poolAll}
+            users=${brainUsers}
+            currentEmail=${currentEmail}
+            activities=${activities}
+            requiredIds=${requiredIds}
+            acks=${acks}
+            statuses=${plannerStatuses}
+            categories=${brainCategories}
+            projects=${brainProjects}
+            ownerName=${userName}
+            syncState=${brainSyncState}
+            canPromote=${canPromote}
+            initialTab=${brainInitialTab}
+            highlightId=${brainHighlightId}
+            onSaveTask=${onSaveTask}
+            onDeleteTask=${onDeleteTask}
+            onSaveNote=${onSaveNote}
+            onDeleteNote=${onDeleteNote}
+            onSaveResource=${onSaveResource}
+            onDeleteResource=${onDeleteResource}
+            onShareResource=${onShareResource}
+            onSuggestResourceToTeam=${onSuggestResourceToTeam}
+            onSuggestNoteToTeam=${onSuggestNoteToTeam}
+            onOpenSheet=${onOpenBrainSheet}
+            onOpenManageSheet=${onOpenManageSheet}
+            onStartRevision=${onStartRevision}
+            onOpenDoc=${(id) => onRead && onRead(id)}
+            onPromoteNoteToDoc=${onPromoteNoteToDoc}
+          />
+        </div>`
+      : !isMobile &&
+        (count
       ? html`<div
           ref=${viewportRef}
           aria-hidden=${isHeroMode || isKitsOverview ? 'true' : undefined}
@@ -2392,7 +2747,7 @@ export function KnowledgeSpaceView({
                 ref=${(el) => {
                   graphEdgeGroupRefs.current[eIdx] = el;
                 }}
-                className=${'kspace-graph-edge' + (e.kind === 'hard' ? ' is-hard' : ' is-soft')}
+                className=${'kspace-graph-edge' + (e.isPrivate || e.kind === 'private' ? ' is-priv is-soft' : e.kind === 'hard' ? ' is-hard' : ' is-soft')}
               >
                 <path
                   ref=${(el) => {
@@ -2437,6 +2792,9 @@ export function KnowledgeSpaceView({
                   cardRefs.current[idx] = el;
                 }}
                 className=${'card kspace-card' +
+                  (r.isPrivate ? ' is-priv' : '') +
+                  (r.brainKind === 'resource' ? ' is-res-priv' : '') +
+                  (r.brainKind === 'task' ? ' is-task-priv' : '') +
                   (activeFormation === 'graph' ? ' is-graph-node' : '') +
                   (isGraphSelected ? ' is-graph-selected' : '') +
                   (isGraphHover ? ' is-graph-hover' : '') +
@@ -2507,7 +2865,8 @@ export function KnowledgeSpaceView({
                   <${Ic} n="spark" s=${10} /> Source [${citeNum}]
                 </span>`}
 
-                <div className="acts" onPointerDown=${(e) => e.stopPropagation()}>
+                ${!r.isPrivate &&
+                html`<div className="acts" onPointerDown=${(e) => e.stopPropagation()}>
                   ${!isGuest &&
                   html`<button
                     type="button"
@@ -2547,19 +2906,19 @@ export function KnowledgeSpaceView({
                   >
                     <${Ic} n="x" s=${13} />
                   </button>`}
-                </div>
+                </div>`}
 
                 <div className="ch2">
-                  <span className="tl" style=${{ '--c': DC[r.disc] || '#0a84ff' }}>
-                    <${Ic} n=${r.type} s=${activeFormation === 'graph' ? 14 : 17} />
+                  <span className="tl" style=${{ '--c': r.isPrivate ? (r.brainKind === 'resource' ? '#30d158' : r.brainKind === 'task' ? '#0a84ff' : '#bf5af2') : (DC[r.disc] || '#0a84ff') }}>
+                    <${Ic} n=${r.brainKind === 'note' ? 'note' : r.brainKind === 'task' ? 'check' : r.type} s=${activeFormation === 'graph' ? 14 : 17} />
                   </span>
                   <span className="who">
                     <b>
                       ${r._kitStep &&
                       html`<span className="kspace-kit-step-inline">#${String(r._kitStep).padStart(2, '0')}</span>`}
-                      <span>${r.disc || 'VDC'}</span>
+                      <span>${r.isPrivate ? (r.project || 'Personal') : (r.disc || 'VDC')}</span>
                     </b>
-                    <small>${catName || TY[r.type] || 'Document'}</small>
+                    <small>${r.isPrivate ? (r.brainKind === 'note' ? 'Private Note' : r.brainKind === 'resource' ? 'Personal Resource' : 'Personal Task') : (catName || TY[r.type] || 'Document')}</small>
                   </span>
                 </div>
 
@@ -2568,8 +2927,29 @@ export function KnowledgeSpaceView({
                 ${r._kitNote && activeFormation !== 'graph' && html`<div className="kspace-kit-note">${r._kitNote}</div>`}
 
                 <div className="row">
-                  <${Pill} s=${r.status} />
-                  ${r.vis && r.vis !== 'Internal' && activeFormation !== 'graph' && html`<${VisPill} v=${r.vis} />`}
+                  ${r.isPrivate
+                    ? html`<span className="kspace-priv-badge">
+                        ${r.brainKind === 'note' ? 'Private Note' : r.brainKind === 'resource' ? 'My Resource' : 'Task'}
+                      </span>`
+                    : html`<${Fragment}>
+                        <${Pill} s=${r.status} />
+                        ${r.vis && r.vis !== 'Internal' && activeFormation !== 'graph' && html`<${VisPill} v=${r.vis} />`}
+                        ${(() => {
+                          const pb = privBadgeByDocId.get(Number(r.id));
+                          if (!pb) return null;
+                          const parts = [];
+                          if (pb.notes) parts.push(`${pb.notes}n`);
+                          if (pb.tasks) parts.push(`${pb.tasks}t`);
+                          if (pb.res) parts.push(`${pb.res}r`);
+                          if (!parts.length) return null;
+                          return html`<span
+                            className="kspace-priv-badge"
+                            title=${`${pb.notes} notes, ${pb.tasks} open tasks, ${pb.res} resources linked`}
+                          >
+                            ${parts.join(' · ')}
+                          </span>`;
+                        })()}
+                      </${Fragment}>`}
                   ${activeFormation === 'graph' &&
                   gDeg > 0 &&
                   html`<span className="kspace-graph-deg" style=${{ marginLeft: 'auto' }}>${gDeg} links</span>`}
@@ -3356,6 +3736,7 @@ export function KnowledgeSpaceView({
       ${isMobile &&
       !mobHistoryOpen &&
       !isKitsOverview &&
+      !isTasksView &&
       !activeKit &&
       !cmdOpen &&
       (() => {
@@ -3564,7 +3945,10 @@ export function KnowledgeSpaceView({
             <button
               type="button"
               className="kspace-mob-act"
-              onClick=${() => setMobBrowseOpen(true)}
+              onClick=${() => {
+                if (effectiveLayer === 'mine' && onBrainLayerChange) onBrainLayerChange('all');
+                setMobBrowseOpen(true);
+              }}
             >
               <span className="kspace-mob-act-ico"><${Ic} n="book" s=${19} /></span>
               <span>Browse Standards (${items.length})</span>
@@ -3786,12 +4170,14 @@ export function KnowledgeSpaceView({
                   <span>Kits</span>
                 </button>
                 ${!isGuest &&
-                onOpenTasks &&
                 html`<button
                   type="button"
                   className="kspace-pchip kspace-pchip-ghost"
-                  onClick=${onOpenTasks}
-                  title="Open Personal Tasks & Second Brain (Alt+N to quick add)"
+                  onClick=${() => {
+                    ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('tasks');
+                  }}
+                  title="Open Tasks & Notes inside Space (Alt+N to quick add)"
                 >
                   <${Ic} n="check" s=${12} />
                   <span>${todayTaskCount > 0 ? `Today (${todayTaskCount})` : openTasksCount > 0 ? `Tasks (${openTasksCount})` : 'Tasks'}</span>
@@ -3835,9 +4221,10 @@ export function KnowledgeSpaceView({
               </${Fragment}>`}
         </div>
 
-        ${!isMobile &&
-        !isHeroMode &&
-        !isKitsOverview &&
+      ${!isMobile &&
+      !isHeroMode &&
+      !isKitsOverview &&
+      !isTasksView &&
         (activeFormation === 'graph'
           ? html`<div className="kspace-hud is-graph-hud" role="toolbar" aria-label="Graph navigation controls">
               <div className="kspace-graph-modes" role="group" aria-label="Graph layout">
@@ -4013,6 +4400,245 @@ export function KnowledgeSpaceView({
               </button>
             </div>`)}
       </div>
+      ${!isMobile &&
+      isHeroMode &&
+      heroTodayChips.length > 0 &&
+      html`<div className="kspace-hero-today" aria-label="Today focus strip">
+        <span className="kspace-hero-today-lbl">Today</span>
+        ${heroTodayChips.map(
+          (ch) => html`<button
+            key=${ch.key}
+            type="button"
+            className="kspace-today-chip"
+            onClick=${ch.onClick}
+          >
+            <i className="kspace-today-dot" style=${{ background: ch.dot }} />
+            <span>${ch.label}</span>
+          </button>`
+        )}
+      </div>`}
     </div>
+
+    ${drawerBrainObj &&
+    html`<${Fragment}>
+      <div
+        className="kspace-brain-scrim"
+        aria-hidden="true"
+        onClick=${() => setDrawerBrainRef(null)}
+      />
+      <aside className="kspace-brain-drawer" role="dialog" aria-modal="false" aria-label="Personal item inspector">
+        <div className="kspace-brain-drawer-head">
+          <div className="row" style=${{ gap: 8 }}>
+            <span className="kspace-priv-badge">
+              ${drawerBrainObj.kind === 'note'
+                ? 'Private Note'
+                : drawerBrainObj.kind === 'resource'
+                ? `Resource · ${drawerBrainObj.item.kind || 'link'}`
+                : 'Personal Task'}
+            </span>
+            <span className="pl-note-proj">${drawerBrainObj.item.project || 'General'}</span>
+          </div>
+          <button
+            type="button"
+            className="kspace-pop-x"
+            aria-label="Close panel"
+            onClick=${() => setDrawerBrainRef(null)}
+          >
+            <${Ic} n="x" s=${14} />
+          </button>
+        </div>
+
+        <div className="kspace-brain-drawer-body">
+          <h3>${drawerBrainObj.item.title || 'Untitled'}</h3>
+
+          ${drawerBrainObj.kind === 'note' &&
+          html`<div
+            className="pl-note-body"
+            style=${{ maxHeight: 'none' }}
+            onClick=${(e) => {
+              const lk = e.target.closest && e.target.closest('a.datum-wiki-lk');
+              if (lk && lk.dataset.wikiId && onRead) {
+                e.preventDefault();
+                setDrawerBrainRef(null);
+                onRead(Number(lk.dataset.wikiId));
+              }
+            }}
+            dangerouslySetInnerHTML=${{ __html: md(drawerBrainObj.item.body || '', {}, []).h || '<p><i>Empty note</i></p>' }}
+          />`}
+
+          ${drawerBrainObj.kind === 'resource' &&
+          html`<${Fragment}>
+            ${drawerBrainObj.item.url &&
+            html`<a className="pl-res-url" href=${drawerBrainObj.item.url} target="_blank" rel="noopener noreferrer">
+              <${Ic} n="openx" s=${13} />
+              <span>${drawerBrainObj.item.url}</span>
+            </a>`}
+            ${(drawerBrainObj.item.snippet || ((drawerBrainObj.item.kind === 'snippet' || drawerBrainObj.item.kind === 'template') && drawerBrainObj.item.notes)) &&
+            html`<pre className="pl-res-snip" style=${{ maxHeight: '220px' }}>${drawerBrainObj.item.snippet || drawerBrainObj.item.notes}</pre>`}
+            ${drawerBrainObj.item.notes &&
+            drawerBrainObj.item.notes !== drawerBrainObj.item.snippet &&
+            html`<div style=${{ fontSize: 13.5, lineHeight: 1.5, color: 'var(--sub)' }}>${drawerBrainObj.item.notes}</div>`}
+            ${drawerBrainObj.item.linkedItemId &&
+            poolById.get(Number(drawerBrainObj.item.linkedItemId)) &&
+            html`<button
+              type="button"
+              className="pl-doc-lk"
+              onClick=${() => {
+                setDrawerBrainRef(null);
+                onRead && onRead(Number(drawerBrainObj.item.linkedItemId));
+              }}
+            >
+              <${Ic} n="doc" s=${12} />
+              <span>${poolById.get(Number(drawerBrainObj.item.linkedItemId)).title}</span>
+            </button>`}
+          </${Fragment}>`}
+
+          ${drawerBrainObj.kind === 'task' &&
+          html`<${Fragment}>
+            <div className="row" style=${{ gap: 8 }}>
+              ${drawerBrainObj.item.dueDate && html`<span className="pl-due">${drawerBrainObj.item.dueDate}</span>`}
+              ${drawerBrainObj.item.category && html`<span className="pl-note-proj">${drawerBrainObj.item.category}</span>`}
+            </div>
+            ${drawerBrainObj.item.notes &&
+            html`<div style=${{ fontSize: 14, lineHeight: 1.5, color: 'var(--text)', whiteSpace: 'pre-wrap' }}>${drawerBrainObj.item.notes}</div>`}
+            ${drawerBrainObj.item.linkedItemId &&
+            poolById.get(Number(drawerBrainObj.item.linkedItemId)) &&
+            html`<button
+              type="button"
+              className="pl-doc-lk"
+              onClick=${() => {
+                setDrawerBrainRef(null);
+                onRead && onRead(Number(drawerBrainObj.item.linkedItemId));
+              }}
+            >
+              <${Ic} n="doc" s=${12} />
+              <span>${poolById.get(Number(drawerBrainObj.item.linkedItemId)).title}</span>
+            </button>`}
+          </${Fragment}>`}
+        </div>
+
+        <div className="kspace-brain-drawer-foot">
+          ${drawerBrainObj.kind === 'note' &&
+          html`<${Fragment}>
+            <button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onSaveNote && onSaveNote({ ...drawerBrainObj.item, isPinned: !drawerBrainObj.item.isPinned })}
+            >
+              ${drawerBrainObj.item.isPinned ? 'Pinned' : 'Pin'}
+            </button>
+            <button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onOpenBrainSheet && onOpenBrainSheet({ mode: 'note', note: drawerBrainObj.item })}
+            >
+              Edit…
+            </button>
+            ${onSuggestNoteToTeam &&
+            html`<button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onSuggestNoteToTeam(drawerBrainObj.item)}
+            >
+              → Team KB
+            </button>`}
+            <button
+              type="button"
+              className="pl-mv-btn"
+              style=${{ marginLeft: 'auto', color: '#ff453a' }}
+              onClick=${() => {
+                onDeleteNote && onDeleteNote(drawerBrainObj.item.id);
+                setDrawerBrainRef(null);
+              }}
+            >
+              Delete
+            </button>
+          </${Fragment}>`}
+
+          ${drawerBrainObj.kind === 'resource' &&
+          html`<${Fragment}>
+            <button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onSaveResource && onSaveResource({ ...drawerBrainObj.item, isPinned: !drawerBrainObj.item.isPinned })}
+            >
+              ${drawerBrainObj.item.isPinned ? 'Pinned' : 'Pin'}
+            </button>
+            ${(drawerBrainObj.item.snippet || drawerBrainObj.item.notes) &&
+            html`<button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => {
+                const txt = drawerBrainObj.item.snippet || drawerBrainObj.item.notes || drawerBrainObj.item.url || '';
+                if (navigator.clipboard && txt) navigator.clipboard.writeText(txt).catch(() => {});
+                setDrawerCopiedId(drawerBrainObj.item.id);
+                setTimeout(() => setDrawerCopiedId(null), 1500);
+              }}
+            >
+              ${drawerCopiedId === drawerBrainObj.item.id ? 'Copied!' : 'Copy'}
+            </button>`}
+            <button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onOpenBrainSheet && onOpenBrainSheet({ mode: 'resource', resource: drawerBrainObj.item })}
+            >
+              Edit…
+            </button>
+            ${onSuggestResourceToTeam &&
+            html`<button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onSuggestResourceToTeam(drawerBrainObj.item)}
+            >
+              → Team KB
+            </button>`}
+            <button
+              type="button"
+              className="pl-mv-btn"
+              style=${{ marginLeft: 'auto', color: '#ff453a' }}
+              onClick=${() => {
+                onDeleteResource && onDeleteResource(drawerBrainObj.item.id);
+                setDrawerBrainRef(null);
+              }}
+            >
+              Delete
+            </button>
+          </${Fragment}>`}
+
+          ${drawerBrainObj.kind === 'task' &&
+          html`<${Fragment}>
+            <button
+              type="button"
+              className="btn sm p"
+              onClick=${() => {
+                const isD = isDoneStatus(plannerStatuses, drawerBrainObj.item.status);
+                const nextS = isD ? plannerStatuses[0]?.id : (plannerStatuses.find((s) => s.isDone)?.id || 'done');
+                onSaveTask && onSaveTask({ ...drawerBrainObj.item, status: nextS });
+              }}
+            >
+              ${isDoneStatus(plannerStatuses, drawerBrainObj.item.status) ? 'Reopen' : 'Complete'}
+            </button>
+            <button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onOpenBrainSheet && onOpenBrainSheet({ mode: 'task', task: drawerBrainObj.item })}
+            >
+              Edit…
+            </button>
+            <button
+              type="button"
+              className="pl-mv-btn"
+              style=${{ marginLeft: 'auto', color: '#ff453a' }}
+              onClick=${() => {
+                onDeleteTask && onDeleteTask(drawerBrainObj.item.id);
+                setDrawerBrainRef(null);
+              }}
+            >
+              Delete
+            </button>
+          </${Fragment}>`}
+        </div>
+      </aside>
+    </${Fragment}>`}
   </section>`;
 }

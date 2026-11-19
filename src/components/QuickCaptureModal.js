@@ -762,29 +762,16 @@ export function QuickCaptureModal({
           </${Fragment}>`
         : html`<div className="qc-cell">
             ${mode === 'resource' &&
-            html`<${Fragment}>
-              <div className="qc-row">
-                <span className="qc-row-lbl">Type</span>
-                <${Select}
-                  variant="inline"
-                  value=${resKind}
-                  options=${RESOURCE_KINDS}
-                  ariaLabel="Resource type"
-                  onChange=${setResKind}
-                />
-              </div>
-              <div className="qc-row">
-                <span className="qc-row-lbl">Standard</span>
-                <${Select}
-                  variant="inline"
-                  value=${linkedDocId}
-                  options=${docOptions}
-                  ariaLabel="Linked standard"
-                  onChange=${setLinkedDocId}
-                  minMenuWidth=${250}
-                />
-              </div>
-            </${Fragment}>`}
+            html`<div className="qc-row">
+              <span className="qc-row-lbl">Type</span>
+              <${Select}
+                variant="inline"
+                value=${resKind}
+                options=${RESOURCE_KINDS}
+                ariaLabel="Resource type"
+                onChange=${setResKind}
+              />
+            </div>`}
             <div className="qc-row">
               <span className="qc-row-lbl">Pin to top</span>
               <button

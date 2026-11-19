@@ -94,6 +94,10 @@ export function SecondBrainView({
   onStartRevision,
   onOpenDoc,
   onPromoteNoteToDoc,
+  embedded = false,
+  externalQuery = '',
+  externalProject = null,
+  onExternalProjectChange = null,
 }) {
   const todayStr = isoOffset(0);
   const weekEndStr = isoOffset(7);
@@ -113,8 +117,8 @@ export function SecondBrainView({
   );
   const [smartBucket, setSmartBucket] = useState(initialTab === 'today' ? 'today' : '');
   const [layout, setLayout] = useState('list'); // 'list' | 'board'
-  const [projFilter, setProjFilter] = useState('all');
-  const [query, setQuery] = useState('');
+  const [projFilter, setProjFilter] = useState(externalProject || 'all');
+  const [query, setQuery] = useState(externalQuery || '');
   const [mobSearchOpen, setMobSearchOpen] = useState(false);
   const [sortMode, setSortMode] = useState(1); // 0 = manual, 1 = priority, 2 = due date
   const [hideOldDone, setHideOldDone] = useState(false);
@@ -129,6 +133,21 @@ export function SecondBrainView({
   const moreBtnRef = useRef(null);
   const moreMenuRef = useRef(null);
   const searchInpRef = useRef(null);
+
+  useEffect(() => {
+    if (embedded && externalQuery !== undefined) setQuery(externalQuery);
+  }, [embedded, externalQuery]);
+
+  useEffect(() => {
+    if (externalProject !== null && externalProject !== undefined) {
+      setProjFilter(externalProject || 'all');
+    }
+  }, [externalProject]);
+
+  const selectProjFilter = (nextP) => {
+    setProjFilter(nextP);
+    if (onExternalProjectChange) onExternalProjectChange(nextP);
+  };
 
   useEffect(() => {
     if (initialTab === 'focus') setFilterTab('focus');
@@ -723,7 +742,7 @@ export function SecondBrainView({
         ].filter(([k, , cnt]) => cnt > 0 || smartBucket === k)
       : [];
 
-  const hasSecondaryChips = filterTab === 'tasks' || smartChips.length > 0 || activeProjects.length > 1;
+  const hasSecondaryChips = filterTab === 'tasks' || smartChips.length > 0 || (!embedded && activeProjects.length > 1);
   const createMode = filterTab === 'notes' ? 'note' : filterTab === 'resources' ? 'resource' : 'task';
   const createLabel =
     filterTab === 'notes' ? 'New Note' : filterTab === 'resources' ? 'New Resource' : 'New Task';
@@ -768,7 +787,7 @@ export function SecondBrainView({
 
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
-  return html`<div className=${'pl-wrap' + (filterTab === 'tasks' && layout === 'board' ? ' is-wide' : '')}>
+  return html`<div className=${'pl-wrap' + (filterTab === 'tasks' && layout === 'board' ? ' is-wide' : '') + (embedded ? ' is-embedded' : '')}>
     <div className="pl-head">
       <div className="pl-head-l">
         <div className="pl-stats">
@@ -825,7 +844,8 @@ export function SecondBrainView({
           </button>
         </div>`}
 
-        <button
+        ${!embedded &&
+        html`<button
           type="button"
           className=${'pl-ico-btn pl-mob-only' + (mobSearchOpen || query ? ' on' : '')}
           title="Search"
@@ -836,7 +856,7 @@ export function SecondBrainView({
           }}
         >
           <${Ic} n="search" s=${15} />
-        </button>
+        </button>`}
 
         <button
           ref=${moreBtnRef}
@@ -866,9 +886,10 @@ export function SecondBrainView({
       </div>
     </div>
 
-    ${(tasks.length > 0 || notes.length > 0 || resources.length > 0 || mobSearchOpen || query || hasSecondaryChips) &&
+    ${((!embedded && (tasks.length > 0 || notes.length > 0 || resources.length > 0 || mobSearchOpen || query)) || hasSecondaryChips) &&
     html`<div className=${'pl-filterbar' + (mobSearchOpen || query ? ' mob-search-on' : '')}>
-      <div className="pl-search">
+      ${!embedded &&
+      html`<div className="pl-search">
         <${Ic} n="search" s=${14} />
         <input
           ref=${searchInpRef}
@@ -887,7 +908,7 @@ export function SecondBrainView({
         html`<button type="button" className="pl-search-clr" aria-label="Clear search" onClick=${() => setQuery('')}>
           <${Ic} n="x" s=${11} />
         </button>`}
-      </div>
+      </div>`}
 
       ${hasSecondaryChips &&
       html`<div className="pl-chips-row">
@@ -901,13 +922,13 @@ export function SecondBrainView({
             ([stK, stLbl]) => html`<button
               key=${'ts-' + stK}
               type="button"
-              className=${'pl-chip' + (taskState === stK ? ' on' : '')}
+              className=${'pl-chip is-sub' + (taskState === stK ? ' on' : '')}
               onClick=${() => setTaskState(stK)}
             >
               ${stLbl}
             </button>`
           )}
-          ${(smartChips.length > 0 || activeProjects.length > 1) && html`<i className="pl-chip-sep" aria-hidden="true" />`}
+          ${(smartChips.length > 0 || (!embedded && activeProjects.length > 1)) && html`<i className="pl-chip-sep" aria-hidden="true" />`}
         </${Fragment}>`}
 
         ${smartChips.map(
@@ -922,14 +943,15 @@ export function SecondBrainView({
           </button>`
         )}
 
-        ${smartChips.length > 0 && activeProjects.length > 1 && html`<i className="pl-chip-sep" aria-hidden="true" />`}
+        ${smartChips.length > 0 && !embedded && activeProjects.length > 1 && html`<i className="pl-chip-sep" aria-hidden="true" />`}
 
-        ${activeProjects.length > 1 &&
+        ${!embedded &&
+        activeProjects.length > 1 &&
         html`<${Fragment}>
           <button
             type="button"
             className=${'pl-chip' + (projFilter === 'all' ? ' on' : '')}
-            onClick=${() => setProjFilter('all')}
+            onClick=${() => selectProjFilter('all')}
           >
             All projects
           </button>
@@ -938,7 +960,7 @@ export function SecondBrainView({
               key=${'pr-' + pr}
               type="button"
               className=${'pl-chip' + (projFilter === pr ? ' on' : '')}
-              onClick=${() => setProjFilter((prev) => (prev === pr ? 'all' : pr))}
+              onClick=${() => selectProjFilter(projFilter === pr ? 'all' : pr)}
             >
               ${pr}
             </button>`
@@ -1514,14 +1536,15 @@ export function SecondBrainView({
           </button>
         </div>`}
 
-    <button
+    ${!embedded &&
+    html`<button
       type="button"
       className="pl-fab pl-mob-only"
       aria-label=${createLabel}
       onClick=${openCreateModal}
     >
       <${Ic} n="plus" s=${24} />
-    </button>
+    </button>`}
 
     ${portalRoot &&
     shareTarget &&

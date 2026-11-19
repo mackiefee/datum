@@ -17,6 +17,9 @@
 .pl-wrap.is-wide {
   max-width: 1080px;
 }
+.pl-wrap.is-embedded {
+  padding: 6px 0 120px;
+}
 
 /* Override base.css `.seg { margin-top: 22px }` strictly inside Planner/Sheets */
 .pl-wrap .seg,
@@ -187,6 +190,23 @@
 }
 .pl-chip:hover { background: var(--fill2); color: var(--text); }
 .pl-chip.on { background: var(--blue); color: #fff; font-weight: 600; }
+.pl-chip.is-sub {
+  height: 24px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  background: transparent;
+  color: var(--sub);
+}
+.pl-chip.is-sub:hover {
+  background: color-mix(in srgb, var(--fill) 75%, transparent);
+  color: var(--text);
+}
+.pl-chip.is-sub.on {
+  background: var(--fill);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
 .pl-chip.od b { color: #ff453a; }
 .pl-chip.on.od { background: #ff3b30; color: #fff; }
 .pl-chip.on b { color: rgba(255, 255, 255, .92); }
@@ -1129,9 +1149,29 @@
   text-align: left;
   transition: border-color .15s, background .15s;
 }
+:root[data-theme="dark"] .pl-pin-card {
+  background: transparent;
+  border-color: rgba(255, 255, 255, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pl-pin-card {
+    background: transparent;
+    border-color: rgba(255, 255, 255, .14);
+  }
+}
 .pl-pin-card:hover {
   border-color: color-mix(in srgb, var(--blue) 45%, var(--line));
   background: color-mix(in srgb, var(--surface) 92%, var(--blue));
+}
+:root[data-theme="dark"] .pl-pin-card:hover {
+  background: rgba(255, 255, 255, .04);
+  border-color: color-mix(in srgb, var(--blue) 48%, rgba(255, 255, 255, .18));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pl-pin-card:hover {
+    background: rgba(255, 255, 255, .04);
+    border-color: color-mix(in srgb, var(--blue) 48%, rgba(255, 255, 255, .18));
+  }
 }
 .pl-pin-top {
   display: flex;
@@ -1225,6 +1265,16 @@
   background: var(--surface);
   transition: border-color .15s, box-shadow .15s;
 }
+:root[data-theme="dark"] .pl-res-card {
+  background: transparent;
+  border-color: rgba(255, 255, 255, .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pl-res-card {
+    background: transparent;
+    border-color: rgba(255, 255, 255, .14);
+  }
+}
 .pl-res-card.pin { border-color: color-mix(in srgb, var(--blue) 45%, var(--line)); }
 .pl-res-card:hover { border-color: color-mix(in srgb, var(--text) 20%, var(--line)); }
 .pl-res-url {
@@ -1243,7 +1293,7 @@
   margin: 0;
   padding: 8px 10px;
   border-radius: 10px;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--fill) 55%, transparent);
   border: 1px solid var(--line);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
@@ -1253,6 +1303,16 @@
   word-break: break-word;
   max-height: 92px;
   overflow: auto;
+}
+:root[data-theme="dark"] .pl-res-snip {
+  background: rgba(255, 255, 255, .035);
+  border-color: rgba(255, 255, 255, .1);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pl-res-snip {
+    background: rgba(255, 255, 255, .035);
+    border-color: rgba(255, 255, 255, .1);
+  }
 }
 .pl-res-shared-tag {
   font-size: 11px;

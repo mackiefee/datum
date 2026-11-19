@@ -466,6 +466,7 @@ export function ViewModeSwitch({
   viewMode = "space",
   stageOpen = true,
   visibleColsCount = 0,
+  showTasks = false,
   onSelectMode,
   className = "",
 }) {
@@ -473,6 +474,7 @@ export function ViewModeSwitch({
     ["space", "globe", "Space"],
     ["grid", "layout", "Grid"],
     ["graph", "graph", "Graph"],
+    ...(showTasks ? [["tasks", "check", "Tasks"]] : []),
     ["kits", "folder", visibleColsCount ? `Kits (${visibleColsCount})` : "Kits"],
   ];
 
