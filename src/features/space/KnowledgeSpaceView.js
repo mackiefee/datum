@@ -482,6 +482,7 @@ export function KnowledgeSpaceView({
     const extractTeamSnippet = (r) => {
       if (!r) return '';
       if (r.snippet && String(r.snippet).trim()) return String(r.snippet);
+      if (!['script', 'service'].includes(r.type)) return '';
       const str = String(r.body || '');
       const openIdx = str.indexOf('```');
       if (openIdx !== -1) {
@@ -541,6 +542,8 @@ export function KnowledgeSpaceView({
             ? 'tool'
             : r.type === 'template'
             ? 'template'
+            : r.type === 'media'
+            ? 'media'
             : 'link';
         out.push({
           id: `team:${r.id}`,
@@ -589,11 +592,13 @@ export function KnowledgeSpaceView({
       }
 
       if (scriptKindFilter === 'scripts') {
-        if (!['script', 'snippet', 'tool'].includes(entry.kind) && !entry.snippet) return false;
+        if (!['script', 'snippet', 'tool'].includes(entry.kind)) return false;
       } else if (scriptKindFilter === 'links') {
-        if (entry.kind !== 'link' && !entry.url) return false;
+        if (entry.kind !== 'link') return false;
       } else if (scriptKindFilter === 'templates') {
         if (entry.kind !== 'template') return false;
+      } else if (scriptKindFilter === 'media') {
+        if (entry.kind !== 'media') return false;
       } else if (scriptKindFilter === 'pinned') {
         if (!entry.isPinned) return false;
       }
@@ -607,6 +612,17 @@ export function KnowledgeSpaceView({
       return true;
     });
   }, [unifiedScriptLinks, projectFilter, scriptKindFilter, spaceQuery]);
+
+  const hasMediaScripts = useMemo(
+    () => unifiedScriptLinks.some((e) => e.kind === 'media'),
+    [unifiedScriptLinks]
+  );
+
+  useEffect(() => {
+    if (scriptKindFilter === 'media' && !hasMediaScripts) {
+      setScriptKindFilter('all');
+    }
+  }, [scriptKindFilter, hasMediaScripts]);
 
   const ensureStageOpen = () => {
     if (!stageOpen && onStageOpenChange) onStageOpenChange(true);
@@ -2916,7 +2932,7 @@ export function KnowledgeSpaceView({
         </div>`
       : isScriptsView
       ? html`<div key="kspace-scripts-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
-          <div className="pl-wrap is-embedded">
+          <div className="pl-wrap is-embedded is-scripts">
             <div className="pl-head">
               <div className="pl-head-l">
                 <div className="pl-stats">
@@ -2937,6 +2953,7 @@ export function KnowledgeSpaceView({
                     ['scripts', 'Scripts'],
                     ['links', 'Links'],
                     ['templates', 'Templates'],
+                    ...(hasMediaScripts ? [['media', 'Media']] : []),
                     ['pinned', 'Pinned'],
                   ].map(
                     ([fk, flbl]) => html`<button
@@ -3037,15 +3054,17 @@ export function KnowledgeSpaceView({
                     return html`<div className="pl-card">${visibleScriptLinks.map(renderEntry)}</div>`;
                   }
 
-                  const scriptGroup = visibleScriptLinks.filter(
-                    (e) => ['script', 'snippet', 'tool'].includes(e.kind) || Boolean(e.snippet)
+                  const scriptGroup = visibleScriptLinks.filter((e) =>
+                    ['script', 'snippet', 'tool'].includes(e.kind)
                   );
-                  const linkGroup = visibleScriptLinks.filter(
-                    (e) => !['script', 'snippet', 'tool'].includes(e.kind) && !e.snippet
+                  const linkGroup = visibleScriptLinks.filter((e) =>
+                    ['link', 'template'].includes(e.kind)
                   );
+                  const mediaGroup = visibleScriptLinks.filter((e) => e.kind === 'media');
                   const sections = [
                     ['Scripts & Tools', scriptGroup],
                     ['Links & Templates', linkGroup],
+                    ['Media Assets', mediaGroup],
                   ].filter(([, list]) => list.length > 0);
 
                   return sections.map(
@@ -4592,6 +4611,18 @@ export function KnowledgeSpaceView({
                   <${Ic} n="check" s=${12} />
                   <span>${todayTaskCount > 0 ? `Today (${todayTaskCount})` : openTasksCount > 0 ? `Tasks (${openTasksCount})` : 'Tasks'}</span>
                 </button>`}
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('scripts');
+                  }}
+                  title="Open Scripts & Links"
+                >
+                  <${Ic} n="code" s=${12} />
+                  <span>Scripts</span>
+                </button>
               </${Fragment}>`
             : html`<${Fragment}>
                 ${!isGuest &&

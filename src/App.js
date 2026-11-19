@@ -884,7 +884,7 @@ export function App() {
 
   const autoSaveItem = (id, patch, options = {}) => {
     if (!id || !patch) return;
-    const prev = res.find((x) => x.id === id);
+    const prev = resRef.current.find((x) => x.id === id) || res.find((x) => x.id === id);
     upd(id, (r) => ({
       ...r,
       ...patch,
@@ -894,6 +894,17 @@ export function App() {
     if (!options.silent && patch.status && prev && prev.status !== patch.status) {
       push(`Status of “${prev.title || "Untitled"}” → ${(ST[patch.status] && ST[patch.status][0]) || patch.status}`, id);
       logAct("Status Changed", "item", id, prev.title || "Untitled", patch.status);
+    }
+    if (!options.silent && patch.type && prev && prev.type !== patch.type) {
+      const typeLabel = TY[patch.type] || patch.type;
+      const movedHint =
+        isResType(prev.type) && isDocType(patch.type)
+          ? " · moved to Library Docs"
+          : isDocType(prev.type) && isResType(patch.type)
+          ? " · added to Scripts & Links"
+          : "";
+      push(`Type of “${prev.title || "Untitled"}” → ${typeLabel}${movedHint}`, id);
+      logAct("Type Changed", "item", id, prev.title || "Untitled", typeLabel);
     }
   };
 

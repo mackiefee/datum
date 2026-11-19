@@ -90,6 +90,8 @@ export function ScriptLinkRow({
       ? 'service'
       : entry.kind === 'template'
       ? 'template'
+      : entry.kind === 'media'
+      ? 'media'
       : 'link';
   const icoColor =
     entry.kind === 'script' || entry.kind === 'snippet'
@@ -98,7 +100,19 @@ export function ScriptLinkRow({
       ? '#ff9f0a'
       : entry.kind === 'template'
       ? '#30d158'
+      : entry.kind === 'media'
+      ? '#ff375f'
       : '#0a84ff';
+  const kindLabel =
+    entry.kind === 'script' || entry.kind === 'snippet'
+      ? 'Script'
+      : entry.kind === 'tool'
+      ? 'Tool'
+      : entry.kind === 'template'
+      ? 'Template'
+      : entry.kind === 'media'
+      ? 'Media'
+      : 'Link';
 
   const firstCodeLine = entry.snippet
     ? (String(entry.snippet)
@@ -114,7 +128,7 @@ export function ScriptLinkRow({
       className=${'pl-sl-row' + (entry.snippet ? ' has-code' : '')}
       onClick=${entry.snippet ? onToggleExpand : undefined}
     >
-      <span className="pl-sl-ico" style=${{ '--ic': icoColor }} aria-hidden="true">
+      <span className="pl-sl-ico" style=${{ '--ic': icoColor }} title=${kindLabel} aria-hidden="true">
         <${Ic} n=${icoName} s=${14} />
       </span>
 
@@ -166,6 +180,7 @@ export function ScriptLinkRow({
       </div>
 
       <div className="pl-meta pl-sl-meta" onClick=${(e) => e.stopPropagation()}>
+        <span className="pl-sl-kind">${kindLabel}</span>
         ${entry.source === 'team'
           ? html`<span className="pl-sl-badge is-team">
               Team${entry.project && entry.project !== 'General' ? ` · ${entry.project}` : ''}
@@ -241,6 +256,7 @@ export function ScriptLinkRow({
 
           ${onOpenStandard &&
           entry.source === 'team' &&
+          (entry.snippet || entry.url) &&
           html`<button
             type="button"
             className="pl-sl-ibtn"

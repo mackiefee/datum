@@ -1325,6 +1325,9 @@
 }
 
 /* Compact Linear / Apple Inset-Hairline Script & Link Rows */
+.pl-wrap.is-embedded.is-scripts {
+  max-width: 860px;
+}
 .pl-sl-item {
   position: relative;
   transition: background .12s;
@@ -1411,6 +1414,16 @@
   border-color: var(--blue);
   color: var(--text);
 }
+.pl-sl-kind {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: var(--sub);
+  background: color-mix(in srgb, var(--fill) 85%, transparent);
+  white-space: nowrap;
+  flex: none;
+}
 .pl-sl-badge {
   font-size: 11px;
   font-weight: 550;
@@ -1435,7 +1448,7 @@
 }
 @media (hover: hover) {
   .pl-sl-item:not(:hover):not(:focus-within) .pl-sl-ibtn:not(.on) {
-    display: none;
+    opacity: 0.4;
   }
 }
 .pl-sl-ibtn {
@@ -1445,7 +1458,7 @@
   display: inline-grid;
   place-items: center;
   color: var(--sub);
-  transition: background .12s, color .12s;
+  transition: opacity .14s, background .12s, color .12s;
 }
 .pl-sl-ibtn:hover {
   background: var(--fill2);
@@ -1520,7 +1533,7 @@
   .pl-sl-row { align-items: flex-start; flex-wrap: wrap; gap: 8px 10px; padding: 9px 11px; }
   .pl-sl-meta { width: 100%; padding-left: 38px; justify-content: flex-start; flex-wrap: wrap; }
   .pl-sl-acts { opacity: 1; margin-left: auto; }
-  .pl-sl-item:not(:hover):not(:focus-within) .pl-sl-ibtn:not(.on) { display: inline-grid; }
+  .pl-sl-item:not(:hover):not(:focus-within) .pl-sl-ibtn:not(.on) { opacity: 1; }
   .pl-sl-drawer { padding: 0 11px 10px; }
   .pl-ico-btn { width: 32px; height: 32px; }
   .pl-filterbar { flex-direction: column; align-items: stretch; gap: 8px; }

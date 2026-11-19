@@ -310,7 +310,7 @@ export async function POST(req) {
         return jsonResp({ error: 'Valid item payload required' }, 400);
       }
       const itemId = Number(item.id);
-      const isSharedResource = ['script', 'link', 'service', 'template'].includes(item.type);
+      const isSharedResource = ['script', 'link', 'service', 'template', 'media'].includes(item.type);
       const isSuggest =
         !isSharedResource && (body.mode === 'suggest' || auth.caller.role === 'member');
       if (!isSharedResource && !isEditorOrAbove(auth.caller.role) && body.mode !== 'suggest') {
@@ -404,7 +404,7 @@ export async function POST(req) {
         const cur = Array.isArray(curRows) && curRows[0];
         const isAuthorSharedRes =
           cur &&
-          ['script', 'link', 'service', 'template'].includes(cur.data?.type) &&
+          ['script', 'link', 'service', 'template', 'media'].includes(cur.data?.type) &&
           (cur.data?.authorEmail === auth.caller.email || cur.data?.author === auth.caller.name);
         if (!cur || (!isAuthorSharedRes && (cur.status !== 'Draft' || cur.data?.author !== auth.caller.name))) {
           return jsonResp({ error: 'Only Admins or authors can delete' }, 403);
