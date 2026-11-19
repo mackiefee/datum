@@ -71,10 +71,17 @@ export function normalizePlannerPrefs(raw, existingTasks = []) {
     if (p) projSet.add(p);
   });
 
+  const readNotifIds = Array.isArray(src.readNotifIds)
+    ? [...new Set(src.readNotifIds.map((x) => String(x || '').trim()).filter(Boolean))].slice(0, 200)
+    : [];
+  const notifsClearedAt = Number.isFinite(Number(src.notifsClearedAt)) ? Number(src.notifsClearedAt) : 0;
+
   return {
     statuses,
     categories: [...catSet],
     projects: [...projSet],
+    readNotifIds,
+    notifsClearedAt,
   };
 }
 

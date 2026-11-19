@@ -175,7 +175,14 @@ function StudPicker({ label, value, onChange, excludeCodes = [] }) {
   </div>`;
 }
 
-export function NamingStudioView({ initialTypeName = '', revitCtx = null, onReadDoc, onToast }) {
+export function NamingStudioView({
+  initialTypeName = '',
+  revitCtx = null,
+  customSchemas: externalSchemas,
+  onChangeCustomSchemas,
+  onReadDoc,
+  onToast,
+}) {
   const [mode, setMode] = useState('builder');
   const [state, setState] = useState(() => ({ ...DEFAULT_WALL_STATE }));
 
@@ -189,20 +196,23 @@ export function NamingStudioView({ initialTypeName = '', revitCtx = null, onRead
   const [sheetTab, setSheetTab] = useState('codes');
   const [refQuery, setRefQuery] = useState('');
 
-  const [customSchemas, setCustomSchemas] = useState(() => {
+  const [localSchemas, setLocalSchemas] = useState(() => {
     const saved = ls.get(STORAGE_SCHEMAS_KEY);
     return Array.isArray(saved) ? saved : [];
   });
+  const customSchemas = Array.isArray(externalSchemas) ? externalSchemas : localSchemas;
+  const setCustomSchemas = (updater) => {
+    const next = typeof updater === 'function' ? updater(customSchemas) : updater;
+    ls.set(STORAGE_SCHEMAS_KEY, next);
+    if (onChangeCustomSchemas) onChangeCustomSchemas(next);
+    else setLocalSchemas(next);
+  };
   const [activeSchemaId, setActiveSchemaId] = useState('walls-soffits');
   const [csvDraft, setCsvDraft] = useState('');
   const [csvPreview, setCsvPreview] = useState(null);
 
   const batchFileRef = useRef(null);
   const csvSchemaRef = useRef(null);
-
-  useEffect(() => {
-    ls.set(STORAGE_SCHEMAS_KEY, customSchemas);
-  }, [customSchemas]);
 
   useEffect(() => {
     if (!initialTypeName || !String(initialTypeName).trim()) return;

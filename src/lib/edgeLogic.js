@@ -123,7 +123,7 @@ export function runAiEdgeLogic(payload) {
     targetDocId = null,
     scope = "all",
     history = [],
-    today = "2026-10-22",
+    today = new Date().toISOString().slice(0, 10),
     clientDate = "",
   } = payload || {};
 

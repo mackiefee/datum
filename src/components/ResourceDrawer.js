@@ -620,21 +620,6 @@ export function Drawer(p) {
                 <span className="insp-act-lbl">Save Version Snapshot</span>
               </button>`}
 
-              ${bridge &&
-              canEditItem &&
-              html`<button
-                type="button"
-                className="insp-act"
-                onClick=${() => {
-                  bridge.toggleSim();
-                  nudgeBridge();
-                }}
-              >
-                <span className="insp-act-ico"><${Ic} n="users" s=${15} /></span>
-                <span className="insp-act-lbl">${bridge.simOn ? "Stop Co-Editor Simulation" : "Simulate Co-Editor"}</span>
-                ${bridge.simOn && html`<span className="insp-act-badge live">Live</span>`}
-              </button>`}
-
               ${r.vis === "Public" &&
               r.status === "Approved" &&
               p.onOpenPublic &&

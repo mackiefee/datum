@@ -54,15 +54,52 @@ async function resolveRole(req) {
   };
 }
 
+function getSupabaseConfig() {
+  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
+  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
+  const anonKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
+  const key = serviceKey || anonKey;
+  if (!url || !key) return null;
+  const headers = { 'Content-Type': 'application/json', apikey: key };
+  if (key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`;
+  return { url, headers };
+}
+
+async function fetchLiveStandards(role) {
+  const cfg = getSupabaseConfig();
+  if (!cfg) return null;
+  try {
+    const query =
+      role === 'Guest'
+        ? `${cfg.url}/rest/v1/shared_catalog_items?status=eq.Approved&vis=eq.Public&select=id,data,status,vis&order=id.desc`
+        : `${cfg.url}/rest/v1/shared_catalog_items?status=neq.Deleted&select=id,data,status,vis&order=id.desc`;
+    const res = await fetch(query, { headers: cfg.headers, cache: 'no-store' });
+    if (!res.ok) return null;
+    const rows = await res.json();
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows.map((row) => ({
+      ...(row.data || {}),
+      id: row.id,
+      status: row.status || (row.data && row.data.status) || 'Draft',
+      vis: row.vis || (row.data && row.data.vis) || 'Internal',
+    }));
+  } catch {
+    return null;
+  }
+}
+
 function filterByRole(items, role) {
   return items.filter((r) => {
-    if (r.st === 'Draft' && !['Admin', 'SuperAdmin', 'Editor'].includes(role)) return false;
-    if (role === 'Guest' && r.vis !== 'Public') return false;
+    const st = r.status || r.st || 'Approved';
+    const vis = r.vis || 'Internal';
+    if (st === 'Deleted') return false;
+    if (st !== 'Approved' && !['Admin', 'SuperAdmin', 'Editor'].includes(role)) return false;
+    if (role === 'Guest' && (vis !== 'Public' || st !== 'Approved')) return false;
     return true;
   });
 }
 
-function runLookup({ category = '', family = '', typeName = '', params = {}, query = '' }, role) {
+async function runLookup({ category = '', family = '', typeName = '', params = {}, query = '' }, role) {
   const paramStr =
     params && typeof params === 'object'
       ? Object.entries(params)
@@ -75,14 +112,18 @@ function runLookup({ category = '', family = '', typeName = '', params = {}, que
   const catKey = String(category || '').trim().toLowerCase();
   const catBoosts = CATEGORY_BOOSTS[catKey] || [];
 
-  const visible = filterByRole(SEED, role);
+  const liveItems = await fetchLiveStandards(role);
+  const sourceList = liveItems && liveItems.length > 0 ? liveItems : SEED;
+  const visible = filterByRole(sourceList, role);
 
   const scored = visible
     .map((doc) => {
       const titleLow = String(doc.title || '').toLowerCase();
-      const sumLow = String(doc.sum || '').toLowerCase();
+      const sumStr = doc.desc || doc.sum || '';
+      const sumLow = String(sumStr).toLowerCase();
       const tagsLow = (doc.tags || []).join(' ').toLowerCase();
       const bodyLow = String(doc.body || '').toLowerCase();
+      const st = doc.status || doc.st || 'Approved';
 
       let score = 0;
       for (const t of tokens) {
@@ -94,7 +135,7 @@ function runLookup({ category = '', family = '', typeName = '', params = {}, que
       for (const b of catBoosts) {
         if (titleLow.includes(b) || tagsLow.includes(b)) score += 4;
       }
-      if (!rawText && doc.st === 'Approved') score += 1;
+      if (!rawText && st === 'Approved') score += 1;
 
       return { doc, score };
     })
@@ -105,13 +146,13 @@ function runLookup({ category = '', family = '', typeName = '', params = {}, que
       id: doc.id,
       title: doc.title,
       disc: doc.disc || 'BIM',
-      status: doc.st || 'Approved',
+      status: doc.status || doc.st || 'Approved',
       vis: doc.vis || 'Internal',
-      summary: doc.sum || '',
+      summary: doc.desc || doc.sum || '',
       keyRules: extractKeyRules(doc.body),
       image: extractFirstImage(doc.body),
       score,
-      url: `/?read=${doc.id}`,
+      url: `/?doc=${doc.id}`,
     }));
 
   const matchedAsm = matchAssemblyForRevit({ category, family, typeName, query });
@@ -136,6 +177,7 @@ function runLookup({ category = '', family = '', typeName = '', params = {}, que
 
   return {
     ok: true,
+    source: liveItems && liveItems.length > 0 ? 'supabase' : 'seed',
     role,
     context: { category, family, typeName, query },
     revitType,
@@ -157,7 +199,7 @@ export async function POST(req) {
   try {
     const body = await req.json();
     const { role, user } = await resolveRole(req);
-    const result = runLookup(body || {}, role);
+    const result = await runLookup(body || {}, role);
     return new Response(JSON.stringify({ ...result, user }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
@@ -173,7 +215,7 @@ export async function POST(req) {
 export async function GET(req) {
   const url = new URL(req.url);
   const { role, user } = await resolveRole(req);
-  const result = runLookup(
+  const result = await runLookup(
     {
       category: url.searchParams.get('category') || '',
       family: url.searchParams.get('family') || '',

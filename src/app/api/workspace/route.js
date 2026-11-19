@@ -210,14 +210,23 @@ export async function GET(req) {
     const anyRows = anyCheck.ok ? await anyCheck.json() : [];
     const needsSeed = Array.isArray(anyRows) && anyRows.length === 0;
 
+    const cleanActivities = Array.isArray(meta.activities)
+      ? meta.activities.filter((a) => a && !['act-1', 'act-2', 'act-3', 'act-4'].includes(String(a.id)))
+      : null;
+
     return jsonResp({
       configured: true,
       needsSeed,
       items,
       collections,
       tree: Array.isArray(meta.categories_tree) ? meta.categories_tree : null,
-      activities: Array.isArray(meta.activities) ? meta.activities : null,
+      activities: cleanActivities,
       requiredIds: Array.isArray(meta.required_ids) ? meta.required_ids : null,
+      flaggedIds: Array.isArray(meta.flagged_ids) ? meta.flagged_ids : null,
+      searchLogs: Array.isArray(meta.search_logs) ? meta.search_logs : null,
+      shares: Array.isArray(meta.direct_shares) ? meta.direct_shares : null,
+      namingSchemas: Array.isArray(meta.naming_schemas) ? meta.naming_schemas : null,
+      teamAcks: meta.team_acks && typeof meta.team_acks === 'object' ? meta.team_acks : null,
     });
   } catch (err) {
     return jsonResp({ error: err.message || 'Workspace load failed' }, 500);
@@ -461,12 +470,14 @@ export async function POST(req) {
     }
 
     if (action === 'meta_sync') {
-      if (!isEditorOrAbove(auth.caller.role) && body.key !== 'activities') {
-        return jsonResp({ error: 'Editor or Admin privileges required' }, 403);
-      }
       const key = String(body.key || '').trim();
-      if (!['categories_tree', 'activities', 'required_ids'].includes(key)) {
+      const memberAllowedKeys = ['activities', 'flagged_ids', 'search_logs', 'team_acks'];
+      const editorAllowedKeys = ['categories_tree', 'required_ids', 'direct_shares', 'naming_schemas'];
+      if (!memberAllowedKeys.includes(key) && !editorAllowedKeys.includes(key)) {
         return jsonResp({ error: 'Invalid metadata key' }, 400);
+      }
+      if (editorAllowedKeys.includes(key) && !isEditorOrAbove(auth.caller.role)) {
+        return jsonResp({ error: 'Editor or Admin privileges required' }, 403);
       }
       await fetch(`${admin.url}/rest/v1/shared_workspace_meta?on_conflict=key`, {
         method: 'POST',

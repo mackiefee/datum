@@ -1540,11 +1540,7 @@ Every Interior Wall and Soffit Revit type follows strict bottom-to-top / exterio
   }),
 ];
 
-export const NOTES = [
-  { id: "a", text: "Elena Khlivetskaya flagged Actual Interior Walls Doc on #102", rid: 102, t: "2 h ago", un: 1 },
-  { id: "b", text: "Maxim added Common Mistakes Parts 1 & 2 to QA Protocol", rid: 126, t: "yesterday", un: 1 },
-  { id: "c", text: "Andrii Lytvynov updated Planit Tools 3D Room Tags guide for Revit 2026", rid: 114, t: "3 days ago", un: 0 },
-];
+export const NOTES = [];
 
 export const SEED_COLLECTIONS = [
   {
@@ -1614,12 +1610,7 @@ export const SEED_COLLECTIONS = [
   },
 ];
 
-export const SEED_ACTIVITIES = [
-  { id: "act-1", actor: "Maxim", action: "Published", targetType: "document", targetId: "133", targetTitle: "C1010.10.06 — CMU Walls, Lintels, Reinforcing & Pre-Pour", note: "Integrated C1010 Interior Partitions.docx (v2 UPD 05/21/2026) into Interior", at: "2026-10-22" },
-  { id: "act-2", actor: "Elena Khlivetskaya", action: "Verified", targetType: "document", targetId: "102", targetTitle: "Actual Interior Standards & P&C Google Docs Hub", note: "Added P&C NF Standard, CMU Sec. 2.4.2 & Concrete Tolerance links", at: "2026-10-21" },
-  { id: "act-3", actor: "Andrii Lytvynov", action: "Published", targetType: "document", targetId: "136", targetTitle: "C1010 3D Coordination Views (L## - A), Parts & QA", note: "Added mandatory Create Parts workflow & Wood/Metal Redmine QA checklists", at: "2026-10-20" },
-  { id: "act-4", actor: "Iryna P.", action: "Published", targetType: "document", targetId: "131", targetTitle: "CL-RFI L##.4, Studs/Backing Layout & Parking Control", note: "Linked Parking Control Google Doc & RCP device sync rules", at: "2026-10-20" },
-];
+export const SEED_ACTIVITIES = [];
 
 export const DEFAULT_URLS = {
   Redmine: "https://www.redmine.org",

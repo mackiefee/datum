@@ -41,6 +41,12 @@ function sanitizePlannerPrefs(p) {
   if (Array.isArray(p.projects)) {
     out.projects = [...new Set(p.projects.map((x) => String(x || '').trim().slice(0, 80)).filter(Boolean))].slice(0, 60);
   }
+  if (Array.isArray(p.readNotifIds)) {
+    out.readNotifIds = [...new Set(p.readNotifIds.map((x) => String(x || '').trim().slice(0, 120)).filter(Boolean))].slice(0, 200);
+  }
+  if (Number.isFinite(Number(p.notifsClearedAt))) {
+    out.notifsClearedAt = Number(p.notifsClearedAt);
+  }
   return out;
 }
 

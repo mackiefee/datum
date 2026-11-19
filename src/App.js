@@ -3,7 +3,7 @@
 import { html, Fragment, useState, useMemo, useEffect, useRef } from './lib/react.js';
 import { TODAY, KB, ST, TY, STG, DISC, DC, RD, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
-import { IMG0, GUIDE, SEED, NOTES, USERS, SEED_TEAMS, SEED_COLLECTIONS, SEED_ACTIVITIES } from './data/seed.js';
+import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS, SEED_COLLECTIONS } from './data/seed.js';
 import { db } from './lib/db.js';
 import { edgeClient } from './lib/edgeClient.js';
 import {
@@ -14,7 +14,7 @@ import {
   signOutAuth,
   makeGooglePhotoFallback,
 } from './lib/auth.js';
-import { fmt, pl } from './utils/format.js';
+import { fmt, pl, relTime } from './utils/format.js';
 import { hay, scoreDocument, tokenizeUnique } from './utils/search.js';
 import {
   loadChats,
@@ -93,13 +93,21 @@ export function App() {
   const [catModal, setCatModal] = useState(null);
   const [cols, setCols] = useState(() => db.load("kb2-cols", null) || SEED_COLLECTIONS);
   const [shares, setShares] = useState(() => db.load("kb2-shares", null) || []);
-  const [activities, setActivities] = useState(() => db.load("kb2-acts", null) || SEED_ACTIVITIES);
+  const [activities, setActivities] = useState(() => {
+    const saved = db.load("kb2-acts", null);
+    if (!Array.isArray(saved)) return [];
+    return saved.filter((a) => a && !["act-1", "act-2", "act-3", "act-4"].includes(String(a.id)));
+  });
   const [searchLogs, setSearchLogs] = useState(() => db.load("kb2-slogs", null) || []);
   const [flaggedIds, setFlaggedIds] = useState(() => db.load("kb2-flags", null) || []);
+  const [namingSchemas, setNamingSchemas] = useState(() => {
+    const saved = db.load("datum-naming-custom-schemas-v1", null);
+    return Array.isArray(saved) ? saved : [];
+  });
+  const [teamAcks, setTeamAcks] = useState(() => db.load("kb2-team-acks", null) || {});
   const [pinned, setPinned] = useState(() => db.load("kb2-pins", null) || [100, 113, 129, 132]);
 
   const [favs, setFavs] = useState(() => db.load("kb2-fav", null) || [102, 118, 123]);
-  const [notes, setNotes] = useState(() => db.load("kb2-notes", null) || NOTES);
 
   const [view, setView] = useState("kb");
   const [assemblyId, setAssemblyId] = useState(null);
@@ -243,7 +251,8 @@ export function App() {
   useEffect(() => { db.save("kb2-flags", flaggedIds); }, [flaggedIds]);
   useEffect(() => { db.save("kb2-pins", pinned); }, [pinned]);
   useEffect(() => { db.save("kb2-fav", favs); }, [favs]);
-  useEffect(() => { db.save("kb2-notes", notes); }, [notes]);
+  useEffect(() => { db.save("datum-naming-custom-schemas-v1", namingSchemas); }, [namingSchemas]);
+  useEffect(() => { db.save("kb2-team-acks", teamAcks); }, [teamAcks]);
   useEffect(() => { db.save("kb2-ack", acks); }, [acks]);
   useEffect(() => { db.save("kb2-req", req); }, [req]);
   useEffect(() => { db.save("kb2-hist", hist); }, [hist]);
@@ -431,7 +440,16 @@ export function App() {
   const resRef = useRef(res);
   resRef.current = res;
   const workspaceHydratedRef = useRef(false);
-  const lastMetaSyncRef = useRef({ tree: "", activities: "", req: "" });
+  const lastMetaSyncRef = useRef({
+    tree: "",
+    activities: "",
+    req: "",
+    flaggedIds: "",
+    searchLogs: "",
+    shares: "",
+    namingSchemas: "",
+    teamAcks: "",
+  });
 
   const refreshWorkspace = async (emailOverride = "") => {
     const callerEmail = (emailOverride || sessionEmail || "").trim().toLowerCase();
@@ -445,7 +463,7 @@ export function App() {
               items: [GUIDE, ...SEED],
               collections: SEED_COLLECTIONS,
               tree: TREE,
-              activities: SEED_ACTIVITIES,
+              activities: [],
               requiredIds: req,
             },
             callerEmail
@@ -468,12 +486,35 @@ export function App() {
         lastMetaSyncRef.current.tree = JSON.stringify(snap.tree);
       }
       if (Array.isArray(snap.activities)) {
-        setActivities(snap.activities);
-        lastMetaSyncRef.current.activities = JSON.stringify(snap.activities);
+        const cleanActs = snap.activities.filter((a) => a && !["act-1", "act-2", "act-3", "act-4"].includes(String(a.id)));
+        setActivities(cleanActs);
+        lastMetaSyncRef.current.activities = JSON.stringify(cleanActs);
       }
       if (Array.isArray(snap.requiredIds)) {
         setReq(snap.requiredIds);
         lastMetaSyncRef.current.req = JSON.stringify(snap.requiredIds);
+      }
+      if (Array.isArray(snap.flaggedIds)) {
+        setFlaggedIds(snap.flaggedIds);
+        lastMetaSyncRef.current.flaggedIds = JSON.stringify(snap.flaggedIds);
+      }
+      if (Array.isArray(snap.searchLogs)) {
+        setSearchLogs(snap.searchLogs);
+        lastMetaSyncRef.current.searchLogs = JSON.stringify(snap.searchLogs);
+      }
+      if (Array.isArray(snap.shares)) {
+        setShares(snap.shares);
+        lastMetaSyncRef.current.shares = JSON.stringify(snap.shares);
+      }
+      if (Array.isArray(snap.namingSchemas)) {
+        setNamingSchemas(snap.namingSchemas);
+        db.save("datum-naming-custom-schemas-v1", snap.namingSchemas);
+        lastMetaSyncRef.current.namingSchemas = JSON.stringify(snap.namingSchemas);
+      }
+      if (snap.teamAcks && typeof snap.teamAcks === "object") {
+        setTeamAcks(snap.teamAcks);
+        db.save("kb2-team-acks", snap.teamAcks);
+        lastMetaSyncRef.current.teamAcks = JSON.stringify(snap.teamAcks);
       }
       workspaceHydratedRef.current = true;
       return snap;
@@ -605,6 +646,66 @@ export function App() {
     return () => clearTimeout(t);
   }, [req, sessionEmail, role]);
 
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || isGuest) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(flaggedIds);
+      if (serialized !== lastMetaSyncRef.current.flaggedIds) {
+        lastMetaSyncRef.current.flaggedIds = serialized;
+        db.workspace.syncMeta("flagged_ids", flaggedIds, sessionEmail).catch(() => {});
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [flaggedIds, sessionEmail, isGuest]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || isGuest) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(searchLogs);
+      if (serialized !== lastMetaSyncRef.current.searchLogs) {
+        lastMetaSyncRef.current.searchLogs = serialized;
+        db.workspace.syncMeta("search_logs", searchLogs.slice(0, 40), sessionEmail).catch(() => {});
+      }
+    }, 900);
+    return () => clearTimeout(t);
+  }, [searchLogs, sessionEmail, isGuest]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || isGuest) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(teamAcks);
+      if (serialized !== lastMetaSyncRef.current.teamAcks) {
+        lastMetaSyncRef.current.teamAcks = serialized;
+        db.workspace.syncMeta("team_acks", teamAcks, sessionEmail).catch(() => {});
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [teamAcks, sessionEmail, isGuest]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || !can.createDraft(role)) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(shares);
+      if (serialized !== lastMetaSyncRef.current.shares) {
+        lastMetaSyncRef.current.shares = serialized;
+        db.workspace.syncMeta("direct_shares", shares, sessionEmail).catch(() => {});
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [shares, sessionEmail, role]);
+
+  useEffect(() => {
+    if (!workspaceHydratedRef.current || !sessionEmail || !can.createDraft(role)) return;
+    const t = setTimeout(() => {
+      const serialized = JSON.stringify(namingSchemas);
+      if (serialized !== lastMetaSyncRef.current.namingSchemas) {
+        lastMetaSyncRef.current.namingSchemas = serialized;
+        db.workspace.syncMeta("naming_schemas", namingSchemas, sessionEmail).catch(() => {});
+      }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [namingSchemas, sessionEmail, role]);
+
   const syncSharedItem = (item, mode = "save") => {
     if (!item || !sessionEmail || isGuest) return;
     db.workspace.upsertItem(item, mode, sessionEmail).catch(() => {});
@@ -612,15 +713,25 @@ export function App() {
 
   const logAct = (action, targetType, targetId, targetTitle, note = "") => {
     setActivities((prev) => [
-      { id: "act-" + Date.now() + Math.random().toString(36).slice(2, 5), actor: userName, action, targetType, targetId: String(targetId), targetTitle, note, at: TODAY },
+      {
+        id: "act-" + Date.now() + Math.random().toString(36).slice(2, 5),
+        actor: userName,
+        actorEmail: sessionEmail || "",
+        action,
+        targetType,
+        targetId: String(targetId),
+        targetTitle,
+        note,
+        at: TODAY,
+        ts: new Date().toISOString(),
+      },
       ...prev,
     ]);
   };
 
   const tgl = (set, id) => set((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
-  const push = (text, rid) => {
+  const push = (text) => {
     flash(text);
-    setNotes((n) => [{ id: Date.now() + Math.random(), text, rid, t: "just now", un: 1 }, ...n]);
   };
   const upd = (id, fn) => {
     db.invalidateArticle(id);
@@ -673,15 +784,17 @@ export function App() {
       if (sessionEmail && !isGuest) {
         db.workspace.addComment(id, nextComment, sessionEmail).catch(() => {});
       }
+      logAct("Commented", "item", id, titleOf(id), t.slice(0, 80));
       push(`Commented on “${titleOf(id)}”`, id);
     },
     onLink: (id, to, t) => {
       upd(id, (r) => ({ ...r, links: [...r.links, [to, t]] }));
+      logAct("Linked", "item", id, titleOf(id), `→ ${titleOf(to)}`);
       push(`Linked “${titleOf(id)}” → “${titleOf(to)}”`, id);
     },
     onVerify: (id) => {
       upd(id, (r) => ({ ...r, verified: TODAY }));
-      setFlaggedIds((fl) => fl.filter((x) => x !== id));
+      setFlaggedIds((fl) => fl.filter((x) => Number(x) !== Number(id)));
       flash("Verified as up to date");
       logAct("Verified", "item", id, titleOf(id), "Confirmed current");
     },
@@ -764,8 +877,8 @@ export function App() {
     resRef.current = nextList;
     setRes(nextList);
     syncSharedItem(newItem, "save");
-    logAct("Created", "item", id, title || "Untitled", "Draft");
-    push(title ? `Created “${title}”` : "Created new live draft", id);
+    if (title) logAct("Created", "item", id, title, "Draft");
+    flash(title ? `Created “${title}”` : "New draft opened");
     rd(id);
   };
 
@@ -834,7 +947,19 @@ export function App() {
     });
 
   const ack = (id) => {
-    setAcks((a) => ({ ...a, [id]: TODAY }));
+    setAcks((prevAcks) => {
+      const nextAcks = { ...(prevAcks || {}), [id]: TODAY };
+      if (brainOwnerEmail && !isGuest) {
+        setTeamAcks((prevTeam) => ({
+          ...(prevTeam || {}),
+          [brainOwnerEmail]: {
+            ...((prevTeam && prevTeam[brainOwnerEmail]) || {}),
+            ...nextAcks,
+          },
+        }));
+      }
+      return nextAcks;
+    });
     flash("Required reading confirmed");
     logAct("Confirmed Reading", "item", id, titleOf(id));
   };
@@ -1004,7 +1129,14 @@ export function App() {
   const logSearch = (query, count) => {
     const cleaned = (query || "").trim();
     if (!cleaned) return;
-    setSearchLogs((prev) => [{ query: cleaned, resultCount: count, at: TODAY }, ...prev.filter((x) => x.query !== cleaned)].slice(0, 20));
+    setSearchLogs((prev) => [{ query: cleaned, resultCount: count, at: TODAY, ts: new Date().toISOString() }, ...prev.filter((x) => x.query !== cleaned)].slice(0, 20));
+  };
+
+  const dismissSearchGap = (queryStr) => {
+    const clean = String(queryStr || "").trim();
+    if (!clean) return;
+    setSearchLogs((prev) => prev.filter((x) => x.query !== clean));
+    flash("Search gap dismissed");
   };
 
   const flatCats = useMemo(() => buildFlat(tree), [tree]);
@@ -1816,13 +1948,155 @@ export function App() {
   }, [view, cur, catFilter, q, f, sort]);
 
   const recentSearches = useMemo(() => [...new Set(searchLogs.map((l) => l.query))].slice(0, 5), [searchLogs]);
-  const unread = notes.filter((n) => n.un).length;
   const pendingApprovalCount = res.filter((r) => {
     if (r.status !== "Review") return false;
     const cat = byId(r.node, tree);
     return can.status(role, cat, userName);
   }).length;
   const isGovCapable = can.admin(role);
+
+  const readNotifSet = useMemo(
+    () => new Set(Array.isArray(plannerPrefs.readNotifIds) ? plannerPrefs.readNotifIds : []),
+    [plannerPrefs.readNotifIds]
+  );
+
+  const notifications = useMemo(() => {
+    if (isGuest) return [];
+    const list = [];
+    const seenIds = new Set();
+    const pushNotif = (entry) => {
+      if (!entry || !entry.id || seenIds.has(entry.id)) return;
+      seenIds.add(entry.id);
+      list.push({ ...entry, un: !readNotifSet.has(entry.id) });
+    };
+
+    if (isGovCapable) {
+      res
+        .filter((r) => r.status === "Review")
+        .slice(0, 6)
+        .forEach((r) => {
+          pushNotif({
+            id: `rev-${r.id}-${r.upd || ""}`,
+            text: `Approval needed: “${r.title || "Untitled"}” (${r.author || "Team"})`,
+            t: relTime(r.upd) || "In review",
+            run: () => rd(r.id),
+          });
+        });
+    }
+
+    (flaggedIds || []).slice(0, 6).forEach((fid) => {
+      const doc = visibleRes.find((x) => Number(x.id) === Number(fid));
+      if (!doc || (!isGovCapable && doc.author !== userName)) return;
+      pushNotif({
+        id: `flag-${doc.id}`,
+        text: `Flagged outdated: “${doc.title || `#${doc.id}`}”`,
+        t: relTime(doc.upd) || "Review",
+        run: () => pick(doc.id),
+      });
+    });
+
+    (privResources || [])
+      .filter((r) => r && r.isSharedWithMe)
+      .slice(0, 6)
+      .forEach((r) => {
+        pushNotif({
+          id: `share-${r.id}-${r.updatedAt || ""}`,
+          text: `${r.ownerEmail} shared resource “${r.title}”`,
+          t: relTime(r.updatedAt || r.createdAt),
+          run: () => openBrainSource({ id: "res:" + r.id }),
+        });
+      });
+
+    (req || [])
+      .filter((id) => !acks[id])
+      .slice(0, 5)
+      .forEach((id) => {
+        const doc = visibleRes.find((x) => Number(x.id) === Number(id));
+        if (!doc) return;
+        pushNotif({
+          id: `req-${doc.id}`,
+          text: `Required reading: “${doc.title}”`,
+          t: "Pending",
+          run: () => rd(doc.id),
+        });
+      });
+
+    (tasks || [])
+      .filter((t) => !isDoneStatus(plannerPrefs.statuses, t.status) && t.dueDate && t.dueDate <= todayIso)
+      .slice(0, 5)
+      .forEach((t) => {
+        pushNotif({
+          id: `due-${t.id}-${t.dueDate}`,
+          text: `Due ${t.dueDate === todayIso ? "today" : t.dueDate}: “${t.title}”`,
+          t: t.dueDate === todayIso ? "Today" : t.dueDate,
+          run: () => openBrainSource({ id: "task:" + t.id }),
+        });
+      });
+
+    (activities || [])
+      .filter(
+        (a) =>
+          a &&
+          !["act-1", "act-2", "act-3", "act-4"].includes(String(a.id)) &&
+          !(a.action === "Created" && (!a.targetTitle || a.targetTitle === "Untitled"))
+      )
+      .slice(0, 10)
+      .forEach((a) => {
+        const isDocTarget =
+          (a.targetType === "item" || a.targetType === "document") &&
+          Number.isFinite(Number(a.targetId)) &&
+          Number(a.targetId) > 0;
+        const noteSuffix = a.note ? ` · ${a.note}` : "";
+        pushNotif({
+          id: `act-${a.id}`,
+          text: `${a.actor} ${String(a.action || "").toLowerCase()} “${a.targetTitle || "item"}”${noteSuffix}`,
+          t: relTime(a.ts || a.at),
+          run: () => {
+            if (isDocTarget) rd(Number(a.targetId));
+            else if (a.targetType === "category" && a.targetId) go(a.targetId);
+            else if (isGovCapable) goV("admin");
+          },
+        });
+      });
+
+    return list.slice(0, 20);
+  }, [
+    isGuest,
+    isGovCapable,
+    res,
+    visibleRes,
+    flaggedIds,
+    privResources,
+    req,
+    acks,
+    tasks,
+    plannerPrefs.statuses,
+    todayIso,
+    activities,
+    readNotifSet,
+    userName,
+  ]);
+
+  const unread = notifications.filter((n) => n.un).length;
+
+  const markNotifRead = (nid) => {
+    if (!nid) return;
+    setPlannerPrefs((prev) => {
+      const existing = Array.isArray(prev.readNotifIds) ? prev.readNotifIds : [];
+      if (existing.includes(nid)) return prev;
+      return { ...prev, readNotifIds: [nid, ...existing].slice(0, 200) };
+    });
+  };
+
+  const markAllNotifsRead = () => {
+    const allIds = notifications.map((n) => n.id);
+    if (!allIds.length) return;
+    setPlannerPrefs((prev) => ({
+      ...prev,
+      readNotifIds: [...new Set([...allIds, ...(prev.readNotifIds || [])])].slice(0, 200),
+      notifsClearedAt: Date.now(),
+    }));
+  };
 
   useEffect(() => {
     if (view === "admin" && !isGovCapable) setView("kb");
@@ -3084,6 +3358,8 @@ export function App() {
         html`<${NamingStudioView}
           initialTypeName=${namingTypeSeed}
           revitCtx=${revitTypeCtx}
+          customSchemas=${namingSchemas}
+          onChangeCustomSchemas=${setNamingSchemas}
           onReadDoc=${rd}
           onToast=${setToast}
         />`}
@@ -3173,6 +3449,7 @@ export function App() {
           activities=${activities}
           searchLogs=${searchLogs}
           acks=${acks}
+          teamAcks=${teamAcks}
           req=${req}
           role=${role}
           userName=${userName}
@@ -3186,23 +3463,50 @@ export function App() {
           onVerify=${act.onVerify}
           onRevokePublic=${(kind, id) => {
             if (kind === "item") act.onChangeVis(id, "Internal");
-            else setCols((prev) => prev.map((c) => (c.id === id ? { ...c, vis: "Internal" } : c)));
+            else {
+              const targetCol = cols.find((c) => c.id === id);
+              if (targetCol) saveCol({ ...targetCol, vis: "Internal" });
+              else setCols((prev) => prev.map((c) => (c.id === id ? { ...c, vis: "Internal" } : c)));
+            }
             flash("Public access revoked");
           }}
           onOpenPublic=${(t) => setPubTarget(t)}
           onRenameTag=${(oldT, nextT) => {
             if (!nextT || oldT === nextT) return;
-            setRes((prev) =>
-              prev.map((r) =>
-                r.tags.includes(oldT)
-                  ? { ...r, tags: [...new Set(r.tags.map((x) => (x === oldT ? nextT : x)))] }
-                  : r
-              )
-            );
+            const changed = [];
+            const nextList = resRef.current.map((r) => {
+              if (!r.tags || !r.tags.includes(oldT)) return r;
+              const nextTags = [...new Set(r.tags.map((x) => (x === oldT ? nextT : x)))];
+              const updated = { ...r, tags: nextTags, upd: TODAY };
+              changed.push(updated);
+              return updated;
+            });
+            resRef.current = nextList;
+            setRes(nextList);
+            changed.forEach((item) => {
+              db.invalidateArticle(item.id);
+              syncSharedItem(item, "save");
+            });
+            edgeClient.clearAiCache();
+            logAct("Merged Tag", "tag", oldT, `#${oldT} → #${nextT}`);
             flash(`Merged #${oldT} → #${nextT}`);
           }}
           onDeleteTag=${(t) => {
-            setRes((prev) => prev.map((r) => ({ ...r, tags: r.tags.filter((x) => x !== t) })));
+            const changed = [];
+            const nextList = resRef.current.map((r) => {
+              if (!r.tags || !r.tags.includes(t)) return r;
+              const updated = { ...r, tags: r.tags.filter((x) => x !== t), upd: TODAY };
+              changed.push(updated);
+              return updated;
+            });
+            resRef.current = nextList;
+            setRes(nextList);
+            changed.forEach((item) => {
+              db.invalidateArticle(item.id);
+              syncSharedItem(item, "save");
+            });
+            edgeClient.clearAiCache();
+            logAct("Removed Tag", "tag", t, `#${t}`);
             flash(`Removed #${t}`);
           }}
           onInviteUser=${handleInviteUser}
@@ -3218,6 +3522,7 @@ export function App() {
             flash(`Filtered catalog by ${authorName}`);
           }}
           onCreateForTopic=${(topic) => createNewDoc({ title: topic })}
+          onDismissSearchGap=${dismissSearchGap}
           flash=${flash}
         />`}
       </div>
@@ -3229,16 +3534,18 @@ export function App() {
       <div className="pop">
         <div style=${{ display: "flex", alignItems: "center" }}>
           <h4 style=${{ flex: 1 }}>Updates</h4>
-          <button className="mn" style=${{ padding: 8, fontSize: 13 }} onClick=${() => setNotes((n) => n.map((x) => ({ ...x, un: 0 })))}>Mark all as read</button>
+          ${notifications.length > 0 &&
+          html`<button className="mn" style=${{ padding: 8, fontSize: 13 }} onClick=${markAllNotifsRead}>Mark all as read</button>`}
         </div>
-        ${notes.length
-          ? notes.map(
+        ${notifications.length
+          ? notifications.map(
               (n) => html`<button
                 key=${n.id}
                 className=${"nt" + (n.un ? " un" : "")}
                 onClick=${() => {
-                  setNotes((a) => a.map((x) => (x.id === n.id ? { ...x, un: 0 } : x)));
-                  pick(n.rid);
+                  markNotifRead(n.id);
+                  setBell(false);
+                  n.run && n.run();
                 }}
               >
                 <span>${n.text}<small>${n.t}</small></span>

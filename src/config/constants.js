@@ -1,4 +1,8 @@
-export const TODAY = "2026-10-22", ME = "Maxim";
+export const getTodayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+export const TODAY = getTodayIso(), ME = "Maxim";
 
 export const ST = {
   Draft: ["Draft", "#8e8e93"],

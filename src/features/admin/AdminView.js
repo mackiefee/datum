@@ -2,7 +2,7 @@ import { createPortal } from 'react-dom';
 import { Fragment, html, useEffect, useRef, useState } from '../../lib/react.js';
 import { ROLES, VIS, TODAY, can, normRole } from '../../config/constants.js';
 import { buildFlat } from '../../data/spaces.js';
-import { days } from '../../utils/format.js';
+import { days, relTime } from '../../utils/format.js';
 import { edgeClient } from '../../lib/edgeClient.js';
 import { Ic } from '../../components/Icon.js';
 import { Avatar, VisPill } from '../../components/Badge.js';
@@ -26,6 +26,7 @@ export function AdminView(p) {
     activities = [],
     searchLogs = [],
     acks = {},
+    teamAcks = {},
     req = [],
     role,
     userName,
@@ -48,6 +49,7 @@ export function AdminView(p) {
     onDeleteUser,
     onFilterByOwner,
     onCreateForTopic,
+    onDismissSearchGap,
     flash,
   } = p;
 
@@ -104,6 +106,9 @@ export function AdminView(p) {
   const approvedCount = res.filter((r) => r.status === 'Approved').length;
   const stalePct = approvedCount ? Math.round((staleItems.length / approvedCount) * 100) : 0;
   const reqDone = req.filter((id) => Boolean(acks[id])).length;
+  const reqUsersCount = Object.values(teamAcks || {}).filter(
+    (m) => m && typeof m === 'object' && Object.values(m).some(Boolean)
+  ).length;
   const zeroSearches = searchLogs.filter((l) => l.resultCount === 0);
 
   const runEdgeGovernance = async () => {
@@ -683,7 +688,7 @@ export function AdminView(p) {
         </div>
         <div className="cd-kpi">
           <b>${reqDone}/${req.length}</b>
-          <small>Required Read</small>
+          <small>${reqUsersCount > 0 ? `Required Read · ${reqUsersCount} users` : 'Required Read'}</small>
         </div>
         <div className="cd-kpi">
           <b>${zeroSearches.length}</b>
@@ -702,12 +707,28 @@ export function AdminView(p) {
                 (l, idx) => html`<div key=${idx} className="cd-row is-inset-0">
                   <div className="cd-row-tx">
                     <span className="cd-row-name">“${l.query}”</span>
-                    <div className="cd-row-s">${l.at}</div>
+                    <div className="cd-row-s">${relTime(l.ts || l.at)}</div>
                   </div>
                   <div className="cd-row-end">
-                    <button type="button" className="btn sm p" onClick=${() => onCreateForTopic && onCreateForTopic(l.query)}>
+                    <button
+                      type="button"
+                      className="btn sm p"
+                      onClick=${() => {
+                        onCreateForTopic && onCreateForTopic(l.query);
+                        onDismissSearchGap && onDismissSearchGap(l.query);
+                      }}
+                    >
                       + Create
                     </button>
+                    ${onDismissSearchGap &&
+                    html`<button
+                      type="button"
+                      className="btn sm"
+                      title="Dismiss search gap"
+                      onClick=${() => onDismissSearchGap(l.query)}
+                    >
+                      Dismiss
+                    </button>`}
                   </div>
                 </div>`
               )
@@ -719,17 +740,32 @@ export function AdminView(p) {
             <b>Activity Audit</b>
             <small>${activities.length}</small>
           </div>
-          ${activities.slice(0, 12).map(
-            (a) => html`<div key=${a.id} className="cd-row">
-              <div className="av sm">${(a.actor || 'S')[0]}</div>
-              <div className="cd-row-tx">
-                <span className="cd-row-name">${a.actor} · ${a.action}</span>
-                <div className="cd-row-s">
-                  ${a.targetTitle}${a.note ? ` — ${a.note}` : ''} · ${a.at}
-                </div>
-              </div>
-            </div>`
-          )}
+          ${activities.length > 0
+            ? activities.slice(0, 12).map((a) => {
+                const isDocTarget =
+                  (a.targetType === 'item' || a.targetType === 'document') &&
+                  Number.isFinite(Number(a.targetId)) &&
+                  Number(a.targetId) > 0;
+                return html`<div key=${a.id} className="cd-row">
+                  <div className="av sm">${(a.actor || 'S')[0]}</div>
+                  <div className="cd-row-tx">
+                    <span className="cd-row-name">${a.actor} · ${a.action}</span>
+                    <div className="cd-row-s">
+                      ${isDocTarget && onRead
+                        ? html`<button
+                            type="button"
+                            className="cd-row-link"
+                            style=${{ display: 'inline', fontSize: 'inherit' }}
+                            onClick=${() => onRead(Number(a.targetId))}
+                          >
+                            ${a.targetTitle || `#${a.targetId}`}
+                          </button>`
+                        : a.targetTitle}${a.note ? ` — ${a.note}` : ''} · ${relTime(a.ts || a.at)}
+                    </div>
+                  </div>
+                </div>`;
+              })
+            : html`<div style=${{ padding: '18px 16px', fontSize: 13, color: 'var(--sub)' }}>No workspace activity recorded yet.</div>`}
         </section>
       </div>
     </${Fragment}>`}
