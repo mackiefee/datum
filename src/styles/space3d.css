@@ -4503,15 +4503,21 @@
 }
 
 /* Unified Second Brain + Knowledge Space Integration */
+.kspace-stage:has(.kspace-tasks-wrap) .kspace-vignette,
+:root[data-theme="light"] .kspace-stage:has(.kspace-tasks-wrap) .kspace-vignette {
+  background: none;
+}
+
 .kspace-tasks-wrap {
-  position: relative;
+  position: absolute;
+  inset: 58px 0 0;
   z-index: 6;
   width: 100%;
-  flex: 1;
-  min-height: 0;
   overflow-y: auto;
-  padding: 66px 24px 24px;
+  overflow-x: hidden;
+  padding: 12px 24px 136px;
   -webkit-overflow-scrolling: touch;
+  user-select: text;
 }
 
 .kspace-title-row .kspace-view-seg {

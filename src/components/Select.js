@@ -475,6 +475,7 @@ export function ViewModeSwitch({
     ["grid", "layout", "Grid"],
     ["graph", "graph", "Graph"],
     ...(showTasks ? [["tasks", "check", "Tasks"]] : []),
+    ["scripts", "code", "Scripts & Links"],
     ["kits", "folder", visibleColsCount ? `Kits (${visibleColsCount})` : "Kits"],
   ];
 
@@ -522,7 +523,8 @@ export function SortPopover({
 
   const isKbLike = view === "kb" || view === "space" || view === "lib" || view === "home" || view === "reslib";
   const isKitsOverview = isKbLike && catFilter === "kits" && !activeKitId;
-  const effectiveDisplay = kbDisplay === "grid" || kbDisplay === "graph" ? kbDisplay : "space";
+  const effectiveDisplay =
+    kbDisplay === "grid" || kbDisplay === "graph" || kbDisplay === "scripts" ? kbDisplay : "space";
   const currentView = isKitsOverview ? "kits" : effectiveDisplay;
   const isActive = (!hideViewDesktop && (isKitsOverview || effectiveDisplay === "graph")) || sort !== "new";
   const icoName = hideViewDesktop
@@ -531,10 +533,12 @@ export function SortPopover({
     ? "globe"
     : currentView === "graph"
     ? "graph"
+    : currentView === "scripts"
+    ? "code"
     : currentView === "kits"
     ? "folder"
     : "layout";
-  const viewNames = { grid: "Grid", space: "Space", graph: "Graph", kits: "Kits" };
+  const viewNames = { grid: "Grid", space: "Space", graph: "Graph", scripts: "Scripts & Links", kits: "Kits" };
   const sortNames = { new: "Sort", az: "A–Z", links: "Most linked" };
   const sortSuffix = sort === "az" ? " · A–Z" : sort === "links" ? " · Links" : "";
   const label = hideViewDesktop

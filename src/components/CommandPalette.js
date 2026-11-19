@@ -1,4 +1,4 @@
-import { html, useState, useEffect, useLayoutEffect, useRef, useMemo } from '../lib/react.js';
+import { html, Fragment, useState, useEffect, useLayoutEffect, useRef, useMemo } from '../lib/react.js';
 import { DC, TODAY, CITE, can } from '../config/constants.js';
 import { byId, buildFlat } from '../data/spaces.js';
 import { hay, scoreDocument, tokenizeUnique } from '../utils/search.js';
@@ -157,11 +157,11 @@ export function Pal(p) {
           ["Morning Focus Dashboard", "spark", "focus"],
           ["New Personal Task (Alt+N)", "plus", "quick-task"],
           ["New Private Note", "note", "quick-note"],
-          ["Save Personal Resource", "link", "quick-resource"],
+          ["Save Script or Link", "link", "quick-resource"],
         ]
       : []),
     ["Knowledge Space (3D)", "globe", "kb-space"],
-    ["Team Resources & Catalog", "folder", "team-resources"],
+    ["Scripts & Links Hub", "code", "scripts"],
     ["Naming Studio (Wall & Element Builder)", "layers", "view", "naming"],
     ["Knowledge Base (Grid)", "layout", "view", "kb"],
     ["Playbooks & Kits", "folder", "kits"],
@@ -194,12 +194,12 @@ export function Pal(p) {
     };
 
     for (const r of p.privResources || []) {
-      const hayStr = `${r.title || ""} ${r.url || ""} ${r.notes || ""} ${r.project || ""} ${r.kind || ""}`;
+      const hayStr = `${r.title || ""} ${r.url || ""} ${r.snippet || ""} ${r.notes || ""} ${r.project || ""} ${r.kind || ""}`;
       if (matchesText(hayStr)) {
         out.push({
           t: r.title || "Personal Resource",
-          d: `Personal Resource${r.project ? ` · ${r.project}` : r.kind ? ` · ${r.kind}` : ""}`,
-          n: "link",
+          d: `${r.kind === "script" ? "Script" : r.kind === "snippet" ? "Snippet" : "Saved Link"}${r.project ? ` · ${r.project}` : ""}`,
+          n: r.kind === "script" || r.kind === "snippet" ? "code" : "link",
           c: "#30d158",
           run: () => p.act("open-brain-resource", r.id),
         });
@@ -286,7 +286,9 @@ export function Pal(p) {
 
   const HL = (t) => {
     const idx = s ? t.toLowerCase().indexOf(s) : -1;
-    return idx < 0 ? t : html`${t.slice(0, idx)}<mark>${t.slice(idx, idx + s.length)}</mark>${t.slice(idx + s.length)}`;
+    return idx < 0
+      ? t
+      : html`<${Fragment}>${t.slice(0, idx)}<mark key="m">${t.slice(idx, idx + s.length)}</mark>${t.slice(idx + s.length)}</${Fragment}>`;
   };
 
   const key = (e) => {

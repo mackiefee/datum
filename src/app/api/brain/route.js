@@ -242,7 +242,7 @@ function mapResource(row, callerEmail = '') {
     title: row.title || '',
     url: row.url || '',
     kind: row.kind || 'link',
-    snippet: row.kind === 'snippet' || row.kind === 'template' ? row.notes || '' : '',
+    snippet: row.kind === 'script' || row.kind === 'snippet' || row.kind === 'template' ? row.notes || '' : '',
     notes: row.notes || '',
     project: row.project || 'General',
     tags: Array.isArray(row.tags) ? row.tags : [],
@@ -592,7 +592,7 @@ export async function POST(req) {
       if (!title && !rawUrl && !rawNotes.trim()) {
         return jsonResp({ error: 'Resource title or URL is required' }, 400);
       }
-      const validKinds = ['link', 'tool', 'snippet', 'template', 'doc'];
+      const validKinds = ['link', 'script', 'tool', 'snippet', 'template', 'doc'];
       const kind = validKinds.includes(r.kind) ? r.kind : 'link';
       const linkedNum = r.linkedItemId != null && r.linkedItemId !== '' ? Number(r.linkedItemId) : null;
       const sharedEmails = Array.isArray(r.sharedWithEmails)

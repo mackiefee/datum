@@ -42,10 +42,11 @@ function formatDueNice(isoStr) {
 }
 
 const RESOURCE_KINDS = [
-  { value: 'link', label: 'Web Link' },
-  { value: 'tool', label: 'Tool / Script' },
-  { value: 'snippet', label: 'Snippet / Rule' },
-  { value: 'template', label: 'Template' },
+  { value: 'script', label: 'Script (Dynamo / pyRevit / Python)' },
+  { value: 'link', label: 'Web Link / Portal' },
+  { value: 'snippet', label: 'Code Snippet / Rule' },
+  { value: 'tool', label: 'BIM Tool / Plugin' },
+  { value: 'template', label: 'Template / Checklist' },
 ];
 
 export function QuickCaptureModal({
@@ -56,6 +57,8 @@ export function QuickCaptureModal({
   initialRevisionParent = null,
   initialNote = null,
   initialResource = null,
+  initialResKind = '',
+  initialResScope = 'mine',
   initialProject = '',
   initialLinkedSection = '',
   statuses = DEFAULT_PLANNER_STATUSES,
@@ -69,6 +72,7 @@ export function QuickCaptureModal({
   onSaveNote,
   onDeleteNote,
   onSaveResource,
+  onSaveTeamResource = null,
   onDeleteResource,
   onStartRevision,
 }) {
@@ -82,7 +86,8 @@ export function QuickCaptureModal({
   const [title, setTitle] = useState('');
   const [notes, setNotes] = useState('');
   const [resUrl, setResUrl] = useState('');
-  const [resKind, setResKind] = useState('link');
+  const [resKind, setResKind] = useState(initialResKind || 'link');
+  const [resScope, setResScope] = useState(initialResScope || 'mine');
   const [linkedSection, setLinkedSection] = useState('');
   const [project, setProject] = useState('General');
   const [creatingProj, setCreatingProj] = useState(false);
@@ -112,7 +117,8 @@ export function QuickCaptureModal({
     setNewCatName('');
     setLinkInput('');
     setResUrl('');
-    setResKind('link');
+    setResKind(initialResKind || 'link');
+    setResScope(initialResScope || 'mine');
     setLinkedSection(initialLinkedSection || '');
 
     if (initialRevisionParent && initialRevisionParent.id) {
@@ -137,8 +143,9 @@ export function QuickCaptureModal({
       setMode('resource');
       setTitle(initialResource.title || '');
       setResUrl(initialResource.url || '');
-      setResKind(initialResource.kind || 'link');
-      setNotes(initialResource.notes || '');
+      setResKind(initialResource.kind || initialResKind || 'link');
+      setResScope(initialResScope || 'mine');
+      setNotes(initialResource.notes || initialResource.snippet || '');
       setProject(initialResource.project || initialProject || 'General');
       setIsPinned(Boolean(initialResource.isPinned));
       setLinkedDocId(initialResource.linkedItemId ? String(initialResource.linkedItemId) : initialDoc?.id ? String(initialDoc.id) : '');
@@ -205,7 +212,7 @@ export function QuickCaptureModal({
     setCalMonth({ y: n.getFullYear(), m: n.getMonth() });
     setLinkedDocId(initialDoc && initialDoc.id ? String(initialDoc.id) : '');
     setIsPinned(false);
-  }, [open, initialMode, initialDoc?.id, initialTask, initialRevisionParent?.id, initialNote, initialResource, initialProject, initialLinkedSection]);
+  }, [open, initialMode, initialDoc?.id, initialTask, initialRevisionParent?.id, initialNote, initialResource, initialResKind, initialResScope, initialProject, initialLinkedSection]);
 
   const sortedDocs = useMemo(
     () => [...(docs || [])].sort((a, b) => (a.title || '').localeCompare(b.title || '')),
@@ -304,21 +311,25 @@ export function QuickCaptureModal({
 
     if (mode === 'resource') {
       const trimmedNotes = notes.trim();
-      const isSnippetKind = resKind === 'snippet' || resKind === 'template';
-      onSaveResource &&
-        onSaveResource({
-          ...(initialResource || {}),
-          title: title.trim() || resUrl.trim() || 'Saved Resource',
-          url: resUrl.trim(),
-          kind: resKind,
-          snippet: isSnippetKind ? trimmedNotes : (initialResource?.snippet || ''),
-          notes: trimmedNotes,
-          project: finalProject,
-          isPinned,
-          linkedItemId: docObj ? docObj.id : null,
-          linkedItemTitle: docObj ? docObj.title : '',
-          linkedSection,
-        });
+      const isSnippetKind = resKind === 'script' || resKind === 'snippet' || resKind === 'template';
+      const resPayload = {
+        ...(initialResource || {}),
+        title: title.trim() || resUrl.trim() || (resKind === 'script' ? 'Untitled Script' : 'Saved Link'),
+        url: resUrl.trim(),
+        kind: resKind,
+        snippet: isSnippetKind ? trimmedNotes : (initialResource?.snippet || ''),
+        notes: trimmedNotes,
+        project: finalProject,
+        isPinned,
+        linkedItemId: docObj ? docObj.id : null,
+        linkedItemTitle: docObj ? docObj.title : '',
+        linkedSection,
+      };
+      if (!isEditingResource && resScope === 'team' && onSaveTeamResource) {
+        onSaveTeamResource(resPayload);
+      } else {
+        onSaveResource && onSaveResource(resPayload);
+      }
       onClose && onClose();
       return;
     }
@@ -401,11 +412,11 @@ export function QuickCaptureModal({
     : isEditingNote
     ? 'Edit Note'
     : isEditingResource
-    ? 'Edit Resource'
+    ? 'Edit Script / Link'
     : mode === 'note'
     ? 'New Private Note'
     : mode === 'resource'
-    ? 'Save Personal Resource'
+    ? 'Save Script or Link'
     : 'New Task';
 
   const contextHint =
@@ -453,7 +464,7 @@ export function QuickCaptureModal({
           Private Note
         </button>
         <button type="button" className=${mode === 'resource' ? 'on' : ''} onClick=${() => setMode('resource')}>
-          Resource
+          Script / Link
         </button>
       </div>`}
 
@@ -463,7 +474,7 @@ export function QuickCaptureModal({
         <input
           autoFocus
           type="text"
-          placeholder=${mode === 'task' ? 'Title' : mode === 'resource' ? 'Resource / link name' : 'Note title'}
+          placeholder=${mode === 'task' ? 'Title' : mode === 'resource' ? 'Script / link name' : 'Note title'}
           value=${title}
           onChange=${(e) => setTitle(e.target.value)}
         />
@@ -471,17 +482,20 @@ export function QuickCaptureModal({
         html`<input
           type="text"
           inputMode="url"
-          placeholder="URL, Drive link, tool path, or command…"
+          placeholder="URL, Drive link, \\\\SRV\\... path, or command…"
           value=${resUrl}
           onChange=${(e) => setResUrl(e.target.value)}
         />`}
         <textarea
+          style=${mode === 'resource' && (resKind === 'script' || resKind === 'snippet')
+            ? { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12.5, minHeight: 112 }
+            : undefined}
           placeholder=${isNewRevision || (isEditingTask && initialTask.parentTaskId)
             ? 'What did the client change?'
             : mode === 'task'
             ? 'Description, Revit details, constraints…'
             : mode === 'resource'
-            ? 'Why is this useful? Parameters, snippets, quick notes…'
+            ? 'Paste Python / pyRevit / Dynamo code, UNC path (\\\\SRV\\...), or usage notes…'
             : 'Write private thoughts, meeting summary, or [[Standard links]]…'}
           value=${notes}
           onChange=${(e) => setNotes(e.target.value)}
@@ -762,16 +776,39 @@ export function QuickCaptureModal({
           </${Fragment}>`
         : html`<div className="qc-cell">
             ${mode === 'resource' &&
-            html`<div className="qc-row">
-              <span className="qc-row-lbl">Type</span>
-              <${Select}
-                variant="inline"
-                value=${resKind}
-                options=${RESOURCE_KINDS}
-                ariaLabel="Resource type"
-                onChange=${setResKind}
-              />
-            </div>`}
+            html`<${Fragment}>
+              <div className="qc-row">
+                <span className="qc-row-lbl">Type</span>
+                <${Select}
+                  variant="inline"
+                  value=${resKind}
+                  options=${RESOURCE_KINDS}
+                  ariaLabel="Resource type"
+                  onChange=${setResKind}
+                />
+              </div>
+              ${!isEditingResource &&
+              onSaveTeamResource &&
+              html`<div className="qc-row">
+                <span className="qc-row-lbl">Store in</span>
+                <div className="seg" role="group" aria-label="Storage layer" style=${{ marginTop: 0 }}>
+                  <button
+                    type="button"
+                    className=${resScope === 'mine' ? 'on' : ''}
+                    onClick=${() => setResScope('mine')}
+                  >
+                    Personal (Mine)
+                  </button>
+                  <button
+                    type="button"
+                    className=${resScope === 'team' ? 'on' : ''}
+                    onClick=${() => setResScope('team')}
+                  >
+                    Team Library
+                  </button>
+                </div>
+              </div>`}
+            </${Fragment}>`}
             <div className="qc-row">
               <span className="qc-row-lbl">Pin to top</span>
               <button

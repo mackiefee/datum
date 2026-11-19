@@ -287,14 +287,15 @@ export function runAiEdgeLogic(payload) {
       }
     }
 
-    const asksRes = /(?:resource|resources|link|links|bookmark|snippet|tool|tools|url|ресурс|посилан|заклад|сніпет|шаблон|сервіс)/i.test(qLow);
+    const asksRes = /(?:resource|resources|script|scripts|dynamo|pyrevit|python|code|macro|link|links|bookmark|snippet|tool|tools|url|ресурс|скрипт|код|дінамо|піревіт|макрос|посилан|лінк|заклад|сніпет|шаблон|сервіс)/i.test(qLow);
     for (const pr of personalResources || []) {
       if (!pr || !pr.title) continue;
+      const fullBody = [pr.notes || "", pr.snippet && pr.snippet !== pr.notes ? pr.snippet : ""].filter(Boolean).join("\n");
       const fakeDoc = {
         id: `res:${pr.id}`,
         title: pr.title,
         desc: `${pr.project || "General"} ${pr.kind || "link"} ${pr.url || ""}`,
-        body: pr.notes || "",
+        body: fullBody,
         disc: pr.project || "General",
         tags: pr.tags || [],
       };
@@ -316,8 +317,8 @@ export function runAiEdgeLogic(payload) {
             reviewDays: 9999,
             verified: realToday,
             upd: realToday,
-            desc: plainText(pr.notes || pr.url || "").slice(0, 220),
-            body: pr.notes || pr.url || "",
+            desc: plainText(fullBody || pr.url || "").slice(0, 220),
+            body: fullBody || pr.url || "",
           },
         });
       }

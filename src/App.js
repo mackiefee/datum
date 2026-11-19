@@ -132,7 +132,7 @@ export function App() {
     if (!kbDisplayLoaded.current) {
       kbDisplayLoaded.current = true;
       const saved = db.load("kb2-display-v2", "space");
-      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "tasks") {
+      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "tasks" || saved === "scripts") {
         setKbDisplay(saved);
       }
       return;
@@ -1021,7 +1021,7 @@ export function App() {
     if (catFilter === "kits" && !activeKitId) {
       setCatFilter("all");
     }
-    setKbDisplay(mode === "grid" || mode === "graph" || mode === "tasks" ? mode : "space");
+    setKbDisplay(mode === "grid" || mode === "graph" || mode === "tasks" || mode === "scripts" ? mode : "space");
     setSpaceStageOpen(true);
   };
 
@@ -1081,7 +1081,7 @@ export function App() {
       setSpaceStageOpen(true);
       goV("kb");
     }
-    else if (k === "team-resources") handleNavSwitch("team-resources");
+    else if (k === "scripts" || k === "team-resources") handleNavSwitch("team-resources");
     else if (k === "open-brain-task") openBrainSource({ id: "task:" + a });
     else if (k === "open-brain-note") openBrainSource({ id: "note:" + a });
     else if (k === "open-brain-resource") openBrainSource({ id: "res:" + a });
@@ -1504,7 +1504,7 @@ export function App() {
       ownerEmail: resInput.ownerEmail || brainOwnerEmail,
       title: String(resInput.title || "").trim() || String(resInput.url || "").trim() || "Saved Resource",
       url: String(resInput.url || "").trim(),
-      kind: ["link", "tool", "snippet", "template"].includes(resInput.kind) ? resInput.kind : "link",
+      kind: ["link", "script", "tool", "snippet", "template"].includes(resInput.kind) ? resInput.kind : "link",
       snippet: String(resInput.snippet || ""),
       notes: String(resInput.notes || ""),
       project: String(resInput.project || "General").trim() || "General",
@@ -1566,11 +1566,24 @@ export function App() {
     flash(nextEmails.length ? `Shared with ${nextEmails.length} teammate(s)` : "Sharing removed");
   };
 
-  const suggestItemToGovernance = async ({ title, desc, url, body, project, kindTag, label }) => {
+  const suggestItemToGovernance = async ({
+    title,
+    desc,
+    url,
+    body,
+    project,
+    kindTag,
+    label,
+    itemType = "",
+    publishImmediately = false,
+  }) => {
     if (!sessionEmail || isGuest) return;
     const id = Date.now();
     const defaultNode = "c10-ovw-std";
     const catObj = byId(defaultNode, tree);
+    const matchedDisc = DISC.find((d) => d.toLowerCase() === String(project || "").trim().toLowerCase());
+    const targetStatus = publishImmediately && can.admin(role) ? "Approved" : "Review";
+    const syncMode = targetStatus === "Approved" ? "save" : "suggest";
     const suggestedItem = {
       id,
       node: defaultNode,
@@ -1578,11 +1591,11 @@ export function App() {
       desc: String(desc || "Submitted from Personal Second Brain for Governance review").trim().slice(0, 180),
       url: String(url || "").trim(),
       body: String(body || "").trim(),
-      type: url ? "link" : "doc",
-      status: "Review",
+      type: itemType || (url ? "link" : "doc"),
+      status: targetStatus,
       vis: "Internal",
       stage: STG[0],
-      disc: (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
+      disc: matchedDisc || (catObj && catObj.path && RD[catObj.path[0]]) || "VDC",
       tags: [...new Set([project || "General", kindTag].filter(Boolean))],
       links: [],
       c: [],
@@ -1591,27 +1604,44 @@ export function App() {
       authorEmail: sessionEmail,
       upd: TODAY,
       verified: TODAY,
-      v: [{ n: 1, by: userName, d: TODAY, note: `Suggested from Personal ${label}`, body: String(body || "") }],
+      v: [{
+        n: 1,
+        by: userName,
+        d: TODAY,
+        note: targetStatus === "Approved" ? `Published to Team ${label}` : `Suggested from Personal ${label}`,
+        body: String(body || ""),
+      }],
     };
+    edgeClient.clearAiCache();
     const nextList = [suggestedItem, ...resRef.current];
     resRef.current = nextList;
     setRes(nextList);
     try {
-      await db.workspace.upsertItem(suggestedItem, "suggest", sessionEmail);
-      logAct(`Suggested Team ${label}`, "item", id, suggestedItem.title, "Pending Governance Review");
-      flash(`Submitted “${suggestedItem.title}” to Administration → Governance`);
+      await db.workspace.upsertItem(suggestedItem, syncMode, sessionEmail);
+      logAct(
+        targetStatus === "Approved" ? `Added Team ${label}` : `Suggested Team ${label}`,
+        "item",
+        id,
+        suggestedItem.title,
+        targetStatus === "Approved" ? "Team Library" : "Pending Governance Review"
+      );
+      flash(
+        targetStatus === "Approved"
+          ? `Added “${suggestedItem.title}” to Team Scripts & Links`
+          : `Submitted “${suggestedItem.title}” to Administration → Governance`
+      );
     } catch (e) {
-      flash(e.message || "Suggestion saved locally — check connection");
+      flash(e.message || "Saved locally — check connection");
     }
   };
 
-  const suggestResourceToTeamKb = (resObj) =>
+  const suggestResourceToTeamKb = (resObj, opts = {}) =>
     suggestItemToGovernance({
       title: resObj.title,
       desc: resObj.notes || resObj.url || `Personal ${resObj.kind || "resource"}`,
       url: resObj.url,
       body: [
-        resObj.notes || "",
+        resObj.notes && resObj.notes !== resObj.snippet ? resObj.notes : "",
         resObj.snippet ? `\n\`\`\`\n${resObj.snippet}\n\`\`\`` : "",
         resObj.url ? `\nReference URL: ${resObj.url}` : "",
       ]
@@ -1619,8 +1649,20 @@ export function App() {
         .join("\n"),
       project: resObj.project,
       kindTag: resObj.kind || "resource",
-      label: "Resource",
+      label: resObj.kind === "script" || resObj.kind === "snippet" ? "Script" : "Link",
+      itemType:
+        resObj.kind === "script" || resObj.kind === "snippet"
+          ? "script"
+          : resObj.kind === "tool"
+          ? "service"
+          : resObj.kind === "template"
+          ? "template"
+          : "link",
+      publishImmediately: Boolean(opts.publishImmediately),
     });
+
+  const saveTeamResource = (resObj) =>
+    suggestResourceToTeamKb(resObj, { publishImmediately: can.admin(role) });
 
   const suggestNoteToTeamKb = (noteObj) =>
     suggestItemToGovernance({
@@ -1726,20 +1768,26 @@ export function App() {
       flash("Private note saved to Supabase");
       return true;
     }
-    const resM = t.match(/^\/(?:res|link|ресурс)\s+(.+)$/i);
+    const resM = t.match(/^\/(script|scripts|скрипт|res|link|ресурс|лінк|посилання)\s+(.+)$/i);
     if (resM) {
-      const raw = resM[1].trim();
-      const urlMatch = raw.match(/(https?:\/\/\S+)/i);
+      const cmd = resM[1].toLowerCase();
+      const raw = resM[2].trim();
+      const isScriptCmd = cmd === "script" || cmd === "scripts" || cmd === "скрипт";
+      const urlMatch = raw.match(/(https?:\/\/\S+|\\\\[A-Za-z0-9._$-]+\\\S+)/i);
       const url = urlMatch ? urlMatch[1] : "";
-      const title = url ? raw.replace(url, "").trim() || url : raw;
+      const rest = url ? raw.replace(url, "").trim() : raw;
+      const title = isScriptCmd
+        ? rest.split("\n")[0].slice(0, 64) || url || "Quick Script"
+        : rest || url;
       savePrivResource({
         title,
         url,
-        kind: url ? "link" : "snippet",
-        notes: url ? "" : raw,
+        kind: isScriptCmd ? "script" : url ? "link" : "snippet",
+        snippet: isScriptCmd || !url ? raw : "",
+        notes: isScriptCmd || !url ? raw : "",
         project: spaceProject !== "all" ? spaceProject : "General",
       });
-      flash("Personal resource saved to Supabase");
+      flash(isScriptCmd ? "Script saved to Supabase" : "Script / link saved to Supabase");
       return true;
     }
     return false;
@@ -1752,18 +1800,21 @@ export function App() {
       setRead(null);
       setActiveKitId(null);
       setCatFilter("all");
-      setBrainLayer("mine");
-      setKbDisplay("tasks");
       setSpaceStageOpen(true);
-      if (raw.startsWith("task:")) {
-        setBrainHighlightId(raw.slice(5));
-        setBrainTabSeed("all");
-      } else if (raw.startsWith("note:")) {
-        setBrainHighlightId(raw.slice(5));
-        setBrainTabSeed("notes");
-      } else {
+      if (raw.startsWith("res:")) {
+        setBrainLayer("all");
+        setKbDisplay("scripts");
         setBrainHighlightId(raw.slice(4));
-        setBrainTabSeed("resources");
+      } else {
+        setBrainLayer("mine");
+        setKbDisplay("tasks");
+        if (raw.startsWith("task:")) {
+          setBrainHighlightId(raw.slice(5));
+          setBrainTabSeed("all");
+        } else {
+          setBrainHighlightId(raw.slice(5));
+          setBrainTabSeed("notes");
+        }
       }
       goV("kb");
       return true;
@@ -2152,13 +2203,15 @@ export function App() {
       ? "kits"
       : kbDisplay === "tasks" && !isGuest
       ? "tasks"
-      : kbDisplay === "grid" || kbDisplay === "graph"
+      : kbDisplay === "scripts" || kbDisplay === "grid" || kbDisplay === "graph"
       ? kbDisplay
       : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
   const pageTitle =
     activeViewMode === "tasks" && isSpaceView
       ? "My Work"
+      : activeViewMode === "scripts" && isSpaceView
+      ? "Scripts & Links"
       : catFilter === "res" && (view === "kb" || view === "home" || view === "space" || view === "lib")
       ? "Team Resources"
       : view === "kb" || view === "home" || view === "space"
@@ -2526,7 +2579,7 @@ export function App() {
   const activeSwitcherKey =
     view === "kb" && catFilter === "kits"
       ? "kits"
-      : (view === "kb" || view === "lib") && catFilter === "res"
+      : (view === "kb" && kbDisplay === "scripts") || ((view === "kb" || view === "lib") && catFilter === "res")
       ? "team-resources"
       : (view === "kb" && kbDisplay === "tasks") || view === "tasks"
       ? "my-work"
@@ -2544,7 +2597,7 @@ export function App() {
       setCatFilter("all");
       setCur("all");
       setBrainLayer("all");
-      if (kbDisplay === "tasks") setKbDisplay("space");
+      if (kbDisplay === "tasks" || kbDisplay === "scripts") setKbDisplay("space");
       setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "my-work" || key === "tasks") {
@@ -2557,12 +2610,12 @@ export function App() {
       setKbDisplay("tasks");
       setSpaceStageOpen(true);
       goV("kb");
-    } else if (key === "team-resources") {
+    } else if (key === "team-resources" || key === "scripts") {
       setRead(null);
       setActiveKitId(null);
       setCur("all");
-      setCatFilter("res");
-      setKbDisplay("grid");
+      setCatFilter("all");
+      setKbDisplay("scripts");
       setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "kits") {
@@ -2698,8 +2751,8 @@ export function App() {
         style=${{ paddingLeft: 10 }}
         onClick=${() => handleNavSwitch("team-resources")}
       >
-        <span className="side-ico"><${Ic} n="link" s=${15} /></span>
-        <span className="tn">Team Resources</span>
+        <span className="side-ico"><${Ic} n="code" s=${15} /></span>
+        <span className="tn">Scripts & Links</span>
       </button>
 
       <button
@@ -3206,6 +3259,7 @@ export function App() {
                 })
               }
               onOpenBrainSheet=${(payload) => setQcModal(payload)}
+              onSaveTeamResource=${!isGuest ? saveTeamResource : null}
             />`;
           }
 
@@ -3628,6 +3682,8 @@ export function App() {
       initialRevisionParent=${qcModal.revisionParent || null}
       initialNote=${qcModal.note || null}
       initialResource=${qcModal.resource || null}
+      initialResKind=${qcModal.resKind || ""}
+      initialResScope=${qcModal.resScope || "mine"}
       initialProject=${qcModal.project || ""}
       initialLinkedSection=${qcModal.linkedSection || ""}
       statuses=${plannerPrefs.statuses}
@@ -3655,8 +3711,9 @@ export function App() {
       }}
       onSaveResource=${async (resObj) => {
         await savePrivResource(resObj);
-        flash(resObj.id ? "Resource updated" : `Resource saved · ${resObj.project || "General"}`);
+        flash(resObj.id ? "Script / link updated" : `Saved to Personal Scripts & Links · ${resObj.project || "General"}`);
       }}
+      onSaveTeamResource={!isGuest ? saveTeamResource : null}
       onDeleteResource=${async (id) => {
         await deletePrivResource(id);
         flash("Resource deleted");

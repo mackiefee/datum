@@ -20,6 +20,7 @@ export const VIS = {
 export const TY = {
   doc: "Document",
   report: "Report",
+  script: "Script / Macro",
   service: "Tool / Service",
   link: "Link",
   media: "Media Asset",

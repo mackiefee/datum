@@ -8,8 +8,8 @@ import { Ic, DatumMark } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
 import { Select } from '../../components/Select.js';
-import { isDoneStatus, DEFAULT_PLANNER_STATUSES } from '../../utils/planner.js';
-import { SecondBrainView } from '../brain/SecondBrainView.js';
+import { isDoneStatus, DEFAULT_PLANNER_STATUSES, linkDisplayHost } from '../../utils/planner.js';
+import { SecondBrainView, ResourceShareModal } from '../brain/SecondBrainView.js';
 import { TIER_LABEL, TIER_COL, canEditCol, KitComposerModal } from '../collections/CollectionsView.js';
 import {
   clamp,
@@ -133,9 +133,13 @@ export function KnowledgeSpaceView({
   onStartRevision = null,
   onPromoteNoteToDoc = null,
   onOpenBrainSheet = null,
+  onSaveTeamResource = null,
 }) {
   const [drawerBrainRef, setDrawerBrainRef] = useState(null);
   const [drawerCopiedId, setDrawerCopiedId] = useState(null);
+  const [scriptKindFilter, setScriptKindFilter] = useState('all'); // 'all' | 'scripts' | 'links' | 'templates' | 'pinned'
+  const [copiedScriptId, setCopiedScriptId] = useState(null);
+  const [scriptShareTarget, setScriptShareTarget] = useState(null);
   const viewportRef = useRef(null);
   const sceneRef = useRef(null);
   const dockWrapRef = useRef(null);
@@ -359,16 +363,18 @@ export function KnowledgeSpaceView({
       const linked = [];
       if (r.linkedItemId) linked.push(Number(r.linkedItemId));
       if (Array.isArray(r.linkedItemIds)) r.linkedItemIds.forEach((id) => linked.push(Number(id)));
+      const fullText = [r.notes || '', r.snippet && r.snippet !== r.notes ? r.snippet : ''].filter(Boolean).join('\n');
       out.push({
         id: `res:${r.id}`,
         isPrivate: true,
         brainKind: 'resource',
         rawItem: r,
         title: r.title || 'Personal Resource',
-        desc: r.notes || r.snippet || r.url || 'Saved personal resource',
+        desc: fullText || r.url || 'Saved script or link',
+        body: fullText,
         url: r.url || '',
         disc: 'VDC',
-        type: 'link',
+        type: r.kind === 'script' || r.kind === 'snippet' ? 'script' : 'link',
         status: r.isPinned ? 'Pinned' : 'Private',
         vis: 'Private',
         project: r.project || 'General',
@@ -454,16 +460,141 @@ export function KnowledgeSpaceView({
 
   const isKitsOverview = viewMode === 'kits' && !activeKit;
   const isTasksView = !isGuest && viewMode === 'tasks' && !activeKit;
-  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !isTasksView && !activeKit;
+  const isScriptsView = viewMode === 'scripts' && !activeKit;
+  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !isTasksView && !isScriptsView && !activeKit;
   const activeFormation = isKitsOverview
     ? 'kits'
     : isTasksView
     ? 'tasks'
+    : isScriptsView
+    ? 'scripts'
     : viewMode === 'grid'
     ? 'grid'
     : viewMode === 'graph'
     ? 'graph'
     : 'space';
+
+  const unifiedScriptLinks = useMemo(() => {
+    const out = [];
+    const myEmailLow = String(currentEmail || '').trim().toLowerCase();
+    const extractTeamSnippet = (body = '') => {
+      const str = String(body || '');
+      const fence = str.match(/```[a-zA-Z0-9_-]*\r?\n([\s\S]*?)```/);
+      if (fence && fence[1] && fence[1].trim()) return fence[1].trim();
+      const quotedUnc = str.match(/`(\\\\[A-Za-z0-9._$-]+\\[^`\r\n]+)`/);
+      if (quotedUnc && quotedUnc[1]) return quotedUnc[1].trim();
+      const unc = str.match(/(\\\\[A-Za-z0-9._$-]+\\[^\s`'|)\r\n]+)/);
+      if (unc && unc[1]) return unc[1].trim();
+      return '';
+    };
+
+    if (!isGuest && effectiveLayer !== 'team') {
+      (privResources || []).forEach((r) => {
+        if (!r) return;
+        const isSharedWithMe =
+          Boolean(r.isSharedWithMe || r.isShared) ||
+          Boolean(myEmailLow && r.ownerEmail && String(r.ownerEmail).toLowerCase() !== myEmailLow);
+        const kind = r.kind || 'link';
+        const snippet =
+          r.snippet || ((kind === 'script' || kind === 'snippet' || kind === 'template') && r.notes ? r.notes : '');
+        out.push({
+          id: `mine:${r.id}`,
+          rawId: r.id,
+          source: 'mine',
+          kind,
+          title: r.title || 'Untitled Script / Link',
+          url: r.url || '',
+          snippet,
+          notes: r.notes || '',
+          project: r.project || 'General',
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          isPinned: Boolean(r.isPinned),
+          linkedItemId: r.linkedItemId ? Number(r.linkedItemId) : null,
+          ownerEmail: r.ownerEmail || '',
+          isSharedWithMe,
+          sharedWithEmails: Array.isArray(r.sharedWithEmails) ? r.sharedWithEmails : [],
+          upd: r.updatedAt || r.createdAt || '',
+          raw: r,
+        });
+      });
+    }
+
+    if (effectiveLayer !== 'mine') {
+      const teamPool = (poolAll || items || []).filter((r) => r && isResType(r.type));
+      teamPool.forEach((r) => {
+        const kind =
+          r.type === 'script'
+            ? 'script'
+            : r.type === 'service'
+            ? 'tool'
+            : r.type === 'template'
+            ? 'template'
+            : 'link';
+        out.push({
+          id: `team:${r.id}`,
+          rawId: r.id,
+          source: 'team',
+          kind,
+          title: r.title || 'Team Resource',
+          url: r.url || '',
+          snippet: extractTeamSnippet(r.body),
+          notes: r.desc || '',
+          project: r.disc || 'General',
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          isPinned: favs.includes(r.id),
+          linkedItemId: r.id,
+          ownerEmail: '',
+          isSharedWithMe: false,
+          sharedWithEmails: [],
+          upd: r.upd || '',
+          raw: r,
+        });
+      });
+    }
+
+    return out.sort((a, b) => {
+      if (Boolean(a.isPinned) !== Boolean(b.isPinned)) return a.isPinned ? -1 : 1;
+      if (a.source !== b.source) return a.source === 'mine' ? -1 : 1;
+      return String(b.upd || '').localeCompare(String(a.upd || ''));
+    });
+  }, [isGuest, effectiveLayer, privResources, currentEmail, poolAll, items, favs]);
+
+  const visibleScriptLinks = useMemo(() => {
+    const activeProj = projectFilter && projectFilter !== 'all' ? projectFilter.trim().toLowerCase() : '';
+    const projTokens = activeProj ? activeProj.split(/[^a-z0-9]+/).filter((w) => w.length >= 3) : [];
+    const qLow = spaceQuery.trim().toLowerCase();
+    const qTokens = qLow ? tokenizeUnique(qLow) : [];
+
+    return unifiedScriptLinks.filter((entry) => {
+      if (activeProj) {
+        const hayProj = `${entry.project || ''} ${(entry.tags || []).join(' ')} ${entry.title || ''} ${entry.notes || ''}`.toLowerCase();
+        const projExact = String(entry.project || 'General').trim().toLowerCase() === activeProj;
+        const projMatch =
+          projExact ||
+          (entry.source === 'team' &&
+            (hayProj.includes(activeProj) || (projTokens.length > 0 && projTokens.some((tk) => hayProj.includes(tk)))));
+        if (!projMatch) return false;
+      }
+
+      if (scriptKindFilter === 'scripts') {
+        if (!['script', 'snippet', 'tool'].includes(entry.kind) && !entry.snippet) return false;
+      } else if (scriptKindFilter === 'links') {
+        if (entry.kind !== 'link' && !entry.url) return false;
+      } else if (scriptKindFilter === 'templates') {
+        if (entry.kind !== 'template') return false;
+      } else if (scriptKindFilter === 'pinned') {
+        if (!entry.isPinned) return false;
+      }
+
+      if (qLow) {
+        const hayAll = `${entry.title || ''} ${entry.url || ''} ${entry.snippet || ''} ${entry.notes || ''} ${entry.project || ''} ${entry.kind || ''} ${(entry.tags || []).join(' ')}`.toLowerCase();
+        if (!hayAll.includes(qLow) && !(qTokens.length > 0 && qTokens.every((tk) => hayAll.includes(tk)))) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [unifiedScriptLinks, projectFilter, scriptKindFilter, spaceQuery]);
 
   const ensureStageOpen = () => {
     if (!stageOpen && onStageOpenChange) onStageOpenChange(true);
@@ -1669,9 +1800,18 @@ export function KnowledgeSpaceView({
     if (!vp) return undefined;
 
     const onWheel = (e) => {
-      if (isHeroModeRef.current || activeFormationRef.current === 'kits') return;
+      if (
+        isHeroModeRef.current ||
+        activeFormationRef.current === 'kits' ||
+        activeFormationRef.current === 'tasks' ||
+        activeFormationRef.current === 'scripts'
+      ) return;
       if (document.querySelector('.side.open, .ov')) return;
-      if (e.target && e.target.closest && e.target.closest('.asel-menu,.pop,.dr,.kspace-dock,.kspace-cmd-pop,.kspace-graph-selbar,.kspace-kit-crumb')) return;
+      if (
+        e.target &&
+        e.target.closest &&
+        e.target.closest('.asel-menu,.pop,.dr,.kspace-dock,.kspace-cmd-pop,.kspace-graph-selbar,.kspace-kit-crumb,.kspace-tasks-wrap')
+      ) return;
 
       const mode = activeFormationRef.current;
       if (mode === 'graph') {
@@ -1725,7 +1865,7 @@ export function KnowledgeSpaceView({
 
     vp.addEventListener('wheel', onWheel, { passive: false });
     return () => vp.removeEventListener('wheel', onWheel);
-  }, []);
+  }, [isTasksView, isScriptsView, isMobile, Boolean(count)]);
 
   const stepRotate = (dir) => {
     const mode = activeFormationRef.current;
@@ -1994,7 +2134,13 @@ export function KnowledgeSpaceView({
   };
 
   const onPointerDown = (e) => {
-    if (e.button !== 0 || isHeroModeRef.current || activeFormationRef.current === 'kits') return;
+    if (
+      e.button !== 0 ||
+      isHeroModeRef.current ||
+      activeFormationRef.current === 'kits' ||
+      activeFormationRef.current === 'tasks' ||
+      activeFormationRef.current === 'scripts'
+    ) return;
     if (document.querySelector('.side.open, .ov')) return;
     if (e.target && e.target.closest && e.target.closest('button,a,input')) {
       if (e.target.closest('.acts,.kspace-open-link,.kspace-dock,.kspace-topbar,.kspace-graph-selbar,.kspace-kit-crumb')) return;
@@ -2212,15 +2358,27 @@ export function KnowledgeSpaceView({
       return k < 0 ? r.desc : (k > 40 ? '…' : '') + b.slice(Math.max(0, k - 40), k + 90);
     };
 
+    const scriptMatches = qLow
+      ? unifiedScriptLinks
+          .filter((entry) => {
+            if (entry.source === 'team' && docPool.some((d) => d.id === entry.rawId)) return false;
+            const hay = `${entry.title || ''} ${entry.url || ''} ${entry.snippet || ''} ${entry.notes || ''} ${entry.project || ''} ${entry.kind || ''}`.toLowerCase();
+            return hay.includes(qLow);
+          })
+          .slice(0, 4)
+      : [];
+
     const actions = [
       ...(can.createDraft(role) ? [['Create article or resource', 'plus', 'new']] : []),
       ...(!isGuest && onOpenTasks ? [[`My Tasks & Second Brain${openTasksCount > 0 ? ` (${openTasksCount})` : ''}`, 'check', 'tasks']] : []),
       ...(!isGuest && onOpenQuickCapture ? [['New Personal Task (Alt+N)', 'plus', 'quick-task']] : []),
       ...(!isGuest && onOpenQuickCapture ? [['New Private Note', 'note', 'quick-note']] : []),
+      ...(!isGuest && onOpenQuickCapture ? [['Save Script or Link', 'code', 'quick-resource']] : []),
       ...(onImportDocx ? [['Import .docx document', 'doc', 'import-docx']] : []),
       ['3D Space Carousel', 'globe', 'view-mode', 'space'],
       ['Grid View (Flat Matrix)', 'layout', 'view-mode', 'grid'],
       ['Dependency Graph', 'graph', 'view-mode', 'graph'],
+      ['Scripts & Links Hub', 'code', 'view-mode', 'scripts'],
       ['Playbooks & Kits', 'folder', 'view-mode', 'kits'],
       ...(can.admin(role) ? [['Administration & Governance', 'shield', 'view', 'admin']] : []),
       ['Change theme', 'spark', 'theme'],
@@ -2230,7 +2388,7 @@ export function KnowledgeSpaceView({
       ...recentEntries,
       ...docPool.map((r) => ({
         docId: r.id,
-        t: r.title,
+        t: r.title || 'Untitled Draft',
         d: snip(r),
         n: r.type,
         c: DC[r.disc],
@@ -2239,6 +2397,23 @@ export function KnowledgeSpaceView({
           const idx = displayItems.findIndex((x) => x.id === r.id);
           const colAngle = idx >= 0 && layout.positions[idx] ? layout.positions[idx].angle : undefined;
           triggerOpenCard(r.id, idx, colAngle);
+        },
+      })),
+      ...scriptMatches.map((entry) => ({
+        t: entry.title,
+        d: `${entry.source === 'team' ? 'Team' : 'Mine'} · ${entry.kind}${entry.project ? ` · ${entry.project}` : ''}`,
+        n: entry.kind === 'link' ? 'link' : 'code',
+        c: entry.source === 'team' ? '#0a84ff' : '#30d158',
+        run: () => {
+          onSetCmdOpen && onSetCmdOpen(false);
+          if (entry.source === 'team') {
+            ensureStageOpen();
+            triggerOpenCard(entry.rawId);
+          } else if (onOpenBrainSource) {
+            onOpenBrainSource({ id: `res:${entry.rawId}` });
+          } else {
+            onSelectViewMode && onSelectViewMode('scripts');
+          }
         },
       })),
       ...actions.map((a) => ({
@@ -2262,14 +2437,36 @@ export function KnowledgeSpaceView({
       })),
       ...(qLow
         ? [
-            ...(/^\/(?:todo|task|таск|задача|note|нотатка)\s+/i.test(qTrim)
+            ...(/^\/(?:script|scripts|скрипт|link|res|лінк|посилання|ресурс)$/i.test(qTrim) && !isGuest && onOpenBrainSheet
+              ? [
+                  {
+                    t: /^\/(?:script|scripts|скрипт)$/i.test(qTrim)
+                      ? 'Save New Script (Dynamo / pyRevit / Python)'
+                      : 'Save New Link or Tool',
+                    d: 'Open Quick Capture sheet for Scripts & Links',
+                    n: /^\/(?:script|scripts|скрипт)$/i.test(qTrim) ? 'code' : 'link',
+                    c: '#30d158',
+                    run: () => {
+                      onSetCmdOpen && onSetCmdOpen(false);
+                      onOpenBrainSheet({
+                        mode: 'resource',
+                        resKind: /^\/(?:script|scripts|скрипт)$/i.test(qTrim) ? 'script' : 'link',
+                        resScope: effectiveLayer === 'team' ? 'team' : 'mine',
+                      });
+                    },
+                  },
+                ]
+              : []),
+            ...(/^\/(?:todo|task|таск|задача|note|нотатка|script|scripts|link|res|скрипт|лінк|посилання|ресурс)\s+/i.test(qTrim)
               ? [
                   {
                     t: /^\/(?:note|нотатка)/i.test(qTrim)
                       ? `Save Private Note: “${qTrim.replace(/^\/\S+\s+/, '')}”`
+                      : /^\/(?:script|scripts|link|res|скрипт|лінк|посилання|ресурс)/i.test(qTrim)
+                      ? `Save Script / Link: “${qTrim.replace(/^\/\S+\s+/, '')}”`
                       : `Add Personal Task: “${qTrim.replace(/^\/\S+\s+/, '')}”`,
-                    d: 'Instant capture → Supabase (Today)',
-                    n: 'check',
+                    d: 'Instant capture → Supabase',
+                    n: /^\/(?:script|scripts|link|res|скрипт|лінк|посилання|ресурс)/i.test(qTrim) ? 'code' : 'check',
                     c: '#30d158',
                     run: () => {
                       onSetCmdOpen && onSetCmdOpen(false);
@@ -2301,14 +2498,15 @@ export function KnowledgeSpaceView({
           ]
         : []),
     ];
-  }, [spaceQuery, recentSearches, displayItems, tree, role, layout, onCommand, onSetCmdOpen, onSelectViewMode, isGuest, openTasksCount, todayTaskCount]);
+  }, [spaceQuery, recentSearches, displayItems, unifiedScriptLinks, tree, role, layout, onCommand, onSetCmdOpen, onSelectViewMode, onOpenBrainSource, onOpenBrainSheet, effectiveLayer, isGuest, openTasksCount, todayTaskCount]);
 
-  const highlightCmdText = (text) => {
+  const highlightCmdText = (text = '') => {
+    const safeText = String(text || '');
     const qLow = spaceQuery.trim().toLowerCase();
-    const idx = qLow ? text.toLowerCase().indexOf(qLow) : -1;
+    const idx = qLow ? safeText.toLowerCase().indexOf(qLow) : -1;
     return idx < 0
-      ? text
-      : html`${text.slice(0, idx)}<mark>${text.slice(idx, idx + qLow.length)}</mark>${text.slice(idx + qLow.length)}`;
+      ? safeText
+      : html`<${Fragment}>${safeText.slice(0, idx)}<mark key="m">${safeText.slice(idx, idx + qLow.length)}</mark>${safeText.slice(idx + qLow.length)}</${Fragment}>`;
   };
 
   const activeDisc = f.disc || '';
@@ -2454,6 +2652,7 @@ export function KnowledgeSpaceView({
           ${!isHeroMode &&
           !isKitsOverview &&
           !isTasksView &&
+          !isScriptsView &&
           isNarrowed &&
           html`<span
             className="kspace-cnt"
@@ -2664,7 +2863,7 @@ export function KnowledgeSpaceView({
     </div>`}
 
     ${isTasksView
-      ? html`<div className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+      ? html`<div key="kspace-tasks-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
           <${SecondBrainView}
             embedded=${true}
             externalQuery=${spaceQuery}
@@ -2703,9 +2902,306 @@ export function KnowledgeSpaceView({
             onPromoteNoteToDoc=${onPromoteNoteToDoc}
           />
         </div>`
+      : isScriptsView
+      ? html`<div key="kspace-scripts-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+          <div className="pl-wrap is-wide is-embedded">
+            <div className="pl-head">
+              <div className="pl-head-l">
+                <div className="pl-stats">
+                  <span>
+                    ${visibleScriptLinks.length} ${visibleScriptLinks.length === 1 ? 'item' : 'scripts & links'} · ${effectiveLayer === 'team' ? 'Shared Catalog' : effectiveLayer === 'mine' ? 'Personal Supabase' : 'Mine + Team'}
+                  </span>
+                  <i
+                    className=${'pl-sync-dot' + (brainSyncState === 'saving' ? ' busy' : brainSyncState === 'error' ? ' err' : '')}
+                    title=${brainSyncState === 'saving' ? 'Syncing…' : brainSyncState === 'error' ? 'Local cache' : 'Synced to Supabase'}
+                  />
+                </div>
+              </div>
+
+              <div
+                className="pl-head-r"
+                style=${isMobile
+                  ? { flexWrap: 'wrap', gap: 8, width: '100%' }
+                  : { flexWrap: 'wrap', justifyContent: 'flex-end' }}
+              >
+                <div
+                  className="seg"
+                  role="tablist"
+                  aria-label="Scripts and Links filter"
+                  style=${isMobile
+                    ? { marginTop: 0, width: '100%', flex: '1 1 100%', overflowX: 'auto' }
+                    : { marginTop: 0 }}
+                >
+                  ${[
+                    ['all', 'All'],
+                    ['scripts', 'Scripts & Code'],
+                    ['links', 'Links & Portals'],
+                    ['templates', 'Templates'],
+                    ['pinned', 'Pinned'],
+                  ].map(
+                    ([fk, flbl]) => html`<button
+                      key=${'skf-' + fk}
+                      type="button"
+                      role="tab"
+                      aria-selected=${scriptKindFilter === fk}
+                      className=${scriptKindFilter === fk ? 'on' : ''}
+                      style=${isMobile ? { flex: '0 0 auto', padding: '0 10px' } : undefined}
+                      onClick=${() => setScriptKindFilter(fk)}
+                    >
+                      ${flbl}
+                    </button>`
+                  )}
+                </div>
+
+                ${!isGuest &&
+                onOpenBrainSheet &&
+                html`<div style=${isMobile ? { display: 'flex', gap: 8, width: '100%' } : { display: 'contents' }}>
+                  <button
+                    type="button"
+                    className="btn sm p"
+                    style=${isMobile ? { flex: 1, justifyContent: 'center' } : undefined}
+                    onClick=${() =>
+                      onOpenBrainSheet({
+                        mode: 'resource',
+                        resKind: 'script',
+                        resScope: effectiveLayer === 'team' ? 'team' : 'mine',
+                        project: projectFilter && projectFilter !== 'all' ? projectFilter : '',
+                      })
+                    }
+                  >
+                    <${Ic} n="code" s=${14} />
+                    <span>+ New Script</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn sm"
+                    style=${isMobile ? { flex: 1, justifyContent: 'center' } : undefined}
+                    onClick=${() =>
+                      onOpenBrainSheet({
+                        mode: 'resource',
+                        resKind: 'link',
+                        resScope: effectiveLayer === 'team' ? 'team' : 'mine',
+                        project: projectFilter && projectFilter !== 'all' ? projectFilter : '',
+                      })
+                    }
+                  >
+                    <${Ic} n="link" s=${14} />
+                    <span>+ New Link</span>
+                  </button>
+                </div>`}
+              </div>
+            </div>
+
+            ${visibleScriptLinks.length
+              ? html`<div className="pl-res-grid">
+                  ${visibleScriptLinks.map((entry) => {
+                    const isHl = brainHighlightId && String(brainHighlightId) === String(entry.rawId);
+                    const isMine = entry.source === 'mine';
+                    const isOwner = isMine && !entry.isSharedWithMe;
+                    const sharedCnt = Array.isArray(entry.sharedWithEmails) ? entry.sharedWithEmails.length : 0;
+                    const linkedDoc = isMine && entry.linkedItemId ? poolById.get(Number(entry.linkedItemId)) : null;
+                    const copyTxt = entry.snippet || entry.url || entry.notes || '';
+                    const isBookmarkedTeam = !isMine && favs.includes(entry.rawId);
+
+                    return html`<div
+                      key=${entry.id}
+                      className=${'pl-res-card' + (entry.isPinned ? ' pin' : '')}
+                      style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
+                    >
+                      <div className="pl-note-head">
+                        <div className="pl-note-title">${entry.title}</div>
+                        <div className="row" style=${{ gap: 5, flexWrap: 'nowrap', flex: 'none' }}>
+                          ${!isMine
+                            ? html`<span className="pl-res-shared-tag" style=${{ background: 'rgba(10,132,255,0.14)', color: 'var(--blue)' }}>
+                                Team${entry.project && entry.project !== 'General' ? ` · ${entry.project}` : ''}
+                              </span>`
+                            : entry.isSharedWithMe
+                            ? html`<span className="pl-res-shared-tag" title=${entry.ownerEmail || ''}>
+                                From ${(entry.ownerEmail || 'team').split('@')[0]}
+                              </span>`
+                            : html`<span className="pl-res-shared-tag">
+                                Mine${sharedCnt > 0 ? ` · Shared ${sharedCnt}` : ''}
+                              </span>`}
+                          <span className="pl-note-proj">${entry.kind}</span>
+                        </div>
+                      </div>
+
+                      ${entry.url &&
+                      html`<a
+                        className="pl-res-url"
+                        href=${entry.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <${Ic} n="openx" s=${12} />
+                        <span>${linkDisplayHost(entry.url) || entry.url}</span>
+                      </a>`}
+
+                      ${entry.snippet && html`<pre className="pl-res-snip">${entry.snippet}</pre>`}
+
+                      ${entry.notes &&
+                      entry.notes !== entry.snippet &&
+                      html`<div className="pl-n" style=${{ WebkitLineClamp: 3 }}>${entry.notes}</div>`}
+
+                      <div className="row" style=${{ gap: 6, flexWrap: 'wrap' }}>
+                        ${isMine &&
+                        entry.project &&
+                        entry.project !== 'General' &&
+                        html`<span className="pl-note-proj">${entry.project}</span>`}
+                        ${linkedDoc &&
+                        html`<button
+                          type="button"
+                          className="pl-doc-lk"
+                          onClick=${() => onRead && onRead(linkedDoc.id)}
+                        >
+                          <${Ic} n="doc" s=${10} />
+                          <span>${linkedDoc.title}</span>
+                        </button>`}
+                      </div>
+
+                      <div className="pl-note-foot">
+                        <div className="pl-note-acts">
+                          ${copyTxt &&
+                          html`<button
+                            type="button"
+                            className="pl-mv-btn"
+                            onClick=${() => {
+                              if (navigator.clipboard && navigator.clipboard.writeText) {
+                                navigator.clipboard.writeText(copyTxt).catch(() => {});
+                              }
+                              setCopiedScriptId(entry.id);
+                              setTimeout(() => setCopiedScriptId((cur) => (cur === entry.id ? null : cur)), 1600);
+                            }}
+                          >
+                            ${copiedScriptId === entry.id
+                              ? 'Copied!'
+                              : entry.snippet
+                              ? 'Copy Script'
+                              : 'Copy Link'}
+                          </button>`}
+
+                          ${!isMine
+                            ? html`<${Fragment}>
+                                <button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  onClick=${() => onRead && onRead(entry.rawId)}
+                                >
+                                  Open Standard
+                                </button>
+                                ${onInspect &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  onClick=${() => onInspect(entry.rawId)}
+                                >
+                                  Inspect
+                                </button>`}
+                                ${onToggleFav &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  onClick=${() => onToggleFav(entry.rawId)}
+                                >
+                                  ${isBookmarkedTeam ? 'Bookmarked' : 'Bookmark'}
+                                </button>`}
+                              </${Fragment}>`
+                            : html`<${Fragment}>
+                                ${isOwner &&
+                                onSaveResource &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  onClick=${() => onSaveResource({ ...entry.raw, isPinned: !entry.raw.isPinned })}
+                                >
+                                  ${entry.isPinned ? 'Pinned' : 'Pin'}
+                                </button>`}
+                                ${isOwner &&
+                                onOpenBrainSheet &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  onClick=${() => onOpenBrainSheet({ mode: 'resource', resource: entry.raw })}
+                                >
+                                  Edit
+                                </button>`}
+                                ${isOwner &&
+                                onShareResource &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  title="Share with teammates"
+                                  onClick=${() => setScriptShareTarget(entry.raw)}
+                                >
+                                  Share${sharedCnt ? ` (${sharedCnt})` : ''}
+                                </button>`}
+                                ${isOwner &&
+                                onSuggestResourceToTeam &&
+                                html`<button
+                                  type="button"
+                                  className="pl-mv-btn"
+                                  title="Submit to Team KB / Governance"
+                                  onClick=${() => onSuggestResourceToTeam(entry.raw)}
+                                >
+                                  → Team KB
+                                </button>`}
+                              </${Fragment}>`}
+                        </div>
+
+                        ${isOwner &&
+                        onDeleteResource &&
+                        html`<button
+                          type="button"
+                          className="pl-row-del"
+                          style=${{ opacity: 1 }}
+                          title="Delete script or link"
+                          onClick=${() => onDeleteResource(entry.rawId)}
+                        >
+                          <${Ic} n="trash" s=${13} />
+                        </button>`}
+                      </div>
+                    </div>`;
+                  })}
+                </div>`
+              : html`<div className="empty" style=${{ padding: '72px 20px' }}>
+                  <${Ic} n="code" s=${30} />
+                  <b>No scripts or links match this filter</b>
+                  <span>Save Revit / Dynamo / pyRevit scripts, Google Docs portals, or switch All / Mine / Team.</span>
+                  <div style=${{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                    ${scriptKindFilter !== 'all' &&
+                    html`<button type="button" className="btn" onClick=${() => setScriptKindFilter('all')}>
+                      Show all types
+                    </button>`}
+                    ${!isGuest &&
+                    onOpenBrainSheet &&
+                    html`<button
+                      type="button"
+                      className="btn p"
+                      onClick=${() =>
+                        onOpenBrainSheet({
+                          mode: 'resource',
+                          resKind: 'script',
+                          resScope: effectiveLayer === 'team' ? 'team' : 'mine',
+                        })
+                      }
+                    >
+                      <${Ic} n="plus" s=${14} /> Add Script
+                    </button>`}
+                  </div>
+                </div>`}
+          </div>
+          <${ResourceShareModal}
+            shareTarget=${scriptShareTarget}
+            onClose=${() => setScriptShareTarget(null)}
+            users=${brainUsers}
+            currentEmail=${currentEmail}
+            onShareResource=${onShareResource}
+          />
+        </div>`
       : !isMobile &&
         (count
       ? html`<div
+          key="kspace-viewport"
           ref=${viewportRef}
           aria-hidden=${isHeroMode || isKitsOverview ? 'true' : undefined}
           className=${'kspace-viewport' +
@@ -3045,7 +3541,7 @@ export function KnowledgeSpaceView({
         <div className="kspace-cmd-list">
           ${cmdItems.map(
             (item, k) => html`<button
-              key=${k}
+              key=${item.docId ? `doc-${item.docId}` : `cmd-${k}-${item.t || ''}`}
               type="button"
               className=${'kspace-cmd-item' + (k === cmdIdx ? ' on' : '')}
               onMouseMove=${() => setCmdIdx(k)}
@@ -3174,6 +3670,8 @@ export function KnowledgeSpaceView({
       !cmdOpen &&
       !isHeroMode &&
       !isKitsOverview &&
+      !isTasksView &&
+      !isScriptsView &&
       spaceQuery.trim() &&
       queryIntent === 'search' &&
       displayItems.length > 0 &&
@@ -3737,6 +4235,7 @@ export function KnowledgeSpaceView({
       !mobHistoryOpen &&
       !isKitsOverview &&
       !isTasksView &&
+      !isScriptsView &&
       !activeKit &&
       !cmdOpen &&
       (() => {
@@ -3936,6 +4435,18 @@ export function KnowledgeSpaceView({
               onClick=${() => {
                 setMobMenuOpen(false);
                 onSelectKit && onSelectKit(null);
+                onSelectViewMode && onSelectViewMode('scripts');
+              }}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="code" s=${19} /></span>
+              <span>Scripts & Links</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => {
+                setMobMenuOpen(false);
+                onSelectKit && onSelectKit(null);
                 onSelectViewMode && onSelectViewMode('kits');
               }}
             >
@@ -4036,6 +4547,8 @@ export function KnowledgeSpaceView({
             ? 'Ask Datum AI or search…'
             : isKitsOverview
             ? 'Search Starter Kits or ask Datum AI…'
+            : isScriptsView
+            ? 'Filter Scripts & Links or ask Datum AI (EN/UA)…'
             : activeFormation === 'graph'
             ? 'Filter Graph nodes or ask Datum AI (EN/UA)…'
             : activeFormation === 'grid'
@@ -4044,6 +4557,8 @@ export function KnowledgeSpaceView({
           aria-label="Search Knowledge Base, ask Datum AI, or open commands"
         />
         ${hasReactiveFilter &&
+        !isTasksView &&
+        !isScriptsView &&
         (isMobile
           ? html`<button
               type="button"
@@ -4225,6 +4740,7 @@ export function KnowledgeSpaceView({
       !isHeroMode &&
       !isKitsOverview &&
       !isTasksView &&
+      !isScriptsView &&
         (activeFormation === 'graph'
           ? html`<div className="kspace-hud is-graph-hud" role="toolbar" aria-label="Graph navigation controls">
               <div className="kspace-graph-modes" role="group" aria-label="Graph layout">

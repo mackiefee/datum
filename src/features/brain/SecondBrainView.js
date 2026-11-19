@@ -62,6 +62,109 @@ function priorityOf(t) {
   return t.isUrgent ? 3 : 0;
 }
 
+export function ResourceShareModal({ shareTarget, onClose, users = [], currentEmail = '', onShareResource }) {
+  const [shareEmails, setShareEmails] = useState([]);
+  const [shareBusy, setShareBusy] = useState(false);
+
+  useEffect(() => {
+    setShareEmails(Array.isArray(shareTarget?.sharedWithEmails) ? shareTarget.sharedWithEmails : []);
+    setShareBusy(false);
+  }, [shareTarget?.id]);
+
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
+  if (!portalRoot || !shareTarget) return null;
+
+  const myEmailLower = String(currentEmail || '').trim().toLowerCase();
+  const teammates = (users || []).filter(
+    (u) => u && u.email && String(u.email).trim().toLowerCase() !== myEmailLower && u.role !== 'Guest'
+  );
+
+  const toggleShareEmail = (em) => {
+    const low = String(em || '').trim().toLowerCase();
+    if (!low) return;
+    setShareEmails((prev) => (prev.includes(low) ? prev.filter((x) => x !== low) : [...prev, low]));
+  };
+
+  const commitShare = async () => {
+    if (!onShareResource || shareBusy) return;
+    setShareBusy(true);
+    try {
+      await onShareResource(shareTarget, shareEmails);
+      onClose && onClose();
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  return createPortal(
+    html`<div
+      className="qc-ov"
+      onClick=${(e) => {
+        if (e.target === e.currentTarget && !shareBusy && onClose) onClose();
+      }}
+    >
+      <div className="qc-sheet" role="dialog" aria-modal="true" aria-label="Share resource with teammates">
+        <div className="qc-sh">
+          <button
+            type="button"
+            className="qc-sh-cancel"
+            disabled=${shareBusy}
+            onClick=${() => onClose && onClose()}
+          >
+            Cancel
+          </button>
+          <b>Share Script / Link</b>
+          <button
+            type="button"
+            className="btn sm p qc-sh-save"
+            disabled=${shareBusy}
+            onClick=${commitShare}
+          >
+            ${shareBusy ? 'Saving…' : 'Done'}
+          </button>
+        </div>
+
+        <div className="pl-sheet-foot">
+          Sharing “${shareTarget.title}” makes a copy appear directly in selected teammates' Scripts & Links hub.
+        </div>
+
+        <div className="qc-cell">
+          ${teammates.length > 0
+            ? teammates.map((u) => {
+                const em = String(u.email).toLowerCase();
+                const isSel = shareEmails.includes(em);
+                return html`<button
+                  key=${em}
+                  type="button"
+                  className="pl-share-row"
+                  onClick=${() => toggleShareEmail(em)}
+                >
+                  <span className="pl-share-row-l">
+                    <span className="pl-share-av">
+                      ${u.avatar
+                        ? html`<img src=${u.avatar} alt="" />`
+                        : (u.name || em).slice(0, 2).toUpperCase()}
+                    </span>
+                    <span className="pl-share-meta">
+                      <b>${u.name || em}</b>
+                      <span>${em}${u.role ? ` · ${u.role}` : ''}</span>
+                    </span>
+                  </span>
+                  <span style=${{ color: isSel ? 'var(--blue)' : 'var(--sub)' }}>
+                    ${isSel ? html`<${Ic} n="check" s=${15} />` : 'Add'}
+                  </span>
+                </button>`;
+              })
+            : html`<div style=${{ padding: '16px 14px', fontSize: 13.5, color: 'var(--sub)' }}>
+                No other workspace members found yet.
+              </div>`}
+        </div>
+      </div>
+    </div>`,
+    portalRoot
+  );
+}
+
 export function SecondBrainView({
   tasks = [],
   notes = [],
@@ -126,8 +229,6 @@ export function SecondBrainView({
   const [expandedLinksIds, setExpandedLinksIds] = useState(() => new Set());
   const [morePos, setMorePos] = useState(null);
   const [shareTarget, setShareTarget] = useState(null);
-  const [shareEmails, setShareEmails] = useState([]);
-  const [shareBusy, setShareBusy] = useState(false);
   const [copiedResId, setCopiedResId] = useState(null);
 
   const moreBtnRef = useRef(null);
@@ -212,14 +313,6 @@ export function SecondBrainView({
 
   const docById = useMemo(() => new Map((docs || []).map((d) => [Number(d.id), d])), [docs]);
   const myEmailLower = String(currentEmail || '').trim().toLowerCase();
-  const teammates = useMemo(
-    () =>
-      (users || []).filter(
-        (u) => u && u.email && String(u.email).trim().toLowerCase() !== myEmailLower && u.role !== 'Guest'
-      ),
-    [users, myEmailLower]
-  );
-
   const statusOptions = useMemo(
     () =>
       (statuses && statuses.length ? statuses : DEFAULT_PLANNER_STATUSES).map((s) => ({
@@ -745,7 +838,7 @@ export function SecondBrainView({
   const hasSecondaryChips = filterTab === 'tasks' || smartChips.length > 0 || (!embedded && activeProjects.length > 1);
   const createMode = filterTab === 'notes' ? 'note' : filterTab === 'resources' ? 'resource' : 'task';
   const createLabel =
-    filterTab === 'notes' ? 'New Note' : filterTab === 'resources' ? 'New Resource' : 'New Task';
+    filterTab === 'notes' ? 'New Note' : filterTab === 'resources' ? 'New Script / Link' : 'New Task';
   const openCreateModal = () =>
     onOpenSheet &&
     onOpenSheet({
@@ -765,24 +858,6 @@ export function SecondBrainView({
 
   const openShareModal = (r) => {
     setShareTarget(r);
-    setShareEmails(Array.isArray(r.sharedWithEmails) ? r.sharedWithEmails : []);
-  };
-
-  const toggleShareEmail = (em) => {
-    const low = String(em || '').trim().toLowerCase();
-    if (!low) return;
-    setShareEmails((prev) => (prev.includes(low) ? prev.filter((x) => x !== low) : [...prev, low]));
-  };
-
-  const commitShare = async () => {
-    if (!shareTarget || !onShareResource || shareBusy) return;
-    setShareBusy(true);
-    try {
-      await onShareResource(shareTarget, shareEmails);
-      setShareTarget(null);
-    } finally {
-      setShareBusy(false);
-    }
   };
 
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
@@ -819,7 +894,7 @@ export function SecondBrainView({
             ['tasks', 'Tasks'],
             ['focus', 'Focus'],
             ['notes', 'Notes'],
-            ['resources', 'Resources'],
+            ['resources', 'Scripts & Links'],
           ].map(
             ([k, lbl]) => html`<button
               key=${k}
@@ -1307,7 +1382,7 @@ export function SecondBrainView({
               const isOwner = !isSharedWithMe;
               const linkedDoc = r.linkedItemId ? docById.get(Number(r.linkedItemId)) : null;
               const snipTxt =
-                r.snippet || ((r.kind === 'snippet' || r.kind === 'template') && r.notes ? r.notes : '');
+                r.snippet || ((r.kind === 'script' || r.kind === 'snippet' || r.kind === 'template') && r.notes ? r.notes : '');
               return html`<div
                 key=${r.id}
                 className=${'pl-res-card' + (r.isPinned ? ' pin' : '')}
@@ -1546,75 +1621,13 @@ export function SecondBrainView({
       <${Ic} n="plus" s=${24} />
     </button>`}
 
-    ${portalRoot &&
-    shareTarget &&
-    createPortal(
-      html`<div
-        className="qc-ov"
-        onClick=${(e) => {
-          if (e.target === e.currentTarget && !shareBusy) setShareTarget(null);
-        }}
-      >
-        <div className="qc-sheet" role="dialog" aria-modal="true" aria-label="Share resource with teammates">
-          <div className="qc-sh">
-            <button
-              type="button"
-              className="qc-sh-cancel"
-              disabled=${shareBusy}
-              onClick=${() => setShareTarget(null)}
-            >
-              Cancel
-            </button>
-            <b>Share Resource</b>
-            <button
-              type="button"
-              className="btn sm p qc-sh-save"
-              disabled=${shareBusy}
-              onClick=${commitShare}
-            >
-              ${shareBusy ? 'Saving…' : 'Done'}
-            </button>
-          </div>
-
-          <div className="pl-sheet-foot">
-            Sharing “${shareTarget.title}” makes a read-only copy appear directly in selected teammates' Personal Resources tab.
-          </div>
-
-          <div className="qc-cell">
-            ${teammates.length > 0
-              ? teammates.map((u) => {
-                  const em = String(u.email).toLowerCase();
-                  const isSel = shareEmails.includes(em);
-                  return html`<button
-                    key=${em}
-                    type="button"
-                    className="pl-share-row"
-                    onClick=${() => toggleShareEmail(em)}
-                  >
-                    <span className="pl-share-row-l">
-                      <span className="pl-share-av">
-                        ${u.avatar
-                          ? html`<img src=${u.avatar} alt="" />`
-                          : (u.name || em).slice(0, 2).toUpperCase()}
-                      </span>
-                      <span className="pl-share-meta">
-                        <b>${u.name || em}</b>
-                        <span>${em}${u.role ? ` · ${u.role}` : ''}</span>
-                      </span>
-                    </span>
-                    <span style=${{ color: isSel ? 'var(--blue)' : 'var(--sub)' }}>
-                      ${isSel ? html`<${Ic} n="check" s=${15} />` : 'Add'}
-                    </span>
-                  </button>`;
-                })
-              : html`<div style=${{ padding: '16px 14px', fontSize: 13.5, color: 'var(--sub)' }}>
-                  No other workspace members found yet.
-                </div>`}
-          </div>
-        </div>
-      </div>`,
-      portalRoot
-    )}
+    <${ResourceShareModal}
+      shareTarget=${shareTarget}
+      onClose=${() => setShareTarget(null)}
+      users=${users}
+      currentEmail=${currentEmail}
+      onShareResource=${onShareResource}
+    />
 
     ${portalRoot &&
     morePos &&

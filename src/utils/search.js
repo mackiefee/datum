@@ -39,6 +39,7 @@ const SYNONYM_GROUPS = [
   ['розмір', 'розміри', 'розмірів', 'допуск', 'допуски', 'допусків', 'dimension', 'dimensions', 'tolerance', 'tolerances'],
   ['аксесуари', 'доступність', 'інклюзивність', 'пандус', 'санвузол', 'accessibility', 'egress', 'corridor', 'ada'],
   ['креслення', 'аркуш', 'аркуші', 'штамп', 'легенда', 'специфікація', 'sheet', 'sheets', 'plan', 'plans', 'legend', 'legends', 'title', 'blocks', 'specs', 'schedule'],
+  ['скрипт', 'скрипти', 'скриптів', 'код', 'макрос', 'дінамо', 'пайтон', 'піревіт', 'посилання', 'лінк', 'лінки', 'ресурс', 'ресурси', 'script', 'scripts', 'snippet', 'snippets', 'dynamo', 'pyrevit', 'python', 'macro', 'link', 'links', 'portal', 'tool', 'tools'],
 ];
 
 const STEM_INDEX = new Map();
