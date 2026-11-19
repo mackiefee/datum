@@ -123,6 +123,69 @@ export function ScriptLinkRow({
   const copyTxt = entry.snippet || entry.url || entry.notes || '';
   const hasNotes = Boolean(entry.notes && entry.notes !== entry.snippet);
 
+  const [menuPos, setMenuPos] = useState(null);
+  const moreBtnRef = useRef(null);
+  const moreMenuRef = useRef(null);
+  const portalRoot = typeof document !== 'undefined' ? document.body : null;
+
+  const hasSecondaryMenu = Boolean(
+    (entry.snippet && onToggleExpand) ||
+      (copyTxt && onCopy) ||
+      (entry.snippet && entry.url) ||
+      (onOpenStandard && entry.source === 'team') ||
+      onTogglePin ||
+      onInspect ||
+      onEdit ||
+      onShare ||
+      onSuggestToTeam ||
+      onDelete
+  );
+
+  const openMenu = () => {
+    if (menuPos) {
+      setMenuPos(null);
+      return;
+    }
+    const el = moreBtnRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const menuW = 204;
+    const left = Math.max(8, Math.min(rect.right - menuW, window.innerWidth - menuW - 8));
+    const openUp = window.innerHeight - rect.bottom < 250 && rect.top > 250;
+    setMenuPos(
+      openUp
+        ? { left, top: null, bottom: Math.max(8, window.innerHeight - rect.top + 6) }
+        : { left, top: Math.max(8, rect.bottom + 6), bottom: null }
+    );
+  };
+
+  useEffect(() => {
+    if (!menuPos) return undefined;
+    const onDown = (e) => {
+      if (moreBtnRef.current && moreBtnRef.current.contains(e.target)) return;
+      if (moreMenuRef.current && moreMenuRef.current.contains(e.target)) return;
+      setMenuPos(null);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setMenuPos(null);
+      }
+    };
+    const onScroll = (e) => {
+      if (moreMenuRef.current && e.target && moreMenuRef.current.contains(e.target)) return;
+      setMenuPos(null);
+    };
+    document.addEventListener('mousedown', onDown, true);
+    document.addEventListener('keydown', onKey, true);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('keydown', onKey, true);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [menuPos]);
+
   return html`<div className=${'pl-sl-item' + (isHighlighted ? ' is-hl' : '')}>
     <div
       className=${'pl-sl-row' + (entry.snippet ? ' has-code' : '')}
@@ -135,6 +198,10 @@ export function ScriptLinkRow({
       <div className="pl-mid">
         <div className="pl-title-line">
           <span className="pl-t">${entry.title}</span>
+          ${entry.isPinned &&
+          html`<span className="pl-sl-pin-mark" title="Bookmarked">
+            <${Ic} n="star" s=${11} f=${true} />
+          </span>`}
           ${entry.url &&
           html`<a
             className="pl-sl-domain"
@@ -158,6 +225,7 @@ export function ScriptLinkRow({
             }}
           >
             <span>${firstCodeLine}</span>
+            <span className="pl-sl-code-chev" aria-hidden="true"><${Ic} n="chev" s=${10} /></span>
           </button>`}
         </div>
         ${(hasNotes || entry.linkedDoc) &&
@@ -194,23 +262,13 @@ export function ScriptLinkRow({
             </span>`}
 
         ${entry.snippet
-          ? html`<${Fragment}>
-              <button
-                type="button"
-                className=${'pl-mv-btn' + (isCopied ? ' is-copied' : '')}
-                onClick=${onCopy}
-              >
-                ${isCopied ? 'Copied!' : 'Copy'}
-              </button>
-              <button
-                type="button"
-                className="pl-mv-btn"
-                aria-expanded=${isExpanded}
-                onClick=${onToggleExpand}
-              >
-                ${isExpanded ? 'Hide ▴' : 'Code ▾'}
-              </button>
-            </${Fragment}>`
+          ? html`<button
+              type="button"
+              className=${'pl-mv-btn' + (isCopied ? ' is-copied' : '')}
+              onClick=${onCopy}
+            >
+              ${isCopied ? 'Copied!' : 'Copy'}
+            </button>`
           : entry.url
           ? html`<a
               className="pl-mv-btn"
@@ -230,98 +288,22 @@ export function ScriptLinkRow({
             </button>`
           : null}
 
-        <div className=${'pl-sl-acts' + (entry.isPinned ? ' is-pin' : '')}>
-          ${!entry.snippet &&
-          copyTxt &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title=${isCopied ? 'Copied!' : 'Copy link / text'}
-            aria-label="Copy link"
-            onClick=${onCopy}
-          >
-            <${Ic} n=${isCopied ? 'check' : 'dup'} s=${13} />
-          </button>`}
-
-          ${onTogglePin &&
-          html`<button
-            type="button"
-            className=${'pl-sl-ibtn' + (entry.isPinned ? ' on' : '')}
-            title=${entry.isPinned ? 'Remove bookmark / pin' : 'Bookmark / pin'}
-            aria-label=${entry.isPinned ? 'Remove pin' : 'Pin item'}
-            onClick=${onTogglePin}
-          >
-            <${Ic} n="star" s=${13} f=${entry.isPinned} />
-          </button>`}
-
-          ${onOpenStandard &&
-          entry.source === 'team' &&
-          (entry.snippet || entry.url) &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title="Open Standard"
-            aria-label="Open Standard"
-            onClick=${() => onOpenStandard(entry.rawId)}
-          >
-            <${Ic} n="doc" s=${13} />
-          </button>`}
-
-          ${onInspect &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title="Inspect properties"
-            aria-label="Inspect properties"
-            onClick=${onInspect}
-          >
-            <${Ic} n="inspector" s=${13} />
-          </button>`}
-
-          ${onEdit &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title="Edit"
-            aria-label="Edit script or link"
-            onClick=${onEdit}
-          >
-            <${Ic} n="pencil" s=${13} />
-          </button>`}
-
-          ${onShare &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title="Share with teammates"
-            aria-label="Share with teammates"
-            onClick=${onShare}
-          >
-            <${Ic} n="teams" s=${13} />
-          </button>`}
-
-          ${onSuggestToTeam &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn"
-            title="Submit to Team KB / Governance"
-            aria-label="Submit to Team KB"
-            onClick=${onSuggestToTeam}
-          >
-            <${Ic} n="swap" s=${13} />
-          </button>`}
-
-          ${onDelete &&
-          html`<button
-            type="button"
-            className="pl-sl-ibtn danger"
-            title="Delete script or link"
-            aria-label="Delete script or link"
-            onClick=${onDelete}
-          >
-            <${Ic} n="trash" s=${13} />
-          </button>`}
-        </div>
+        ${hasSecondaryMenu &&
+        html`<button
+          ref=${moreBtnRef}
+          type="button"
+          className=${'pl-sl-ibtn pl-sl-more' + (menuPos ? ' on' : '')}
+          title="More actions"
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded=${Boolean(menuPos)}
+          onClick=${(e) => {
+            e.stopPropagation();
+            openMenu();
+          }}
+        >
+          <${Ic} n="more" s=${14} />
+        </button>`}
       </div>
     </div>
 
@@ -330,6 +312,171 @@ export function ScriptLinkRow({
     html`<div className="pl-sl-drawer" onClick=${(e) => e.stopPropagation()}>
       <pre className="pl-res-snip">${formatSnippetPreview(entry.snippet)}</pre>
     </div>`}
+
+    ${portalRoot &&
+    menuPos &&
+    createPortal(
+      html`<div
+        ref=${moreMenuRef}
+        className="asel-menu pl-sl-menu"
+        role="menu"
+        style=${{
+          left: `${menuPos.left}px`,
+          top: menuPos.top !== null ? `${menuPos.top}px` : 'auto',
+          bottom: menuPos.bottom !== null ? `${menuPos.bottom}px` : 'auto',
+        }}
+        onClick=${(e) => e.stopPropagation()}
+      >
+        ${entry.snippet &&
+        onToggleExpand &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onToggleExpand();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="code" s=${13} /></span>
+          <span className="asel-tx"><span>${isExpanded ? 'Hide code' : 'Preview code'}</span></span>
+        </button>`}
+
+        ${copyTxt &&
+        onCopy &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onCopy();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="dup" s=${13} /></span>
+          <span className="asel-tx">
+            <span>${entry.snippet ? 'Copy code' : entry.url ? 'Copy link' : 'Copy text'}</span>
+          </span>
+        </button>`}
+
+        ${entry.snippet &&
+        entry.url &&
+        html`<a
+          className="asel-opt"
+          role="menuitem"
+          href=${entry.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick=${() => setMenuPos(null)}
+        >
+          <span className="asel-ck"><${Ic} n="openx" s=${13} /></span>
+          <span className="asel-tx"><span>Open URL</span></span>
+        </a>`}
+
+        ${onOpenStandard &&
+        entry.source === 'team' &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onOpenStandard(entry.rawId);
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="doc" s=${13} /></span>
+          <span className="asel-tx"><span>Open Standard</span></span>
+        </button>`}
+
+        ${onTogglePin &&
+        html`<button
+          type="button"
+          className=${'asel-opt' + (entry.isPinned ? ' is-pin' : '')}
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onTogglePin();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="star" s=${13} f=${entry.isPinned} /></span>
+          <span className="asel-tx"><span>${entry.isPinned ? 'Remove bookmark' : 'Bookmark'}</span></span>
+        </button>`}
+
+        ${onInspect &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onInspect();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="inspector" s=${13} /></span>
+          <span className="asel-tx"><span>Inspect properties</span></span>
+        </button>`}
+
+        ${onEdit &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onEdit();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="pencil" s=${13} /></span>
+          <span className="asel-tx"><span>Edit…</span></span>
+        </button>`}
+
+        ${onShare &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onShare();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="teams" s=${13} /></span>
+          <span className="asel-tx"><span>Share with teammates…</span></span>
+        </button>`}
+
+        ${onSuggestToTeam &&
+        html`<button
+          type="button"
+          className="asel-opt"
+          role="menuitem"
+          onClick=${() => {
+            setMenuPos(null);
+            onSuggestToTeam();
+          }}
+        >
+          <span className="asel-ck"><${Ic} n="swap" s=${13} /></span>
+          <span className="asel-tx"><span>Submit to Team KB</span></span>
+        </button>`}
+
+        ${onDelete &&
+        html`<${Fragment}>
+          <div className="pl-menu-div" />
+          <button
+            type="button"
+            className="asel-opt danger"
+            role="menuitem"
+            onClick=${() => {
+              setMenuPos(null);
+              onDelete();
+            }}
+          >
+            <span className="asel-ck"><${Ic} n="trash" s=${13} /></span>
+            <span className="asel-tx"><span>Delete</span></span>
+          </button>
+        </${Fragment}>`}
+      </div>`,
+      portalRoot
+    )}
   </div>`;
 }
 
