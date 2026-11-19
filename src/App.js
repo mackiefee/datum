@@ -1571,6 +1571,7 @@ export function App() {
     desc,
     url,
     body,
+    snippet = "",
     project,
     kindTag,
     label,
@@ -1582,16 +1583,20 @@ export function App() {
     const defaultNode = "c10-ovw-std";
     const catObj = byId(defaultNode, tree);
     const matchedDisc = DISC.find((d) => d.toLowerCase() === String(project || "").trim().toLowerCase());
-    const targetStatus = publishImmediately && can.admin(role) ? "Approved" : "Review";
+    const resolvedType = itemType || (url ? "link" : "doc");
+    const isResourceItem = ["script", "link", "service", "template"].includes(resolvedType);
+    const targetStatus = publishImmediately && (can.admin(role) || isResourceItem) ? "Approved" : "Review";
     const syncMode = targetStatus === "Approved" ? "save" : "suggest";
+    const fullBody = String(body || "").trim();
     const suggestedItem = {
       id,
       node: defaultNode,
       title: String(title || "Suggested Knowledge Item").trim(),
-      desc: String(desc || "Submitted from Personal Second Brain for Governance review").trim().slice(0, 180),
+      desc: String(desc || "Submitted for Team Library").trim().slice(0, 180),
       url: String(url || "").trim(),
-      body: String(body || "").trim(),
-      type: itemType || (url ? "link" : "doc"),
+      snippet: String(snippet || ""),
+      body: fullBody,
+      type: resolvedType,
       status: targetStatus,
       vis: "Internal",
       stage: STG[0],
@@ -1609,7 +1614,7 @@ export function App() {
         by: userName,
         d: TODAY,
         note: targetStatus === "Approved" ? `Published to Team ${label}` : `Suggested from Personal ${label}`,
-        body: String(body || ""),
+        body: fullBody.slice(0, 20000),
       }],
     };
     edgeClient.clearAiCache();
@@ -1635,13 +1640,22 @@ export function App() {
     }
   };
 
-  const suggestResourceToTeamKb = (resObj, opts = {}) =>
-    suggestItemToGovernance({
+  const suggestResourceToTeamKb = (resObj, opts = {}) => {
+    const hasSeparateNotes = Boolean(resObj.notes && resObj.notes !== resObj.snippet);
+    const lineCount = resObj.snippet ? String(resObj.snippet).split("\n").length : 0;
+    const shortDesc = hasSeparateNotes
+      ? resObj.notes.slice(0, 180)
+      : resObj.url ||
+        (lineCount > 0
+          ? `${resObj.kind === "script" ? "Script" : "Snippet"} · ${lineCount} lines`
+          : `Team ${resObj.kind || "resource"}`);
+    return suggestItemToGovernance({
       title: resObj.title,
-      desc: resObj.notes || resObj.url || `Personal ${resObj.kind || "resource"}`,
+      desc: shortDesc,
       url: resObj.url,
+      snippet: resObj.snippet || "",
       body: [
-        resObj.notes && resObj.notes !== resObj.snippet ? resObj.notes : "",
+        hasSeparateNotes ? resObj.notes : "",
         resObj.snippet ? `\n\`\`\`\n${resObj.snippet}\n\`\`\`` : "",
         resObj.url ? `\nReference URL: ${resObj.url}` : "",
       ]
@@ -1660,9 +1674,10 @@ export function App() {
           : "link",
       publishImmediately: Boolean(opts.publishImmediately),
     });
+  };
 
   const saveTeamResource = (resObj) =>
-    suggestResourceToTeamKb(resObj, { publishImmediately: can.admin(role) });
+    suggestResourceToTeamKb(resObj, { publishImmediately: true });
 
   const suggestNoteToTeamKb = (noteObj) =>
     suggestItemToGovernance({
@@ -3260,6 +3275,7 @@ export function App() {
               }
               onOpenBrainSheet=${(payload) => setQcModal(payload)}
               onSaveTeamResource=${!isGuest ? saveTeamResource : null}
+              onDeleteTeamItem=${!isGuest ? delItem : null}
             />`;
           }
 
@@ -3713,7 +3729,7 @@ export function App() {
         await savePrivResource(resObj);
         flash(resObj.id ? "Script / link updated" : `Saved to Personal Scripts & Links · ${resObj.project || "General"}`);
       }}
-      onSaveTeamResource={!isGuest ? saveTeamResource : null}
+      onSaveTeamResource=${!isGuest ? saveTeamResource : null}
       onDeleteResource=${async (id) => {
         await deletePrivResource(id);
         flash("Resource deleted");

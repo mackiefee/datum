@@ -62,6 +62,261 @@ function priorityOf(t) {
   return t.isUrgent ? 3 : 0;
 }
 
+export function formatSnippetPreview(txt = '', maxChars = 1200) {
+  const s = String(txt || '');
+  if (!s || s.length <= maxChars) return s;
+  return `${s.slice(0, maxChars)}\n… (+${(s.length - maxChars).toLocaleString()} chars — click Copy for full code)`;
+}
+
+export function ScriptLinkRow({
+  entry,
+  isHighlighted = false,
+  isExpanded = false,
+  isCopied = false,
+  onToggleExpand,
+  onCopy,
+  onTogglePin,
+  onOpenStandard,
+  onInspect,
+  onEdit,
+  onShare,
+  onSuggestToTeam,
+  onDelete,
+}) {
+  const icoName =
+    entry.kind === 'script' || entry.kind === 'snippet'
+      ? 'code'
+      : entry.kind === 'tool'
+      ? 'service'
+      : entry.kind === 'template'
+      ? 'template'
+      : 'link';
+  const icoColor =
+    entry.kind === 'script' || entry.kind === 'snippet'
+      ? '#bf5af2'
+      : entry.kind === 'tool'
+      ? '#ff9f0a'
+      : entry.kind === 'template'
+      ? '#30d158'
+      : '#0a84ff';
+
+  const firstCodeLine = entry.snippet
+    ? (String(entry.snippet)
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .find(Boolean) || '').slice(0, 72)
+    : '';
+  const copyTxt = entry.snippet || entry.url || entry.notes || '';
+  const hasNotes = Boolean(entry.notes && entry.notes !== entry.snippet);
+
+  return html`<div className=${'pl-sl-item' + (isHighlighted ? ' is-hl' : '')}>
+    <div
+      className=${'pl-sl-row' + (entry.snippet ? ' has-code' : '')}
+      onClick=${entry.snippet ? onToggleExpand : undefined}
+    >
+      <span className="pl-sl-ico" style=${{ '--ic': icoColor }} aria-hidden="true">
+        <${Ic} n=${icoName} s=${14} />
+      </span>
+
+      <div className="pl-mid">
+        <div className="pl-title-line">
+          <span className="pl-t">${entry.title}</span>
+          ${entry.url &&
+          html`<a
+            className="pl-sl-domain"
+            href=${entry.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title=${entry.url}
+            onClick=${(e) => e.stopPropagation()}
+          >
+            <span>${linkDisplayHost(entry.url) || entry.url}</span>
+            <${Ic} n="openx" s=${10} />
+          </a>`}
+          ${firstCodeLine &&
+          html`<button
+            type="button"
+            className=${'pl-sl-code-pill' + (isExpanded ? ' on' : '')}
+            title=${isExpanded ? 'Hide code snippet' : 'Preview code snippet'}
+            onClick=${(e) => {
+              e.stopPropagation();
+              onToggleExpand && onToggleExpand();
+            }}
+          >
+            <span>${firstCodeLine}</span>
+          </button>`}
+        </div>
+        ${(hasNotes || entry.linkedDoc) &&
+        html`<div className="pl-title-line" style=${{ gap: 8 }}>
+          ${hasNotes && html`<span className="pl-n">${entry.notes}</span>`}
+          ${entry.linkedDoc &&
+          onOpenStandard &&
+          html`<button
+            type="button"
+            className="pl-doc-lk"
+            onClick=${(e) => {
+              e.stopPropagation();
+              onOpenStandard(entry.linkedDoc.id);
+            }}
+          >
+            <${Ic} n="doc" s=${10} />
+            <span>${entry.linkedDoc.title}</span>
+          </button>`}
+        </div>`}
+      </div>
+
+      <div className="pl-meta pl-sl-meta" onClick=${(e) => e.stopPropagation()}>
+        ${entry.source === 'team'
+          ? html`<span className="pl-sl-badge is-team">
+              Team${entry.project && entry.project !== 'General' ? ` · ${entry.project}` : ''}
+            </span>`
+          : entry.isSharedWithMe
+          ? html`<span className="pl-sl-badge" title=${entry.ownerEmail || ''}>
+              From ${(entry.ownerEmail || 'team').split('@')[0]}
+            </span>`
+          : html`<span className="pl-sl-badge is-mine">
+              Mine${entry.project && entry.project !== 'General' ? ` · ${entry.project}` : ''}${entry.sharedCnt ? ` · ${entry.sharedCnt}` : ''}
+            </span>`}
+
+        ${entry.snippet
+          ? html`<${Fragment}>
+              <button
+                type="button"
+                className=${'pl-mv-btn' + (isCopied ? ' is-copied' : '')}
+                onClick=${onCopy}
+              >
+                ${isCopied ? 'Copied!' : 'Copy'}
+              </button>
+              <button
+                type="button"
+                className="pl-mv-btn"
+                aria-expanded=${isExpanded}
+                onClick=${onToggleExpand}
+              >
+                ${isExpanded ? 'Hide ▴' : 'Code ▾'}
+              </button>
+            </${Fragment}>`
+          : entry.url
+          ? html`<a
+              className="pl-mv-btn"
+              href=${entry.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open ↗
+            </a>`
+          : entry.source === 'team' && onOpenStandard
+          ? html`<button
+              type="button"
+              className="pl-mv-btn"
+              onClick=${() => onOpenStandard(entry.rawId)}
+            >
+              Open ↗
+            </button>`
+          : null}
+
+        <div className=${'pl-sl-acts' + (entry.isPinned ? ' is-pin' : '')}>
+          ${!entry.snippet &&
+          copyTxt &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title=${isCopied ? 'Copied!' : 'Copy link / text'}
+            aria-label="Copy link"
+            onClick=${onCopy}
+          >
+            <${Ic} n=${isCopied ? 'check' : 'dup'} s=${13} />
+          </button>`}
+
+          ${onTogglePin &&
+          html`<button
+            type="button"
+            className=${'pl-sl-ibtn' + (entry.isPinned ? ' on' : '')}
+            title=${entry.isPinned ? 'Remove bookmark / pin' : 'Bookmark / pin'}
+            aria-label=${entry.isPinned ? 'Remove pin' : 'Pin item'}
+            onClick=${onTogglePin}
+          >
+            <${Ic} n="star" s=${13} f=${entry.isPinned} />
+          </button>`}
+
+          ${onOpenStandard &&
+          entry.source === 'team' &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title="Open Standard"
+            aria-label="Open Standard"
+            onClick=${() => onOpenStandard(entry.rawId)}
+          >
+            <${Ic} n="doc" s=${13} />
+          </button>`}
+
+          ${onInspect &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title="Inspect properties"
+            aria-label="Inspect properties"
+            onClick=${onInspect}
+          >
+            <${Ic} n="inspector" s=${13} />
+          </button>`}
+
+          ${onEdit &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title="Edit"
+            aria-label="Edit script or link"
+            onClick=${onEdit}
+          >
+            <${Ic} n="pencil" s=${13} />
+          </button>`}
+
+          ${onShare &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title="Share with teammates"
+            aria-label="Share with teammates"
+            onClick=${onShare}
+          >
+            <${Ic} n="teams" s=${13} />
+          </button>`}
+
+          ${onSuggestToTeam &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn"
+            title="Submit to Team KB / Governance"
+            aria-label="Submit to Team KB"
+            onClick=${onSuggestToTeam}
+          >
+            <${Ic} n="swap" s=${13} />
+          </button>`}
+
+          ${onDelete &&
+          html`<button
+            type="button"
+            className="pl-sl-ibtn danger"
+            title="Delete script or link"
+            aria-label="Delete script or link"
+            onClick=${onDelete}
+          >
+            <${Ic} n="trash" s=${13} />
+          </button>`}
+        </div>
+      </div>
+    </div>
+
+    ${entry.snippet &&
+    isExpanded &&
+    html`<div className="pl-sl-drawer" onClick=${(e) => e.stopPropagation()}>
+      <pre className="pl-res-snip">${formatSnippetPreview(entry.snippet)}</pre>
+    </div>`}
+  </div>`;
+}
+
 export function ResourceShareModal({ shareTarget, onClose, users = [], currentEmail = '', onShareResource }) {
   const [shareEmails, setShareEmails] = useState([]);
   const [shareBusy, setShareBusy] = useState(false);
@@ -230,6 +485,7 @@ export function SecondBrainView({
   const [morePos, setMorePos] = useState(null);
   const [shareTarget, setShareTarget] = useState(null);
   const [copiedResId, setCopiedResId] = useState(null);
+  const [expandedResId, setExpandedResId] = useState(null);
 
   const moreBtnRef = useRef(null);
   const moreMenuRef = useRef(null);
@@ -550,7 +806,7 @@ export function SecondBrainView({
       .filter((r) => {
         if (projFilter !== 'all' && (r.project || 'General') !== projFilter) return false;
         if (qL) {
-          const hay = `${r.title || ''} ${r.url || ''} ${r.snippet || ''} ${r.notes || ''} ${r.project || ''} ${r.kind || ''}`.toLowerCase();
+          const hay = `${r.title || ''} ${r.url || ''} ${(r.snippet || '').slice(0, 24000)} ${(r.notes || '').slice(0, 24000)} ${r.project || ''} ${r.kind || ''}`.toLowerCase();
           if (!hay.includes(qL)) return false;
         }
         return true;
@@ -1371,7 +1627,7 @@ export function SecondBrainView({
         </div>`
       : filterTab === 'resources'
       ? visibleResources.length
-        ? html`<div className="pl-res-grid">
+        ? html`<div className="pl-card">
             ${visibleResources.map((r) => {
               const isHl = highlightId && String(highlightId) === String(r.id);
               const isSharedWithMe =
@@ -1383,124 +1639,45 @@ export function SecondBrainView({
               const linkedDoc = r.linkedItemId ? docById.get(Number(r.linkedItemId)) : null;
               const snipTxt =
                 r.snippet || ((r.kind === 'script' || r.kind === 'snippet' || r.kind === 'template') && r.notes ? r.notes : '');
-              return html`<div
+              const entry = {
+                id: r.id,
+                rawId: r.id,
+                source: 'mine',
+                kind: r.kind || 'link',
+                title: r.title || 'Untitled Script / Link',
+                url: r.url || '',
+                snippet: snipTxt,
+                notes: r.notes || '',
+                project: r.project || 'General',
+                isPinned: Boolean(r.isPinned),
+                isSharedWithMe,
+                sharedCnt,
+                ownerEmail: r.ownerEmail || '',
+                linkedDoc,
+              };
+              return html`<${ScriptLinkRow}
                 key=${r.id}
-                className=${'pl-res-card' + (r.isPinned ? ' pin' : '')}
-                style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
-              >
-                <div className="pl-note-head">
-                  <div className="pl-note-title">${r.title || 'Untitled Resource'}</div>
-                  <div className="row" style=${{ gap: 5, flexWrap: 'nowrap', flex: 'none' }}>
-                    ${isSharedWithMe
-                      ? html`<span className="pl-res-shared-tag" title=${r.ownerEmail || ''}>
-                          From ${(r.ownerEmail || 'team').split('@')[0]}
-                        </span>`
-                      : sharedCnt > 0
-                      ? html`<span className="pl-res-shared-tag">Shared · ${sharedCnt}</span>`
-                      : null}
-                    <span className="pl-note-proj">${r.kind || 'link'}</span>
-                  </div>
-                </div>
-
-                ${r.url &&
-                html`<a
-                  className="pl-res-url"
-                  href=${r.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <${Ic} n="openx" s=${12} />
-                  <span>${linkDisplayHost(r.url) || r.url}</span>
-                </a>`}
-
-                ${snipTxt && html`<pre className="pl-res-snip">${snipTxt}</pre>`}
-
-                ${r.notes && r.notes !== snipTxt && html`<div className="pl-n" style=${{ WebkitLineClamp: 3 }}>${r.notes}</div>`}
-
-                <div className="row" style=${{ gap: 6, flexWrap: 'wrap' }}>
-                  ${r.project && r.project !== 'General' && html`<span className="pl-note-proj">${r.project}</span>`}
-                  ${linkedDoc &&
-                  html`<button
-                    type="button"
-                    className="pl-doc-lk"
-                    onClick=${() => onOpenDoc && onOpenDoc(linkedDoc.id)}
-                  >
-                    <${Ic} n="doc" s=${10} />
-                    <span>${linkedDoc.title}</span>
-                  </button>`}
-                </div>
-
-                <div className="pl-note-foot">
-                  <div className="pl-note-acts">
-                    ${isOwner &&
-                    html`<button
-                      type="button"
-                      className="pl-mv-btn"
-                      onClick=${() => onSaveResource && onSaveResource({ ...r, isPinned: !r.isPinned })}
-                    >
-                      ${r.isPinned ? 'Pinned' : 'Pin'}
-                    </button>`}
-
-                    ${snipTxt &&
-                    html`<button
-                      type="button"
-                      className="pl-mv-btn"
-                      onClick=${() => copySnippet(r)}
-                    >
-                      ${copiedResId === r.id ? 'Copied!' : 'Copy'}
-                    </button>`}
-
-                    ${isOwner &&
-                    html`<button
-                      type="button"
-                      className="pl-mv-btn"
-                      onClick=${() => onOpenSheet && onOpenSheet({ mode: 'resource', resource: r })}
-                    >
-                      Edit
-                    </button>`}
-
-                    ${isOwner &&
-                    onShareResource &&
-                    html`<button
-                      type="button"
-                      className="pl-mv-btn"
-                      title="Share with teammates"
-                      onClick=${() => openShareModal(r)}
-                    >
-                      Share${sharedCnt ? ` (${sharedCnt})` : ''}
-                    </button>`}
-
-                    ${isOwner &&
-                    onSuggestResourceToTeam &&
-                    html`<button
-                      type="button"
-                      className="pl-mv-btn"
-                      title="Submit this resource to Administration -> Governance Review for the shared team library"
-                      onClick=${() => onSuggestResourceToTeam(r)}
-                    >
-                      → Team KB
-                    </button>`}
-                  </div>
-                  ${isOwner &&
-                  html`<button
-                    type="button"
-                    className="pl-row-del"
-                    style=${{ opacity: 1 }}
-                    title="Delete resource"
-                    onClick=${() => onDeleteResource && onDeleteResource(r.id)}
-                  >
-                    <${Ic} n="trash" s=${13} />
-                  </button>`}
-                </div>
-              </div>`;
+                entry=${entry}
+                isHighlighted=${isHl}
+                isExpanded=${expandedResId === r.id}
+                isCopied=${copiedResId === r.id}
+                onToggleExpand=${() => setExpandedResId((cur) => (cur === r.id ? null : r.id))}
+                onCopy=${() => copySnippet(r)}
+                onTogglePin=${isOwner && onSaveResource ? () => onSaveResource({ ...r, isPinned: !r.isPinned }) : null}
+                onOpenStandard=${onOpenDoc ? (id) => onOpenDoc(id) : null}
+                onEdit=${isOwner && onOpenSheet ? () => onOpenSheet({ mode: 'resource', resource: r }) : null}
+                onShare=${isOwner && onShareResource ? () => openShareModal(r) : null}
+                onSuggestToTeam=${isOwner && onSuggestResourceToTeam ? () => onSuggestResourceToTeam(r) : null}
+                onDelete=${isOwner && onDeleteResource ? () => onDeleteResource(r.id) : null}
+              />`;
             })}
           </div>`
         : html`<div className="empty" style=${{ padding: '72px 20px' }}>
-            <${Ic} n="link" s=${28} />
-            <b>No personal resources yet</b>
+            <${Ic} n="code" s=${28} />
+            <b>No personal scripts or links yet</b>
             <span>Save BIM links, Dynamo scripts, Revit snippets or share helpful tools with teammates.</span>
             <button type="button" className="btn p" style=${{ marginTop: 10 }} onClick=${openCreateModal}>
-              <${Ic} n="plus" s=${14} /> Add resource
+              <${Ic} n="plus" s=${14} /> Add Script / Link
             </button>
           </div>`
       : visibleNotes.length

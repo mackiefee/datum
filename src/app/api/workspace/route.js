@@ -310,12 +310,14 @@ export async function POST(req) {
         return jsonResp({ error: 'Valid item payload required' }, 400);
       }
       const itemId = Number(item.id);
-      const isSuggest = body.mode === 'suggest' || auth.caller.role === 'member';
-      if (!isEditorOrAbove(auth.caller.role) && body.mode !== 'suggest') {
+      const isSharedResource = ['script', 'link', 'service', 'template'].includes(item.type);
+      const isSuggest =
+        !isSharedResource && (body.mode === 'suggest' || auth.caller.role === 'member');
+      if (!isSharedResource && !isEditorOrAbove(auth.caller.role) && body.mode !== 'suggest') {
         return jsonResp({ error: 'Editors or Admins can edit library standards' }, 403);
       }
 
-      // Members can only create suggestions under Review status
+      // Members can only create doc suggestions under Review status; internal users can publish Shared Scripts/Links
       const cleanItem = isSuggest
         ? {
             ...item,
@@ -328,11 +330,13 @@ export async function POST(req) {
         : {
             ...item,
             id: itemId,
-            status: item.status || 'Draft',
+            status: item.status || (isSharedResource ? 'Approved' : 'Draft'),
             vis: item.vis || 'Internal',
+            author: item.author || auth.caller.name || 'Team',
+            authorEmail: item.authorEmail || auth.caller.email,
           };
 
-      if (cleanItem.status === 'Approved' && !isAdminRole(auth.caller.role)) {
+      if (cleanItem.status === 'Approved' && !isAdminRole(auth.caller.role) && !isSharedResource) {
         // Check if already Approved or user is Editor publishing allowed item? Keep Editor Draft/Review; Admin publishes unless existing
         const existingRes = await fetch(
           `${admin.url}/rest/v1/shared_catalog_items?id=eq.${itemId}&select=status&limit=1`,
@@ -398,8 +402,12 @@ export async function POST(req) {
         );
         const curRows = curRes.ok ? await curRes.json() : [];
         const cur = Array.isArray(curRows) && curRows[0];
-        if (!cur || cur.status !== 'Draft' || cur.data?.author !== auth.caller.name) {
-          return jsonResp({ error: 'Only Admins or Draft authors can delete' }, 403);
+        const isAuthorSharedRes =
+          cur &&
+          ['script', 'link', 'service', 'template'].includes(cur.data?.type) &&
+          (cur.data?.authorEmail === auth.caller.email || cur.data?.author === auth.caller.name);
+        if (!cur || (!isAuthorSharedRes && (cur.status !== 'Draft' || cur.data?.author !== auth.caller.name))) {
+          return jsonResp({ error: 'Only Admins or authors can delete' }, 403);
         }
       }
       await fetch(`${admin.url}/rest/v1/shared_catalog_items?id=eq.${itemId}`, {

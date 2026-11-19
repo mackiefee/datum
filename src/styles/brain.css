@@ -1323,6 +1323,156 @@
   background: color-mix(in srgb, #30d158 13%, transparent);
   white-space: nowrap;
 }
+
+/* Compact Linear / Apple Inset-Hairline Script & Link Rows */
+.pl-sl-item {
+  position: relative;
+  transition: background .12s;
+}
+.pl-sl-item + .pl-sl-item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 52px;
+  right: 0;
+  height: 1px;
+  background: var(--line);
+}
+.pl-sl-item.is-hl {
+  box-shadow: inset 3px 0 0 var(--blue);
+}
+.pl-sl-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 13px;
+  min-height: 48px;
+  transition: background .12s;
+}
+.pl-sl-row.has-code {
+  cursor: pointer;
+}
+.pl-sl-row:hover {
+  background: color-mix(in srgb, var(--fill) 52%, transparent);
+}
+.pl-sl-ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  background: color-mix(in srgb, var(--ic, var(--blue)) 14%, transparent);
+  color: var(--ic, var(--blue));
+}
+.pl-sl-domain {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--blue) 10%, transparent);
+  color: var(--blue);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-decoration: none;
+  max-width: 195px;
+  white-space: nowrap;
+}
+.pl-sl-domain span,
+.pl-sl-code-pill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pl-sl-domain:hover {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  text-decoration: underline;
+}
+.pl-sl-code-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fill) 80%, transparent);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--sub);
+  max-width: 260px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .12s, color .12s;
+}
+.pl-sl-code-pill:hover,
+.pl-sl-code-pill.on {
+  border-color: var(--blue);
+  color: var(--text);
+}
+.pl-sl-badge {
+  font-size: 11px;
+  font-weight: 550;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--sub);
+  background: var(--fill);
+  white-space: nowrap;
+}
+.pl-sl-badge.is-team {
+  color: var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+}
+.pl-sl-badge.is-mine {
+  color: #30d158;
+  background: color-mix(in srgb, #30d158 12%, transparent);
+}
+.pl-sl-acts {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+@media (hover: hover) {
+  .pl-sl-item:not(:hover):not(:focus-within) .pl-sl-ibtn:not(.on) {
+    display: none;
+  }
+}
+.pl-sl-ibtn {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  display: inline-grid;
+  place-items: center;
+  color: var(--sub);
+  transition: background .12s, color .12s;
+}
+.pl-sl-ibtn:hover {
+  background: var(--fill2);
+  color: var(--text);
+}
+.pl-sl-ibtn.on {
+  color: #ff9f0a;
+}
+.pl-sl-ibtn.danger:hover {
+  background: color-mix(in srgb, #ff453a 15%, transparent);
+  color: #ff453a;
+}
+.pl-mv-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.pl-mv-btn.is-copied {
+  color: #30d158;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #30d158 55%, transparent);
+}
+.pl-sl-drawer {
+  padding: 0 13px 11px 52px;
+}
+
 .pl-share-row {
   display: flex;
   align-items: center;
@@ -1365,6 +1515,13 @@
   .pl-head-r { width: 100%; margin-left: 0; order: 1; justify-content: space-between; }
   .pl-head-r .seg { flex: 1; min-width: 0; height: 32px; }
   .pl-head-r .seg button { flex: 1; padding: 0 5px; font-size: 11.5px; height: 26px; white-space: nowrap; }
+  .pl-sl-head-r .seg { overflow-x: auto; scrollbar-width: none; }
+  .pl-sl-head-r .seg button { flex: 0 0 auto; padding: 0 9px; }
+  .pl-sl-row { align-items: flex-start; flex-wrap: wrap; gap: 8px 10px; padding: 9px 11px; }
+  .pl-sl-meta { width: 100%; padding-left: 38px; justify-content: flex-start; flex-wrap: wrap; }
+  .pl-sl-acts { opacity: 1; margin-left: auto; }
+  .pl-sl-item:not(:hover):not(:focus-within) .pl-sl-ibtn:not(.on) { display: inline-grid; }
+  .pl-sl-drawer { padding: 0 11px 10px; }
   .pl-ico-btn { width: 32px; height: 32px; }
   .pl-filterbar { flex-direction: column; align-items: stretch; gap: 8px; }
   .pl-filterbar .pl-search { display: none; width: 100%; }

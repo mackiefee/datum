@@ -8,8 +8,8 @@ import { Ic, DatumMark } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
 import { Select } from '../../components/Select.js';
-import { isDoneStatus, DEFAULT_PLANNER_STATUSES, linkDisplayHost } from '../../utils/planner.js';
-import { SecondBrainView, ResourceShareModal } from '../brain/SecondBrainView.js';
+import { isDoneStatus, DEFAULT_PLANNER_STATUSES } from '../../utils/planner.js';
+import { SecondBrainView, ResourceShareModal, ScriptLinkRow } from '../brain/SecondBrainView.js';
 import { TIER_LABEL, TIER_COL, canEditCol, KitComposerModal } from '../collections/CollectionsView.js';
 import {
   clamp,
@@ -134,11 +134,13 @@ export function KnowledgeSpaceView({
   onPromoteNoteToDoc = null,
   onOpenBrainSheet = null,
   onSaveTeamResource = null,
+  onDeleteTeamItem = null,
 }) {
   const [drawerBrainRef, setDrawerBrainRef] = useState(null);
   const [drawerCopiedId, setDrawerCopiedId] = useState(null);
   const [scriptKindFilter, setScriptKindFilter] = useState('all'); // 'all' | 'scripts' | 'links' | 'templates' | 'pinned'
   const [copiedScriptId, setCopiedScriptId] = useState(null);
+  const [expandedScriptId, setExpandedScriptId] = useState(null);
   const [scriptShareTarget, setScriptShareTarget] = useState(null);
   const viewportRef = useRef(null);
   const sceneRef = useRef(null);
@@ -370,8 +372,8 @@ export function KnowledgeSpaceView({
         brainKind: 'resource',
         rawItem: r,
         title: r.title || 'Personal Resource',
-        desc: fullText || r.url || 'Saved script or link',
-        body: fullText,
+        desc: fullText.slice(0, 240) || r.url || 'Saved script or link',
+        body: fullText.slice(0, 24000),
         url: r.url || '',
         disc: 'VDC',
         type: r.kind === 'script' || r.kind === 'snippet' ? 'script' : 'link',
@@ -477,13 +479,23 @@ export function KnowledgeSpaceView({
   const unifiedScriptLinks = useMemo(() => {
     const out = [];
     const myEmailLow = String(currentEmail || '').trim().toLowerCase();
-    const extractTeamSnippet = (body = '') => {
-      const str = String(body || '');
-      const fence = str.match(/```[a-zA-Z0-9_-]*\r?\n([\s\S]*?)```/);
-      if (fence && fence[1] && fence[1].trim()) return fence[1].trim();
-      const quotedUnc = str.match(/`(\\\\[A-Za-z0-9._$-]+\\[^`\r\n]+)`/);
+    const extractTeamSnippet = (r) => {
+      if (!r) return '';
+      if (r.snippet && String(r.snippet).trim()) return String(r.snippet);
+      const str = String(r.body || '');
+      const openIdx = str.indexOf('```');
+      if (openIdx !== -1) {
+        const nlIdx = str.indexOf('\n', openIdx + 3);
+        const closeIdx = nlIdx !== -1 ? str.indexOf('```', nlIdx + 1) : -1;
+        if (closeIdx > nlIdx) {
+          const code = str.slice(nlIdx + 1, closeIdx).trim();
+          if (code) return code;
+        }
+      }
+      const head = str.slice(0, 16000);
+      const quotedUnc = head.match(/`(\\\\[A-Za-z0-9._$-]+\\[^`\r\n]+)`/);
       if (quotedUnc && quotedUnc[1]) return quotedUnc[1].trim();
-      const unc = str.match(/(\\\\[A-Za-z0-9._$-]+\\[^\s`'|)\r\n]+)/);
+      const unc = head.match(/(\\\\[A-Za-z0-9._$-]+\\[^\s`'|)\r\n]+)/);
       if (unc && unc[1]) return unc[1].trim();
       return '';
     };
@@ -537,7 +549,7 @@ export function KnowledgeSpaceView({
           kind,
           title: r.title || 'Team Resource',
           url: r.url || '',
-          snippet: extractTeamSnippet(r.body),
+          snippet: extractTeamSnippet(r),
           notes: r.desc || '',
           project: r.disc || 'General',
           tags: Array.isArray(r.tags) ? r.tags : [],
@@ -567,7 +579,7 @@ export function KnowledgeSpaceView({
 
     return unifiedScriptLinks.filter((entry) => {
       if (activeProj) {
-        const hayProj = `${entry.project || ''} ${(entry.tags || []).join(' ')} ${entry.title || ''} ${entry.notes || ''}`.toLowerCase();
+        const hayProj = `${entry.project || ''} ${(entry.tags || []).join(' ')} ${entry.title || ''} ${(entry.notes || '').slice(0, 4000)}`.toLowerCase();
         const projExact = String(entry.project || 'General').trim().toLowerCase() === activeProj;
         const projMatch =
           projExact ||
@@ -587,7 +599,7 @@ export function KnowledgeSpaceView({
       }
 
       if (qLow) {
-        const hayAll = `${entry.title || ''} ${entry.url || ''} ${entry.snippet || ''} ${entry.notes || ''} ${entry.project || ''} ${entry.kind || ''} ${(entry.tags || []).join(' ')}`.toLowerCase();
+        const hayAll = `${entry.title || ''} ${entry.url || ''} ${(entry.snippet || '').slice(0, 24000)} ${(entry.notes || '').slice(0, 24000)} ${entry.project || ''} ${entry.kind || ''} ${(entry.tags || []).join(' ')}`.toLowerCase();
         if (!hayAll.includes(qLow) && !(qTokens.length > 0 && qTokens.every((tk) => hayAll.includes(tk)))) {
           return false;
         }
@@ -2362,7 +2374,7 @@ export function KnowledgeSpaceView({
       ? unifiedScriptLinks
           .filter((entry) => {
             if (entry.source === 'team' && docPool.some((d) => d.id === entry.rawId)) return false;
-            const hay = `${entry.title || ''} ${entry.url || ''} ${entry.snippet || ''} ${entry.notes || ''} ${entry.project || ''} ${entry.kind || ''}`.toLowerCase();
+            const hay = `${entry.title || ''} ${entry.url || ''} ${(entry.snippet || '').slice(0, 24000)} ${(entry.notes || '').slice(0, 24000)} ${entry.project || ''} ${entry.kind || ''}`.toLowerCase();
             return hay.includes(qLow);
           })
           .slice(0, 4)
@@ -2904,12 +2916,12 @@ export function KnowledgeSpaceView({
         </div>`
       : isScriptsView
       ? html`<div key="kspace-scripts-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
-          <div className="pl-wrap is-wide is-embedded">
+          <div className="pl-wrap is-embedded">
             <div className="pl-head">
               <div className="pl-head-l">
                 <div className="pl-stats">
                   <span>
-                    ${visibleScriptLinks.length} ${visibleScriptLinks.length === 1 ? 'item' : 'scripts & links'} · ${effectiveLayer === 'team' ? 'Shared Catalog' : effectiveLayer === 'mine' ? 'Personal Supabase' : 'Mine + Team'}
+                    ${visibleScriptLinks.length} ${visibleScriptLinks.length === 1 ? 'item' : 'items'} · ${effectiveLayer === 'team' ? 'Team' : effectiveLayer === 'mine' ? 'Mine' : 'All'}
                   </span>
                   <i
                     className=${'pl-sync-dot' + (brainSyncState === 'saving' ? ' busy' : brainSyncState === 'error' ? ' err' : '')}
@@ -2918,24 +2930,12 @@ export function KnowledgeSpaceView({
                 </div>
               </div>
 
-              <div
-                className="pl-head-r"
-                style=${isMobile
-                  ? { flexWrap: 'wrap', gap: 8, width: '100%' }
-                  : { flexWrap: 'wrap', justifyContent: 'flex-end' }}
-              >
-                <div
-                  className="seg"
-                  role="tablist"
-                  aria-label="Scripts and Links filter"
-                  style=${isMobile
-                    ? { marginTop: 0, width: '100%', flex: '1 1 100%', overflowX: 'auto' }
-                    : { marginTop: 0 }}
-                >
+              <div className="pl-head-r pl-sl-head-r">
+                <div className="seg" role="tablist" aria-label="Scripts and Links filter" style=${{ marginTop: 0 }}>
                   ${[
                     ['all', 'All'],
-                    ['scripts', 'Scripts & Code'],
-                    ['links', 'Links & Portals'],
+                    ['scripts', 'Scripts'],
+                    ['links', 'Links'],
                     ['templates', 'Templates'],
                     ['pinned', 'Pinned'],
                   ].map(
@@ -2945,7 +2945,6 @@ export function KnowledgeSpaceView({
                       role="tab"
                       aria-selected=${scriptKindFilter === fk}
                       className=${scriptKindFilter === fk ? 'on' : ''}
-                      style=${isMobile ? { flex: '0 0 auto', padding: '0 10px' } : undefined}
                       onClick=${() => setScriptKindFilter(fk)}
                     >
                       ${flbl}
@@ -2955,214 +2954,110 @@ export function KnowledgeSpaceView({
 
                 ${!isGuest &&
                 onOpenBrainSheet &&
-                html`<div style=${isMobile ? { display: 'flex', gap: 8, width: '100%' } : { display: 'contents' }}>
-                  <button
-                    type="button"
-                    className="btn sm p"
-                    style=${isMobile ? { flex: 1, justifyContent: 'center' } : undefined}
-                    onClick=${() =>
-                      onOpenBrainSheet({
-                        mode: 'resource',
-                        resKind: 'script',
-                        resScope: effectiveLayer === 'team' ? 'team' : 'mine',
-                        project: projectFilter && projectFilter !== 'all' ? projectFilter : '',
-                      })
-                    }
-                  >
-                    <${Ic} n="code" s=${14} />
-                    <span>+ New Script</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="btn sm"
-                    style=${isMobile ? { flex: 1, justifyContent: 'center' } : undefined}
-                    onClick=${() =>
-                      onOpenBrainSheet({
-                        mode: 'resource',
-                        resKind: 'link',
-                        resScope: effectiveLayer === 'team' ? 'team' : 'mine',
-                        project: projectFilter && projectFilter !== 'all' ? projectFilter : '',
-                      })
-                    }
-                  >
-                    <${Ic} n="link" s=${14} />
-                    <span>+ New Link</span>
-                  </button>
-                </div>`}
+                html`<button
+                  type="button"
+                  className="btn sm p"
+                  style=${{ flex: 'none' }}
+                  onClick=${() =>
+                    onOpenBrainSheet({
+                      mode: 'resource',
+                      resKind:
+                        scriptKindFilter === 'templates'
+                          ? 'template'
+                          : scriptKindFilter === 'links'
+                          ? 'link'
+                          : 'script',
+                      resScope: effectiveLayer === 'team' ? 'team' : 'mine',
+                      project: projectFilter && projectFilter !== 'all' ? projectFilter : '',
+                    })
+                  }
+                >
+                  <${Ic} n="plus" s=${14} />
+                  <span>New</span>
+                </button>`}
               </div>
             </div>
 
             ${visibleScriptLinks.length
-              ? html`<div className="pl-res-grid">
-                  ${visibleScriptLinks.map((entry) => {
-                    const isHl = brainHighlightId && String(brainHighlightId) === String(entry.rawId);
+              ? (() => {
+                  const renderEntry = (entry) => {
                     const isMine = entry.source === 'mine';
                     const isOwner = isMine && !entry.isSharedWithMe;
                     const sharedCnt = Array.isArray(entry.sharedWithEmails) ? entry.sharedWithEmails.length : 0;
                     const linkedDoc = isMine && entry.linkedItemId ? poolById.get(Number(entry.linkedItemId)) : null;
                     const copyTxt = entry.snippet || entry.url || entry.notes || '';
-                    const isBookmarkedTeam = !isMine && favs.includes(entry.rawId);
-
-                    return html`<div
+                    return html`<${ScriptLinkRow}
                       key=${entry.id}
-                      className=${'pl-res-card' + (entry.isPinned ? ' pin' : '')}
-                      style=${isHl ? { boxShadow: '0 0 0 2px var(--blue)' } : undefined}
-                    >
-                      <div className="pl-note-head">
-                        <div className="pl-note-title">${entry.title}</div>
-                        <div className="row" style=${{ gap: 5, flexWrap: 'nowrap', flex: 'none' }}>
-                          ${!isMine
-                            ? html`<span className="pl-res-shared-tag" style=${{ background: 'rgba(10,132,255,0.14)', color: 'var(--blue)' }}>
-                                Team${entry.project && entry.project !== 'General' ? ` · ${entry.project}` : ''}
-                              </span>`
-                            : entry.isSharedWithMe
-                            ? html`<span className="pl-res-shared-tag" title=${entry.ownerEmail || ''}>
-                                From ${(entry.ownerEmail || 'team').split('@')[0]}
-                              </span>`
-                            : html`<span className="pl-res-shared-tag">
-                                Mine${sharedCnt > 0 ? ` · Shared ${sharedCnt}` : ''}
-                              </span>`}
-                          <span className="pl-note-proj">${entry.kind}</span>
-                        </div>
+                      entry=${{ ...entry, sharedCnt, linkedDoc }}
+                      isHighlighted=${Boolean(brainHighlightId && String(brainHighlightId) === String(entry.rawId))}
+                      isExpanded=${expandedScriptId === entry.id}
+                      isCopied=${copiedScriptId === entry.id}
+                      onToggleExpand=${() => setExpandedScriptId((cur) => (cur === entry.id ? null : entry.id))}
+                      onCopy=${() => {
+                        if (!copyTxt) return;
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                          navigator.clipboard.writeText(copyTxt).catch(() => {});
+                        }
+                        setCopiedScriptId(entry.id);
+                        setTimeout(() => setCopiedScriptId((cur) => (cur === entry.id ? null : cur)), 1600);
+                      }}
+                      onTogglePin=${
+                        !isMine
+                          ? onToggleFav
+                            ? () => onToggleFav(entry.rawId)
+                            : null
+                          : isOwner && onSaveResource
+                          ? () => onSaveResource({ ...entry.raw, isPinned: !entry.raw.isPinned })
+                          : null
+                      }
+                      onOpenStandard=${onRead ? (id) => onRead(id || entry.rawId) : null}
+                      onInspect=${!isMine && onInspect ? () => onInspect(entry.rawId) : null}
+                      onEdit=${
+                        isOwner && onOpenBrainSheet
+                          ? () => onOpenBrainSheet({ mode: 'resource', resource: entry.raw })
+                          : null
+                      }
+                      onShare=${isOwner && onShareResource ? () => setScriptShareTarget(entry.raw) : null}
+                      onSuggestToTeam=${
+                        isOwner && onSuggestResourceToTeam
+                          ? () => onSuggestResourceToTeam(entry.raw)
+                          : null
+                      }
+                      onDelete=${
+                        isOwner && onDeleteResource
+                          ? () => onDeleteResource(entry.rawId)
+                          : !isMine && onDeleteTeamItem && (can.admin(role) || entry.raw?.author === userName)
+                          ? () => onDeleteTeamItem(entry.rawId)
+                          : null
+                      }
+                    />`;
+                  };
+
+                  if (scriptKindFilter !== 'all') {
+                    return html`<div className="pl-card">${visibleScriptLinks.map(renderEntry)}</div>`;
+                  }
+
+                  const scriptGroup = visibleScriptLinks.filter(
+                    (e) => ['script', 'snippet', 'tool'].includes(e.kind) || Boolean(e.snippet)
+                  );
+                  const linkGroup = visibleScriptLinks.filter(
+                    (e) => !['script', 'snippet', 'tool'].includes(e.kind) && !e.snippet
+                  );
+                  const sections = [
+                    ['Scripts & Tools', scriptGroup],
+                    ['Links & Templates', linkGroup],
+                  ].filter(([, list]) => list.length > 0);
+
+                  return sections.map(
+                    ([secTitle, secList]) => html`<section key=${secTitle} className="pl-proj-sec">
+                      <div className="pl-gh">
+                        <span>${secTitle}</span>
+                        <span>${secList.length}</span>
                       </div>
-
-                      ${entry.url &&
-                      html`<a
-                        className="pl-res-url"
-                        href=${entry.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <${Ic} n="openx" s=${12} />
-                        <span>${linkDisplayHost(entry.url) || entry.url}</span>
-                      </a>`}
-
-                      ${entry.snippet && html`<pre className="pl-res-snip">${entry.snippet}</pre>`}
-
-                      ${entry.notes &&
-                      entry.notes !== entry.snippet &&
-                      html`<div className="pl-n" style=${{ WebkitLineClamp: 3 }}>${entry.notes}</div>`}
-
-                      <div className="row" style=${{ gap: 6, flexWrap: 'wrap' }}>
-                        ${isMine &&
-                        entry.project &&
-                        entry.project !== 'General' &&
-                        html`<span className="pl-note-proj">${entry.project}</span>`}
-                        ${linkedDoc &&
-                        html`<button
-                          type="button"
-                          className="pl-doc-lk"
-                          onClick=${() => onRead && onRead(linkedDoc.id)}
-                        >
-                          <${Ic} n="doc" s=${10} />
-                          <span>${linkedDoc.title}</span>
-                        </button>`}
-                      </div>
-
-                      <div className="pl-note-foot">
-                        <div className="pl-note-acts">
-                          ${copyTxt &&
-                          html`<button
-                            type="button"
-                            className="pl-mv-btn"
-                            onClick=${() => {
-                              if (navigator.clipboard && navigator.clipboard.writeText) {
-                                navigator.clipboard.writeText(copyTxt).catch(() => {});
-                              }
-                              setCopiedScriptId(entry.id);
-                              setTimeout(() => setCopiedScriptId((cur) => (cur === entry.id ? null : cur)), 1600);
-                            }}
-                          >
-                            ${copiedScriptId === entry.id
-                              ? 'Copied!'
-                              : entry.snippet
-                              ? 'Copy Script'
-                              : 'Copy Link'}
-                          </button>`}
-
-                          ${!isMine
-                            ? html`<${Fragment}>
-                                <button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  onClick=${() => onRead && onRead(entry.rawId)}
-                                >
-                                  Open Standard
-                                </button>
-                                ${onInspect &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  onClick=${() => onInspect(entry.rawId)}
-                                >
-                                  Inspect
-                                </button>`}
-                                ${onToggleFav &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  onClick=${() => onToggleFav(entry.rawId)}
-                                >
-                                  ${isBookmarkedTeam ? 'Bookmarked' : 'Bookmark'}
-                                </button>`}
-                              </${Fragment}>`
-                            : html`<${Fragment}>
-                                ${isOwner &&
-                                onSaveResource &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  onClick=${() => onSaveResource({ ...entry.raw, isPinned: !entry.raw.isPinned })}
-                                >
-                                  ${entry.isPinned ? 'Pinned' : 'Pin'}
-                                </button>`}
-                                ${isOwner &&
-                                onOpenBrainSheet &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  onClick=${() => onOpenBrainSheet({ mode: 'resource', resource: entry.raw })}
-                                >
-                                  Edit
-                                </button>`}
-                                ${isOwner &&
-                                onShareResource &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  title="Share with teammates"
-                                  onClick=${() => setScriptShareTarget(entry.raw)}
-                                >
-                                  Share${sharedCnt ? ` (${sharedCnt})` : ''}
-                                </button>`}
-                                ${isOwner &&
-                                onSuggestResourceToTeam &&
-                                html`<button
-                                  type="button"
-                                  className="pl-mv-btn"
-                                  title="Submit to Team KB / Governance"
-                                  onClick=${() => onSuggestResourceToTeam(entry.raw)}
-                                >
-                                  → Team KB
-                                </button>`}
-                              </${Fragment}>`}
-                        </div>
-
-                        ${isOwner &&
-                        onDeleteResource &&
-                        html`<button
-                          type="button"
-                          className="pl-row-del"
-                          style=${{ opacity: 1 }}
-                          title="Delete script or link"
-                          onClick=${() => onDeleteResource(entry.rawId)}
-                        >
-                          <${Ic} n="trash" s=${13} />
-                        </button>`}
-                      </div>
-                    </div>`;
-                  })}
-                </div>`
+                      <div className="pl-card">${secList.map(renderEntry)}</div>
+                    </section>`
+                  );
+                })()
               : html`<div className="empty" style=${{ padding: '72px 20px' }}>
                   <${Ic} n="code" s=${30} />
                   <b>No scripts or links match this filter</b>
@@ -3170,7 +3065,7 @@ export function KnowledgeSpaceView({
                   <div style=${{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
                     ${scriptKindFilter !== 'all' &&
                     html`<button type="button" className="btn" onClick=${() => setScriptKindFilter('all')}>
-                      Show all types
+                      Show all
                     </button>`}
                     ${!isGuest &&
                     onOpenBrainSheet &&
@@ -3185,7 +3080,7 @@ export function KnowledgeSpaceView({
                         })
                       }
                     >
-                      <${Ic} n="plus" s=${14} /> Add Script
+                      <${Ic} n="plus" s=${14} /> Add Script / Link
                     </button>`}
                   </div>
                 </div>`}

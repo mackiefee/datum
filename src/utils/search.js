@@ -125,9 +125,11 @@ const tokCache = new WeakMap();
 export const hay = (r) => {
   if (!r || typeof r !== 'object') return '';
   const hit = hayCache.get(r);
-  const sig = `${r.upd || ''}|${(r.title || '').length}|${(r.body || '').length}`;
+  const sig = `${r.upd || ''}|${(r.title || '').length}|${(r.body || '').length}|${(r.snippet || '').length}`;
   if (hit && hit.sig === sig) return hit.val;
-  const val = `${r.title} ${r.desc} ${r.body} ${(r.tags || []).join(' ')} ${r.author}`.toLowerCase();
+  const bodySlice = (r.body || '').slice(0, 24000);
+  const snipSlice = (r.snippet || '').slice(0, 24000);
+  const val = `${r.title} ${r.desc} ${bodySlice} ${snipSlice} ${(r.tags || []).join(' ')} ${r.author}`.toLowerCase();
   hayCache.set(r, { sig, val });
   return val;
 };
