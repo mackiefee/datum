@@ -335,16 +335,20 @@ export function NamingStudioView({
   return html`<div className="nm-wrap">
     <div className="pdl-top pdl-top-sub" style=${{ marginBottom: 0 }}>
       <div className="pdl-top-l">
-        ${activeCustomSchema && html`<span style=${{ fontSize: 15, fontWeight: 650, color: 'var(--text)' }}>${activeCustomSchema.name}</span>`}
+        <span style=${{ fontSize: 15, fontWeight: 650, color: 'var(--text)' }}>
+          ${activeCustomSchema ? activeCustomSchema.name : 'Wall & Soffit Naming'}
+        </span>
         <span className="pdl-cnt">
-          ${activeCustomSchema ? `${activeCustomSchema.slots.length} slots` : `${liveAssembly.thickness.split(' ')[0]} mm`}
+          ${activeCustomSchema
+            ? `${activeCustomSchema.slots.length} ${activeCustomSchema.slots.length === 1 ? 'slot' : 'slots'}`
+            : `Assembly · ${liveAssembly.thickness.split(' ')[0]} mm`}
         </span>
       </div>
 
       <div className="pdl-top-r">
         ${customSchemas.length > 0 &&
         html`<${Select}
-          variant="filter"
+          variant="pill"
           ariaLabel="Naming Schema"
           value=${activeSchemaId}
           options=${[
@@ -399,7 +403,7 @@ export function NamingStudioView({
       <div className="nm-out-top">
         <div>
           <h3 className="nm-sec-title">${activeCustomSchema.name}</h3>
-          <p className="nm-sub">${activeCustomSchema.slots.length} slots · ${activeCustomSchema.codes.length} legend codes extracted from CSV</p>
+          <p className="nm-sub">${activeCustomSchema.slots.length} ${activeCustomSchema.slots.length === 1 ? 'slot' : 'slots'} · ${activeCustomSchema.codes.length} legend codes extracted from CSV</p>
         </div>
         <div className="nm-seg-row">
           ${activeCustomSchema.typeCandidates &&
@@ -474,7 +478,7 @@ export function NamingStudioView({
             placeholder="Paste an existing Revit type name or build below..."
             value=${activeBarText}
             onInput=${(e) => handleBarInput(e.target.value)}
-            spellcheck=${false}
+            spellCheck=${false}
           />
 
           <div className="nm-bar-acts">
@@ -851,8 +855,8 @@ export function NamingStudioView({
 
       <div className="nm-stats-pills">
         <span className="nm-status valid">${batchStats.valid} Valid</span>
-        <span className="nm-status warn">${batchStats.warn} Warnings</span>
-        <span className="nm-status error">${batchStats.error} Errors</span>
+        <span className="nm-status warn">${batchStats.warn} ${batchStats.warn === 1 ? 'Warning' : 'Warnings'}</span>
+        <span className="nm-status error">${batchStats.error} ${batchStats.error === 1 ? 'Error' : 'Errors'}</span>
       </div>
 
       <div className="nm-batch-list">
@@ -935,7 +939,7 @@ export function NamingStudioView({
                 onReadDoc(137);
               }}
             >
-              Open Doc #137 ↗
+              Spec #137 ↗
             </button>`}
             <button type="button" className="btn sm" aria-label="Close" onClick=${() => setSheetOpen(false)}>
               <${Ic} n="x" s=${14} />
@@ -1028,7 +1032,7 @@ export function NamingStudioView({
                 <div>
                   <strong>${csvPreview.name}</strong>
                   <div className="nm-sub">
-                    ${csvPreview.slots.length} slots · ${csvPreview.codes.length} legend codes · ${csvPreview.examples.length} examples
+                    ${csvPreview.slots.length} ${csvPreview.slots.length === 1 ? 'slot' : 'slots'} · ${csvPreview.codes.length} legend codes · ${csvPreview.examples.length} examples
                   </div>
                 </div>
                 <button type="button" className="btn sm p" onClick=${saveImportedSchema}>

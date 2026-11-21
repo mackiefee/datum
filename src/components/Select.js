@@ -470,31 +470,72 @@ export function ViewModeSwitch({
   onSelectMode,
   className = "",
 }) {
-  const modes = [
-    ["space", "globe", "Space"],
-    ["grid", "layout", "Grid"],
-    ["graph", "graph", "Graph"],
-    ...(showTasks ? [["tasks", "check", "Tasks"]] : []),
-    ["scripts", "code", "Scripts & Links"],
-    ["kits", "folder", visibleColsCount ? `Kits (${visibleColsCount})` : "Kits"],
-  ];
+  const { open, setOpen, pos, btnRef, menuRef, toggle } = usePopover({
+    minWidth: 200,
+    maxWidth: 260,
+    maxHeight: 360,
+  });
 
-  return html`<div className=${"kspace-view-seg" + (className ? " " + className : "")} role="group" aria-label="Canvas mode">
-    ${modes.map(([k, ico, lbl]) => {
-      const isOn = Boolean(stageOpen && viewMode === k);
-      return html`<button
-        key=${k}
-        type="button"
-        className=${isOn ? "on" : ""}
-        aria-pressed=${isOn}
-        title=${`Switch canvas to ${lbl}`}
-        onClick=${() => onSelectMode && onSelectMode(k)}
+  const modes = [
+    ["space", "globe", "Space", ""],
+    ["grid", "layout", "Grid", ""],
+    ["graph", "graph", "Graph", ""],
+    ...(showTasks ? [["tasks", "check", "Tasks", ""]] : []),
+    ["scripts", "code", "Scripts & Links", ""],
+    ["kits", "folder", "Kits", visibleColsCount ? String(visibleColsCount) : ""],
+  ];
+  const current = modes.find((m) => m[0] === viewMode) || modes[0];
+  const hasActiveStageMode = Boolean(stageOpen && viewMode && modes.some((m) => m[0] === viewMode));
+  const btnIcon = hasActiveStageMode ? current[1] : "globe";
+  const shortLabel = !hasActiveStageMode ? "Views" : current[0] === "scripts" ? "Scripts" : current[2];
+
+  return html`<${Fragment}>
+    <button
+      ref=${btnRef}
+      type="button"
+      className=${"asel kspace-mode-btn" + (open ? " open" : "") + (className ? " " + className : "")}
+      aria-label=${hasActiveStageMode ? `View: ${current[2]}. Switch view` : "Switch view"}
+      aria-haspopup="menu"
+      aria-expanded=${open}
+      onClick=${toggle}
+    >
+      <${Ic} n=${btnIcon} s=${13} />
+      <span className="asel-lb">${shortLabel}</span>
+      <span className="asel-ar"><${Ic} n="chev" s=${11} /></span>
+    </button>
+    ${open &&
+    pos &&
+    typeof document !== "undefined" &&
+    createPortal(
+      html`<div
+        ref=${menuRef}
+        className="asel-menu kspace-mode-menu"
+        role="menu"
+        aria-label="Switch view"
+        style=${menuStyleFromPos(pos)}
       >
-        <${Ic} n=${ico} s=${13} />
-        <span>${lbl}</span>
-      </button>`;
-    })}
-  </div>`;
+        ${modes.map(([k, ico, lbl, cnt]) => {
+          const isOn = Boolean(stageOpen && viewMode === k);
+          return html`<button
+            key=${k}
+            type="button"
+            role="menuitem"
+            className=${"asel-opt" + (isOn ? " on" : "")}
+            onClick=${() => {
+              setOpen(false);
+              onSelectMode && onSelectMode(k);
+            }}
+          >
+            <span className="asel-ck"><${Ic} n=${ico} s=${13} /></span>
+            <span className="asel-tx"><span>${lbl}</span></span>
+            ${cnt && html`<small className="kspace-mode-cnt">${cnt}</small>`}
+            ${isOn && html`<span className="kspace-mode-on"><${Ic} n="check" s=${12} /></span>`}
+          </button>`;
+        })}
+      </div>`,
+      document.body
+    )}
+  <//>`;
 }
 
 /**

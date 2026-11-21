@@ -332,7 +332,7 @@ export const WALL_EXAMPLES = [
 export const BUILTIN_NAMING_SCHEMAS = [
   {
     id: 'walls-soffits',
-    name: '1. Wall & Soffit Wall Naming',
+    name: 'Wall & Soffit Naming',
     category: 'Walls & Soffits',
     docId: 137,
     delimiter: '_',

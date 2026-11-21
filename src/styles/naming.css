@@ -452,7 +452,7 @@
 }
 
 .nm-switch-pill.on {
-  background: var(--blue);
+  background: #34c759;
 }
 
 .nm-switch-pill.on::after {
@@ -845,12 +845,12 @@
 }
 
 :root[data-theme="dark"] .nm-wrap .nm-switch-pill {
-  background: transparent;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+  background: var(--fill2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 
 :root[data-theme="dark"] .nm-wrap .nm-switch-pill.on {
-  background: var(--blue);
+  background: #34c759;
   box-shadow: none;
 }
 
@@ -950,12 +950,12 @@
   }
 
   :root:not([data-theme="light"]) .nm-wrap .nm-switch-pill {
-    background: transparent;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24);
+    background: var(--fill2);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
   }
 
   :root:not([data-theme="light"]) .nm-wrap .nm-switch-pill.on {
-    background: var(--blue);
+    background: #34c759;
     box-shadow: none;
   }
 

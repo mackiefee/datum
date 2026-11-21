@@ -210,7 +210,7 @@ export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], c
         </div>
         ${item &&
         onInfo &&
-        html`<button type="button" className="btn sm" onClick=${() => onInfo(item.id)}>
+        html`<button type="button" className="btn sm" onClick=${() => onInfo(item.id, 'l')}>
           <${Ic} n="layers" s=${14} /> Manage links
         </button>`}
         ${collapsedByDefault &&

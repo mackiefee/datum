@@ -129,6 +129,10 @@ export function App() {
   const [spaceProject, setSpaceProject] = useState("all");
   const kbDisplayLoaded = useRef(false);
   useEffect(() => {
+    const savedTheme = db.load("kb2-theme", null);
+    if (savedTheme === "dark" || savedTheme === "light") {
+      document.documentElement.dataset.theme = savedTheme;
+    }
     if (!kbDisplayLoaded.current) {
       kbDisplayLoaded.current = true;
       const saved = db.load("kb2-display-v2", "space");
@@ -148,6 +152,7 @@ export function App() {
   const [q, setQ] = useState("");
   const [f, setF] = useState({});
   const [sel, setSel] = useState(null);
+  const [selTab, setSelTab] = useState("o");
   const [bell, setBell] = useState(false);
   const [nav, setNav] = useState(false);
   const [spaceChatSig, setSpaceChatSig] = useState(0);
@@ -981,12 +986,14 @@ export function App() {
   const theme = () => {
     const d = document.documentElement;
     const t = d.dataset.theme || (matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light");
-    d.dataset.theme = t === "dark" ? "light" : "dark";
+    const next = t === "dark" ? "light" : "dark";
+    d.dataset.theme = next;
+    db.save("kb2-theme", next);
   };
 
   const go = (id) => {
     setRead(null);
-    if (view === "space" && kbDisplay !== "space") setKbDisplay("space");
+    if (kbDisplay === "tasks" || kbDisplay === "scripts") setKbDisplay("space");
     setCur(id);
     setCatFilter("all");
     setActiveKitId(null);
@@ -1029,7 +1036,8 @@ export function App() {
       setSpaceStageOpen(true);
       return;
     }
-    if (catFilter === "kits" && !activeKitId) {
+    setActiveKitId(null);
+    if (catFilter === "kits") {
       setCatFilter("all");
     }
     setKbDisplay(mode === "grid" || mode === "graph" || mode === "tasks" || mode === "scripts" ? mode : "space");
@@ -2180,8 +2188,9 @@ export function App() {
     if (view === "lib" && cur === "drafts" && !can.createDraft(role)) setCur("all");
   }, [role, view, cur, isGovCapable]);
 
-  const pick = (id) => {
+  const pick = (id, tab = "o") => {
     setSel(id);
+    setSelTab(tab || "o");
     setBell(false);
   };
 
@@ -2261,7 +2270,7 @@ export function App() {
       : view === "team"
       ? "People & Teams"
       : view === "admin"
-      ? "Administration & Governance"
+      ? "Administration"
       : view === "lib"
       ? cur === "all"
         ? "All Catalog Items"
@@ -2920,24 +2929,8 @@ export function App() {
             onClick=${returnCleanChatHero}
           >
             <${DatumMark} s=${20} />
-            <span className="nav-brand-label">${rr ? "Datum" : pageTitle}</span>
+            <span className="nav-brand-label">${pageTitle}</span>
           </button>
-          ${rr &&
-          html`<nav className="bar-crumb" aria-label="Breadcrumb">
-            <span className="bar-crumb-sep">/</span>
-            <button
-              type="button"
-              className="bar-crumb-btn"
-              onClick=${() => {
-                setRead(null);
-                if (rr.node) go(rr.node);
-              }}
-            >
-              ${(byId(rr.node, tree) && byId(rr.node, tree).name) || pageTitle}
-            </button>
-            <span className="bar-crumb-sep">/</span>
-            <span className="bar-crumb-cur">${rr.title}</span>
-          </nav>`}
         </div>
 
         <${Pal}
@@ -2967,25 +2960,32 @@ export function App() {
         />
 
         <div className="bar-r">
-          ${!rr &&
-          !["tasks", "team", "admin"].includes(view) &&
-          can.createDraft(role) &&
-          html`<${Fragment}>
-            <button
-              className="btn p cr"
-              title="Create Document or Resource"
-              onClick=${() => createNewDoc()}
-            >
-              <${Ic} n="plus" s=${16} /><span>Create</span>
-            </button>
-
-            <button className="ib" title="Import article from .docx" aria-label="Import from .docx" onClick=${() => dxr.current && dxr.current.click()}>
-              ${html`<${Ic} n="doc" s=${18} />`}
-            </button>
-          </${Fragment}>`}
+          <${ViewModeSwitch}
+            viewMode=${!rr && isSpaceView ? activeViewMode : ""}
+            stageOpen=${Boolean(!rr && isSpaceView && spaceStageOpen)}
+            visibleColsCount=${visibleCols.length}
+            showTasks=${!isGuest}
+            onSelectMode=${selectSpatialMode}
+          />
+          ${can.createDraft(role) &&
+          html`<button
+            type="button"
+            className="kspace-create-btn"
+            title="Create Document or Resource"
+            aria-label="Create Document or Resource"
+            onClick=${() => createNewDoc()}
+          >
+            <${Ic} n="plus" s=${15} />
+          </button>`}
           ${!isGuest &&
-          html`<button className="ib bar-r-bell" title="Notifications" aria-label="Notifications" onClick=${() => setBell(!bell)}>
-            ${html`<${Ic} n="bell" s=${18} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
+          html`<button
+            type="button"
+            className="ib bar-r-bell kspace-bell-btn"
+            title="Notifications"
+            aria-label="Notifications"
+            onClick=${() => setBell(!bell)}
+          >
+            ${html`<${Ic} n="bell" s=${15} />`}${unread > 0 && html`<span className="dot">${unread}</span>`}
           </button>`}
           <${UserSwitcher}
             variant="topbar"
@@ -3066,7 +3066,8 @@ export function App() {
               showTasks=${!isGuest}
               onSelectMode=${selectSpatialMode}
             />
-            <${FilterPopover}
+            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts")) &&
+            html`<${FilterPopover}
               view=${view}
               curCat=${curCat}
               catFilter=${catFilter}
@@ -3083,8 +3084,9 @@ export function App() {
               statuses=${Object.entries(ST).map(([k, v]) => [k, v[0]])}
               types=${Object.entries(TY)}
               tags=${tags}
-            />
-            <${SortPopover}
+            />`}
+            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "kits")) &&
+            html`<${SortPopover}
               view=${view}
               catFilter=${catFilter}
               setCatFilter=${handleSetCatFilter}
@@ -3098,7 +3100,7 @@ export function App() {
               sort=${sort}
               setSort=${setSort}
               visibleColsCount=${visibleCols.length}
-            />
+            />`}
           <//>`;
 
           const spaceLeftNav = html`<${Fragment}>
@@ -3639,6 +3641,7 @@ export function App() {
     ${sr &&
     html`<${Drawer}
       r=${sr}
+      initialTab=${selTab}
       res=${visibleRes}
       tree=${tree}
       role=${role}

@@ -32,7 +32,7 @@ function SwitchRow({ label, hint, checked, onToggle, disabled }) {
 
 export function Drawer(p) {
   const { r, res, role, tree, userName, users = [], shares = [] } = p;
-  const [tab, setTab] = useState("o");
+  const [tab, setTab] = useState(p.initialTab || "o");
   const [cm, setCm] = useState("");
   const [sm, setSm] = useState(null);
   const [smBusy, setSmBusy] = useState(false);
@@ -47,7 +47,7 @@ export function Drawer(p) {
   const [, setBridgeTick] = useState(0);
 
   useEffect(() => {
-    setTab("o");
+    setTab(p.initialTab || "o");
     setCm("");
     setSm(null);
     setSmBusy(false);
@@ -57,7 +57,7 @@ export function Drawer(p) {
     setNewTag("");
     setTplOpen(false);
     setConfirmDel(false);
-  }, [r.id]);
+  }, [r.id, p.initialTab]);
 
   useEffect(() => {
     setUrlDraft(r.url || "");
@@ -65,10 +65,15 @@ export function Drawer(p) {
 
   useEffect(() => {
     const k = (e) => {
-      if (e.key === "Escape") p.close();
+      if (e.key === "Escape") {
+        if (document.querySelector(".asel-menu")) return;
+        e.stopPropagation();
+        if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+        p.close();
+      }
     };
-    document.addEventListener("keydown", k);
-    return () => document.removeEventListener("keydown", k);
+    document.addEventListener("keydown", k, true);
+    return () => document.removeEventListener("keydown", k, true);
   }, []);
 
   const cat = byId(r.node, tree);

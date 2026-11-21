@@ -214,6 +214,20 @@ export function QuickCaptureModal({
     setIsPinned(false);
   }, [open, initialMode, initialDoc?.id, initialTask, initialRevisionParent?.id, initialNote, initialResource, initialResKind, initialResScope, initialProject, initialLinkedSection]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        if (document.querySelector('.asel-menu')) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onClose && onClose();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [open, onClose]);
+
   const sortedDocs = useMemo(
     () => [...(docs || [])].sort((a, b) => (a.title || '').localeCompare(b.title || '')),
     [docs]

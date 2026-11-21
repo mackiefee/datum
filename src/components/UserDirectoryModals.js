@@ -62,7 +62,7 @@ export function UserRowActionMenu({
     html`<div
       ref=${menuRef}
       className="asel-menu"
-      style=${{ left: `${rowMenu.left}px`, top: `${rowMenu.top}px`, width: '220px' }}
+      style=${{ left: `${rowMenu.left}px`, top: `${rowMenu.top}px`, width: '244px' }}
       role="menu"
     >
       ${onFilterByOwner &&

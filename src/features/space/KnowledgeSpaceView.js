@@ -2504,7 +2504,7 @@ export function KnowledgeSpaceView({
                 ]
               : []),
             {
-              t: `Ask Library AI: “${qTrim}”`,
+              t: `Ask Datum AI: “${qTrim}”`,
               d: 'Permission-filtered synthesis & spotlight',
               n: 'spark',
               c: '#bf5af2',
@@ -2602,29 +2602,22 @@ export function KnowledgeSpaceView({
           !isKitsOverview &&
           !activeKit &&
           onBrainLayerChange &&
-          html`<div className="kspace-view-seg" role="group" aria-label="Knowledge layer">
-            ${[
+          html`<${Select}
+            className="kspace-proj-asel"
+            ariaLabel="Knowledge layer"
+            displayLabel=${effectiveLayer === 'mine' ? 'Mine' : effectiveLayer === 'team' ? 'Team' : 'All'}
+            value=${effectiveLayer}
+            options=${[
               ['all', 'All'],
               ['mine', 'Mine'],
               ['team', 'Team'],
-            ].map(
-              ([lk, llbl]) => html`<button
-                key=${'layer-' + lk}
-                type="button"
-                className=${effectiveLayer === lk ? 'on' : ''}
-                aria-pressed=${effectiveLayer === lk}
-                onClick=${() => {
-                  ensureStageOpen();
-                  if (isTasksView && (lk === 'all' || lk === 'team')) {
-                    onSelectViewMode && onSelectViewMode('space');
-                  }
-                  onBrainLayerChange(lk);
-                }}
-              >
-                ${llbl}
-              </button>`
-            )}
-          </div>`}
+            ]}
+            minMenuWidth=${130}
+            onChange=${(lk) => {
+              ensureStageOpen();
+              onBrainLayerChange(lk);
+            }}
+          />`}
           ${!isHeroMode &&
           !isGuest &&
           !isKitsOverview &&
@@ -3362,7 +3355,7 @@ export function KnowledgeSpaceView({
                       </${Fragment}>`}
                   ${activeFormation === 'graph' &&
                   gDeg > 0 &&
-                  html`<span className="kspace-graph-deg" style=${{ marginLeft: 'auto' }}>${gDeg} links</span>`}
+                  html`<span className="kspace-graph-deg" style=${{ marginLeft: 'auto' }}>${gDeg} ${gDeg === 1 ? 'link' : 'links'}</span>`}
                   ${activeFormation !== 'graph' &&
                   (r.url && isResType(r.type)
                     ? html`<a
@@ -3400,7 +3393,7 @@ export function KnowledgeSpaceView({
               ${!activeKit &&
               spaceQuery.trim() &&
               html`<button type="button" className="btn p" onClick=${() => runAi(spaceQuery)}>
-                <${Ic} n="spark" s=${14} /><span>Ask Library AI</span>
+                <${Ic} n="spark" s=${14} /><span>Ask Datum AI</span>
               </button>`}
               ${(hasFilters || hasReactiveFilter) &&
               html`<button
@@ -3758,6 +3751,8 @@ export function KnowledgeSpaceView({
       </div>`}
 
       ${isMobile &&
+      !isTasksView &&
+      !isScriptsView &&
       (activeChat || mobHistoryOpen || mobBrowseOpen || isKitsOverview || activeKit || spaceFilterMode === 'bookmarks' || Boolean(f && f.disc)) &&
       html`<div className="kspace-mob-toprow">
         ${chats.length > 0 &&
@@ -4463,6 +4458,8 @@ export function KnowledgeSpaceView({
             ? 'Search Starter Kits or ask Datum AI…'
             : isScriptsView
             ? 'Filter Scripts & Links or ask Datum AI (EN/UA)…'
+            : isTasksView
+            ? 'Filter Tasks & Notes or ask Datum AI (EN/UA)…'
             : activeFormation === 'graph'
             ? 'Filter Graph nodes or ask Datum AI (EN/UA)…'
             : activeFormation === 'grid'

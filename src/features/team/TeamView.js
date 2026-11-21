@@ -435,7 +435,7 @@ export function TeamView({
           ${[
             ['Read Public & External Portal', [1, 1, 1, 1, 1]],
             ['Read Internal & Restricted (if Permitted)', [1, 1, 1, 1, 0]],
-            ['Comment, Bookmark & Ask Edge AI', [1, 1, 1, 1, 0]],
+            ['Comment, Bookmark & Ask Datum AI', [1, 1, 1, 1, 0]],
             ['Create Drafts & Edit Owned Items', [1, 1, 1, 0, 0]],
             ['Edit Category Content & Subcategories', [1, 1, 1, 0, 0]],
             ['Approve / Publish / Archive Content', [1, 1, 0, 0, 0]],
@@ -462,7 +462,7 @@ export function TeamView({
       html`<div
         ref=${menuRef}
         className="asel-menu"
-        style=${{ left: `${rowMenu.left}px`, top: `${rowMenu.top}px`, width: '216px' }}
+        style=${{ left: `${rowMenu.left}px`, top: `${rowMenu.top}px`, width: '244px' }}
         role="menu"
       >
         <button

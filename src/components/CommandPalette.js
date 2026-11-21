@@ -367,8 +367,8 @@ export function Pal(p) {
             if (aiAns && e.target.value.trim() !== aiAns.q) setAiAns(null);
           }}
           onKeyDown=${key}
-          placeholder=${p.open ? "Search docs, ask Library AI, or run a command…" : "Search or ask AI…"}
-          aria-label="Search or ask Library AI"
+          placeholder=${p.open ? "Search docs, ask Datum AI, or run a command…" : "Search or ask AI…"}
+          aria-label="Search or ask Datum AI"
         />
         ${!p.open && (p.catalogQ || q)
           ? html`<button
@@ -402,7 +402,7 @@ export function Pal(p) {
           type="button"
           tabIndex=${isDocked ? -1 : 0}
           className=${"sw-ask-btn" + (aiAns && aiAns.busy ? " busy" : "")}
-          title="Ask Library AI inline (Shift+Enter)"
+          title="Ask Datum AI inline (Shift+Enter)"
           onClick=${(e) => {
             e.stopPropagation();
             if (isDocked) return;
@@ -482,9 +482,9 @@ export function Pal(p) {
           </div>
 
           ${aiAns &&
-          html`<div className="sw-ai-card" role="region" aria-label="Library AI Answer">
+          html`<div className="sw-ai-card" role="region" aria-label="Datum AI Answer">
             <div className="sw-ai-head">
-              <span className="sw-ai-badge"><${Ic} n="spark" s=${11} /> Library AI</span>
+              <span className="sw-ai-badge"><${Ic} n="spark" s=${11} /> Datum AI</span>
               <span className="sw-ai-q">${aiAns.q}</span>
               <button
                 type="button"

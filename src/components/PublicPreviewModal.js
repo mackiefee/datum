@@ -43,11 +43,25 @@ export function PublicPreviewModal({ target, res, imgs, close }) {
 
   return html`<div className="pdl-pub" role="dialog" aria-modal="true" aria-label="Public External Portal Preview">
     <div className="pdl-pub-in">
-      <div className="bar sc" style=${{ borderRadius: 20, marginBottom: 24, border: "1px solid var(--line)", padding: "10px 18px" }}>
+      <div
+        className="sc"
+        style=${{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          borderRadius: 16,
+          marginBottom: 20,
+          border: "1px solid var(--line)",
+          background: "var(--surface)",
+          padding: "10px 16px",
+        }}
+      >
         <div className="logo" style=${{ padding: 0 }}><${DatumMark} s=${24} /><span>Datum Public Portal</span></div>
         <span className="pill" style=${{ "--c": "#34c759" }}>Sanitized External View</span>
-        <span style=${{ marginLeft: "auto" }}></span>
-        <button className="btn p" onClick=${close}><${Ic} n="x" s=${14} /> Exit Preview</button>
+        <button type="button" className="btn sm p" style=${{ marginLeft: "auto", width: "auto" }} onClick=${close}>
+          <${Ic} n="x" s=${13} /> Exit Preview
+        </button>
       </div>
 
       ${isCollection &&

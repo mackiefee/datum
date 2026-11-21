@@ -1,4 +1,4 @@
-import { html, useState, useMemo, useEffect, useRef } from '../../lib/react.js';
+import { Fragment, html, useState, useMemo, useEffect, useRef } from '../../lib/react.js';
 import { ST, TY, DISC, DC } from '../../config/constants.js';
 import { ls } from '../../utils/storage.js';
 import { fmt, gPl } from '../../utils/format.js';
@@ -76,10 +76,10 @@ const zin=f=>{const e=E.current;gZoom(e,e.w/2,e.h/2,f)};
 const relayout=()=>{const e=E.current;e.nodes.forEach((n,i)=>{const a=i*2.399963,r=30*Math.sqrt(i+1);n.x=Math.cos(a)*r;n.y=Math.sin(a)*r;n.vx=n.vy=0});e.alpha=1;e.refit=110;e.dirty=true};
 const sr=sel&&res.find(r=>r.id===sel),hn=hov&&res.find(r=>r.id===hov);
 const outL=sr?sr.links.map(l=>({r:res.find(x=>x.id===l[0]),k:l[1]})).filter(x=>x.r):[],inL=sr?res.flatMap(r=>r.links.filter(l=>l[0]===sr.id).map(l=>({r,k:l[1]}))):[];
-const Tg=(l,k)=>html`<button className=${"gx-row"+(S[k]?" on":"")} role="switch" aria-checked=${!!S[k]} onClick=${()=>up(k,!S[k])}><span>${l}</span><i className="gx-sw"><b></b></i></button>`;
-const Rg=(l,k)=>html`<label className="gx-row"><span>${l}</span><input className="gx-rg" type="range" min="0" max="1" step=".01" value=${S[k]} style=${{"--p":S[k]*100+"%"}} onChange=${e=>up(k,+e.target.value)}/></label>`;
+const Tg=(l,k)=>html`<button key=${k} className=${"gx-row"+(S[k]?" on":"")} role="switch" aria-checked=${!!S[k]} onClick=${()=>up(k,!S[k])}><span>${l}</span><i className="gx-sw"><b></b></i></button>`;
+const Rg=(l,k)=>html`<label key=${k} className="gx-row"><span>${l}</span><input className="gx-rg" type="range" min="0" max="1" step=".01" value=${S[k]} style=${{"--p":S[k]*100+"%"}} onChange=${e=>up(k,+e.target.value)}/></label>`;
 const Ch=d=>{const on=!S.hid.includes(d);return html`<button key=${d} className=${"gx-c"+(on?"":" off")} style=${{"--c":DC[d]}} aria-pressed=${on} onClick=${()=>setD(d,!on)}><i></i>${d}</button>`};
-const Rows=(t,L)=>L.length?html`<div className="gx-lt">${t}</div>${L.map(x=>html`<button key=${x.r.id+x.k} className="gx-lr" onClick=${()=>goTo(x.r.id)}><i style=${{background:DC[x.r.disc]}}></i><span>${x.r.title}</span><em>${x.k==="hard"?"hard":"soft"}</em></button>`)}`:null;
+const Rows=(t,L)=>L.length?html`<${Fragment} key=${t}><div className="gx-lt">${t}</div>${L.map(x=>html`<button key=${x.r.id+x.k} className="gx-lr" onClick=${()=>goTo(x.r.id)}><i style=${{background:DC[x.r.disc]}}></i><span>${x.r.title}</span><em>${x.k==="hard"?"hard":"soft"}</em></button>`)}</${Fragment}>`:null;
 const cnt=d=>res.filter(r=>r.disc===d).length;
 return html`<div className="gx" ref=${wrap} tabIndex="0" role="application" aria-label="Dependency graph" onKeyDown=${onKey}>
 <canvas ref=${cv} onPointerDown=${onDown} onPointerMove=${onMove} onPointerUp=${onUp} onPointerCancel=${onUp} onPointerLeave=${onLeave} onDoubleClick=${ev=>{const n=gHit(E.current,...loc(ev));if(n)pick(n.id)}}></canvas>

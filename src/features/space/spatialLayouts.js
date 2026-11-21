@@ -117,7 +117,7 @@ export function computeGridLayout(displayItems, vpWidth, vpHeight, hasOverlayShe
   const rows = Math.max(1, Math.ceil(n / cols));
 
   const topClear = (vpWidth <= 768 ? 64 : 74) + topOffset;
-  const bottomClear = hasOverlaySheet ? 348 : 132;
+  const bottomClear = hasOverlaySheet ? 348 : 156;
   const availH = Math.max(220, vpHeight - topClear - bottomClear);
   const totalH = rows * cardH + Math.max(0, rows - 1) * gapY;
 
@@ -128,7 +128,7 @@ export function computeGridLayout(displayItems, vpWidth, vpHeight, hasOverlayShe
       ? centerMidY - totalH / 2 + cardH / 2
       : minTopY;
 
-  const maxScrollY = Math.max(0, totalH - availH + 12);
+  const maxScrollY = Math.max(0, totalH - availH + 56);
 
   const positions = displayItems.map((item, i) => {
     const col = i % cols;

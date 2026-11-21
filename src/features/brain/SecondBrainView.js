@@ -1052,10 +1052,19 @@ export function SecondBrainView({
       .slice(0, 6);
   }, [projFilter, tasks, notes, resources, docs]);
 
-  const recentTeamUpdates = useMemo(
-    () => (activities || []).filter((a) => a && docById.has(Number(a.targetId || a.itemId))).slice(0, 5),
-    [activities, docById]
-  );
+  const recentTeamUpdates = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    for (const a of activities || []) {
+      if (!a || !docById.has(Number(a.targetId || a.itemId))) continue;
+      const key = `${a.targetId || a.itemId}:${a.action || ''}:${a.at || a.date || ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(a);
+      if (out.length >= 5) break;
+    }
+    return out;
+  }, [activities, docById]);
 
   const toggleLinksExpand = (taskId) => {
     setExpandedLinksIds((prev) => {
@@ -1291,7 +1300,7 @@ export function SecondBrainView({
               : filterTab === 'notes'
               ? `${visibleNotes.length} ${visibleNotes.length === 1 ? 'note' : 'notes'}`
               : filterTab === 'resources'
-              ? `${visibleResources.length} ${visibleResources.length === 1 ? 'resource' : 'resources'}`
+              ? `${visibleResources.length} ${visibleResources.length === 1 ? 'item' : 'items'}`
               : `${projStats.doneCount}/${projStats.total} done${projStats.overdueCount ? ` · ${projStats.overdueCount} late` : ''}`}
           </span>
           <i
@@ -1329,7 +1338,7 @@ export function SecondBrainView({
         </div>
 
         ${filterTab === 'tasks' &&
-        html`<div className="seg pl-desk-only" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
+        html`<div className="seg" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
           <button type="button" className=${layout === 'list' ? 'on' : ''} onClick=${() => setLayout('list')}>
             List
           </button>
@@ -1780,7 +1789,7 @@ export function SecondBrainView({
                   <i className="pl-std-dot" style=${{ background: 'var(--blue)' }} />
                   <div className="pl-std-mid">
                     <div className="pl-std-t">${d.title}</div>
-                    <div className="pl-std-s">${act.actor || act.who || 'Team'} · ${act.action || 'updated'} · ${act.at || act.date || ''}</div>
+                    <div className="pl-std-s">${act.actor || act.who || 'Team'} · ${act.action || 'updated'}${act.note ? ` · ${act.note}` : ''} · ${act.at || act.date || ''}</div>
                   </div>
                   <span className="pl-std-badge">Update</span>
                 </button>`;

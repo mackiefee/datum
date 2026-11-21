@@ -1960,6 +1960,7 @@ export function Reader(p) {
     window.addEventListener('resize', updateScroll, { passive: true });
     const k = (e) => {
       if (e.key === 'Escape') {
+        if (document.querySelector('.insp-dr, .qc-ov, .asel-menu, .pdl-pub')) return;
         if (fbPop) setFbPop(null);
         else if (figAct) setFigAct(null);
         else if (sl) setSl(null);
@@ -2441,7 +2442,7 @@ export function Reader(p) {
         <span>${r.author}</span>
         <span>·</span>
         <span>Updated ${fmt(r.upd)}</span>
-        ${isStale && html`<span>·</span><span className="stale">Review (${ageDays}d)</span>`}
+        ${isStale && html`<${Fragment}><span>·</span><span className="stale">Review (${ageDays}d)</span></${Fragment}>`}
         ${p.req.includes(r.id) && html`<span className="pill" style=${{ '--c': '#ff3b30' }}>Required</span>`}
       </div>
 
@@ -2600,8 +2601,10 @@ export function Reader(p) {
         html`<div className="ackb">
           ${p.acks[r.id]
             ? html`<span className="okk"><${Ic} n="check" s=${18} /> Read & confirmed ${fmt(p.acks[r.id])}</span>`
-            : html`<span>This document is marked as mandatory reading.</span>
-                <button type="button" className="btn p" onClick=${() => p.ack(r.id)}>Confirm I have read it</button>`}
+            : html`<${Fragment}>
+                <span>This document is marked as mandatory reading.</span>
+                <button type="button" className="btn p" onClick=${() => p.ack(r.id)}>Confirm I have read it</button>
+              </${Fragment}>`}
         </div>`}
 
         <div className="row rd-tags-row" style=${{ marginTop: 28 }}>
