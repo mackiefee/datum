@@ -22,7 +22,15 @@ const saveTimers = new Map();
 function getStoredSupabaseJwt() {
   const s = ls.get('kb2-auth-session');
   const tok = s && typeof s.token === 'string' ? s.token : '';
-  return tok && tok !== 'local-dev-session' ? tok : '';
+  return tok && tok !== 'local-dev-session' && tok !== 'local-fallback-token' ? tok : '';
+}
+
+function notifyIfAccessDenied(status, data) {
+  if ((status === 401 || status === 403) && data && data.accessDenied && typeof window !== 'undefined') {
+    try {
+      window.dispatchEvent(new CustomEvent('datum:access-revoked', { detail: data }));
+    } catch (e) {}
+  }
 }
 
 function openMediaIdb() {
@@ -387,7 +395,11 @@ export const db = {
         headers: db.brain.headersFor(cleanEmail),
         cache: 'no-store',
       });
-      if (!res.ok) throw new Error(`Brain snapshot failed (${res.status})`);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        notifyIfAccessDenied(res.status, j);
+        throw new Error(j?.error || `Brain snapshot failed (${res.status})`);
+      }
       const data = await res.json();
       if (data && Array.isArray(data.tasks)) db.brain.saveLocalTasks(cleanEmail, data.tasks);
       if (data && Array.isArray(data.notes)) db.brain.saveLocalNotes(cleanEmail, data.notes);
@@ -407,6 +419,7 @@ export const db = {
         let msg = `Brain sync failed (${res.status})`;
         try {
           const j = await res.json();
+          notifyIfAccessDenied(res.status, j);
           if (j && j.error) msg = j.error;
         } catch {}
         throw new Error(msg);
@@ -453,9 +466,14 @@ export const db = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        notifyIfAccessDenied(res.status, data);
         throw new Error((data && data.error) || `Workspace sync failed (${res.status})`);
       }
       return data;
+    },
+
+    saveAccessPolicy(policy, email = '') {
+      return db.workspace.request('POST', { action: 'access_policy_save', policy }, email);
     },
 
     fetchSnapshot(email = '') {
@@ -513,6 +531,7 @@ export const db = {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        notifyIfAccessDenied(res.status, data);
         throw new Error((data && data.error) || `Directory request failed (${res.status})`);
       }
       return data;

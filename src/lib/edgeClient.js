@@ -1,4 +1,5 @@
 import { runAiEdgeLogic, runPublicPreflightLogic, runGovernanceScanLogic } from './edgeLogic.js';
+import { db } from './db.js';
 
 const AI_CACHE_MAX = 50;
 const aiCache = new Map();
@@ -98,14 +99,24 @@ function aiCacheKey(payload) {
 
 async function callEdge(path, payload, fallbackFn) {
   try {
+    const authHeaders = db?.directory?.headersFor ? db.directory.headersFor() : { 'Content-Type': 'application/json' };
     const res = await fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders,
       body: JSON.stringify(payload),
     });
     if (res.ok) return await res.json();
+    if (res.status === 401 || res.status === 403) {
+      const errData = await res.json().catch(() => ({}));
+      if (errData && errData.accessDenied && typeof window !== 'undefined') {
+        try {
+          window.dispatchEvent(new CustomEvent('datum:access-revoked', { detail: errData }));
+        } catch (e) {}
+      }
+      return { ok: false, blocked: true, answer: errData?.error || 'Access denied', error: errData?.error || 'Access denied', sources: [] };
+    }
   } catch (e) {
-    // Fallback to local execution if network or SSR boundary interrupts fetch
+    // Fallback to local execution only if network or SSR boundary interrupts fetch
   }
   return fallbackFn(payload);
 }

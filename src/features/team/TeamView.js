@@ -37,6 +37,7 @@ export function TeamView({
   onFilterByOwner,
   onSelectCat,
   onOpenAdminUsers,
+  onOpenAccessPolicy,
   flash,
 }) {
   const [tab, setTab] = useState('people');
@@ -247,11 +248,18 @@ export function TeamView({
               : 'Synced with Supabase'}
           </span>
         </div>
-        ${isAdmin &&
-        onOpenAdminUsers &&
-        html`<button type="button" className="mn" style=${{ fontSize: 12.5, whiteSpace: 'nowrap', flex: 'none' }} onClick=${onOpenAdminUsers}>
-          Manage Access ›
-        </button>`}
+        <div style=${{ display: 'inline-flex', alignItems: 'center', gap: 12, flex: 'none' }}>
+          ${isSuperAdmin &&
+          onOpenAccessPolicy &&
+          html`<button type="button" className="mn" style=${{ fontSize: 12.5, whiteSpace: 'nowrap', flex: 'none' }} onClick=${onOpenAccessPolicy}>
+            Whitelist ›
+          </button>`}
+          ${isAdmin &&
+          onOpenAdminUsers &&
+          html`<button type="button" className="mn" style=${{ fontSize: 12.5, whiteSpace: 'nowrap', flex: 'none' }} onClick=${onOpenAdminUsers}>
+            Manage Access ›
+          </button>`}
+        </div>
       </div>
 
       <div className=${'cd-filterbar' + (mobSearchOpen || search ? ' mob-search-on' : '')}>

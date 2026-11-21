@@ -1,7 +1,14 @@
-export const runtime = 'edge';
+import {
+  authenticateEdgeRequest,
+  getSupabaseAdmin,
+  isAdminRole,
+  isEditorOrAbove,
+  saveServerAccessPolicy,
+  toPublicLoginPolicy,
+  writeAuthAuditLog,
+} from '../../../lib/edgeAuth.js';
 
-const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
-const enc = new TextEncoder();
+export const runtime = 'edge';
 
 function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -13,136 +20,6 @@ function jsonResp(data, status = 200) {
   });
 }
 
-function getSecret() {
-  return (typeof process !== 'undefined' && process.env && process.env.AUTH_SECRET) || FALLBACK_SECRET;
-}
-
-function fromBase64Url(str) {
-  const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
-  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-async function verifyHmacJwt(token) {
-  const parts = String(token || '').split('.');
-  if (parts.length !== 3) return { valid: false };
-  const [header, body, sig] = parts;
-  try {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(getSecret()),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-    const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
-    if (!ok) return { valid: false };
-    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
-    if (claims.exp && Date.now() > claims.exp) return { valid: false };
-    return { valid: true, claims };
-  } catch (e) {
-    return { valid: false };
-  }
-}
-
-function getSupabaseAdmin() {
-  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
-  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
-  const anonKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
-  if (!url || !serviceKey) return null;
-  const headers = { 'Content-Type': 'application/json', apikey: serviceKey };
-  if (serviceKey.startsWith('eyJ')) {
-    headers.Authorization = `Bearer ${serviceKey}`;
-  }
-  return { url, headers, anonKey: anonKey || serviceKey };
-}
-
-async function verifySupabaseOAuthJwt(admin, token) {
-  if (!admin || !token || !token.startsWith('eyJ')) return null;
-  try {
-    const res = await fetch(`${admin.url}/auth/v1/user`, {
-      headers: { apikey: admin.anonKey, Authorization: `Bearer ${token}` },
-    });
-    if (!res.ok) return null;
-    const u = await res.json();
-    return u && u.email ? String(u.email).trim().toLowerCase() : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function isLocalhostRequest(req) {
-  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').toLowerCase();
-  return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
-}
-
-async function resolveCaller(req, admin) {
-  const authHdr = req.headers.get('authorization') || '';
-  const bearer = authHdr.toLowerCase().startsWith('bearer ') ? authHdr.slice(7).trim() : '';
-  const supaTok = String(req.headers.get('x-datum-supa-token') || '').trim();
-  const requestedEmail = String(req.headers.get('x-datum-user-email') || '').trim().toLowerCase();
-
-  let verifiedEmail = '';
-
-  if (bearer && bearer !== 'local-dev-session' && bearer !== 'local-fallback-token') {
-    const hmac = await verifyHmacJwt(bearer);
-    if (hmac.valid && hmac.claims?.email) {
-      verifiedEmail = String(hmac.claims.email).trim().toLowerCase();
-    } else if (bearer.startsWith('eyJ')) {
-      const oauthEmail = await verifySupabaseOAuthJwt(admin, bearer);
-      if (oauthEmail) verifiedEmail = oauthEmail;
-    }
-  }
-
-  if (!verifiedEmail && supaTok && supaTok.startsWith('eyJ')) {
-    const oauthEmail = await verifySupabaseOAuthJwt(admin, supaTok);
-    if (oauthEmail) verifiedEmail = oauthEmail;
-  }
-
-  if (
-    !verifiedEmail &&
-    isLocalhostRequest(req) &&
-    (!bearer || bearer === 'local-dev-session' || bearer === 'local-fallback-token')
-  ) {
-    if (requestedEmail && requestedEmail.includes('@')) {
-      verifiedEmail = requestedEmail;
-    }
-  }
-
-  if (!verifiedEmail) {
-    return { ok: false, status: 401, error: 'Authentication required' };
-  }
-
-  const uRes = await fetch(
-    `${admin.url}/rest/v1/users?email=eq.${encodeURIComponent(verifiedEmail)}&select=id,email,name,role,status&limit=1`,
-    { headers: admin.headers }
-  );
-  const rows = uRes.ok ? await uRes.json() : [];
-  const dbUser = Array.isArray(rows) && rows[0] ? rows[0] : null;
-  if (dbUser && dbUser.status === 'deactivated') {
-    return { ok: false, status: 403, error: 'Account deactivated' };
-  }
-  return {
-    ok: true,
-    caller: {
-      id: dbUser ? dbUser.id : null,
-      email: verifiedEmail,
-      name: (dbUser && dbUser.name) || verifiedEmail.split('@')[0],
-      role: (dbUser && dbUser.role) || 'member',
-    },
-  };
-}
-
-function isEditorOrAbove(role) {
-  return role === 'super_admin' || role === 'admin' || role === 'editor';
-}
-
-function isAdminRole(role) {
-  return role === 'super_admin' || role === 'admin';
-}
-
 export async function GET(req) {
   const admin = getSupabaseAdmin();
   if (!admin) {
@@ -150,8 +27,13 @@ export async function GET(req) {
   }
 
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: true });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
 
     const callerEmail = auth.caller.email;
     const isGuest = auth.caller.role === 'guest';
@@ -203,7 +85,6 @@ export async function GET(req) {
       if (m && m.key) meta[m.key] = m.data;
     });
 
-    // Check if DB has ever been seeded at all (even for filtered views)
     const anyCheck = await fetch(`${admin.url}/rest/v1/shared_catalog_items?select=id&limit=1`, {
       headers: admin.headers,
     });
@@ -219,14 +100,15 @@ export async function GET(req) {
       needsSeed,
       items,
       collections,
-      tree: Array.isArray(meta.categories_tree) ? meta.categories_tree : null,
-      activities: cleanActivities,
-      requiredIds: Array.isArray(meta.required_ids) ? meta.required_ids : null,
-      flaggedIds: Array.isArray(meta.flagged_ids) ? meta.flagged_ids : null,
-      searchLogs: Array.isArray(meta.search_logs) ? meta.search_logs : null,
-      shares: Array.isArray(meta.direct_shares) ? meta.direct_shares : null,
-      namingSchemas: Array.isArray(meta.naming_schemas) ? meta.naming_schemas : null,
-      teamAcks: meta.team_acks && typeof meta.team_acks === 'object' ? meta.team_acks : null,
+      tree: !isGuest && Array.isArray(meta.categories_tree) ? meta.categories_tree : null,
+      activities: !isGuest ? cleanActivities : null,
+      requiredIds: !isGuest && Array.isArray(meta.required_ids) ? meta.required_ids : null,
+      flaggedIds: !isGuest && Array.isArray(meta.flagged_ids) ? meta.flagged_ids : null,
+      searchLogs: !isGuest && Array.isArray(meta.search_logs) ? meta.search_logs : null,
+      shares: !isGuest && Array.isArray(meta.direct_shares) ? meta.direct_shares : null,
+      namingSchemas: !isGuest && Array.isArray(meta.naming_schemas) ? meta.naming_schemas : null,
+      teamAcks: !isGuest && meta.team_acks && typeof meta.team_acks === 'object' ? meta.team_acks : null,
+      accessPolicy: isAdminRole(auth.caller.role) ? auth.policy : toPublicLoginPolicy(auth.policy),
     });
   } catch (err) {
     return jsonResp({ error: err.message || 'Workspace load failed' }, 500);
@@ -238,14 +120,42 @@ export async function POST(req) {
   if (!admin) return jsonResp({ error: 'Supabase not configured' }, 503);
 
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: false });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     if (auth.caller.role === 'guest') {
       return jsonResp({ error: 'External guests have read-only portal access' }, 403);
     }
 
     const body = await req.json();
     const action = String(body?.action || '').trim();
+
+    if (action === 'access_policy_save') {
+      if (auth.caller.role !== 'super_admin') {
+        return jsonResp({ error: 'Only SuperAdmin can modify workspace whitelist & access policy' }, 403);
+      }
+      const saved = await saveServerAccessPolicy(admin, body.policy || {}, auth.caller.email);
+      await writeAuthAuditLog(admin, {
+        email: auth.caller.email,
+        user_id: auth.caller.id,
+        provider: 'google',
+        event_type: 'access_policy_updated',
+        metadata: {
+          enabled: saved.enabled,
+          mode: saved.mode,
+          allowedDomains: saved.allowedDomains,
+          allowedEmailsCount: saved.allowedEmails.length,
+          blockedEmailsCount: saved.blockedEmails.length,
+          allowGuestPortal: saved.allowGuestPortal,
+          autoApproveDomainUsers: saved.autoApproveDomainUsers,
+        },
+      });
+      return jsonResp({ ok: true, accessPolicy: saved });
+    }
 
     if (action === 'seed_if_empty') {
       const anyCheck = await fetch(`${admin.url}/rest/v1/shared_catalog_items?select=id&limit=1`, {
@@ -317,7 +227,6 @@ export async function POST(req) {
         return jsonResp({ error: 'Editors or Admins can edit library standards' }, 403);
       }
 
-      // Members can only create doc suggestions under Review status; internal users can publish Shared Scripts/Links
       const cleanItem = isSuggest
         ? {
             ...item,
@@ -337,7 +246,6 @@ export async function POST(req) {
           };
 
       if (cleanItem.status === 'Approved' && !isAdminRole(auth.caller.role) && !isSharedResource) {
-        // Check if already Approved or user is Editor publishing allowed item? Keep Editor Draft/Review; Admin publishes unless existing
         const existingRes = await fetch(
           `${admin.url}/rest/v1/shared_catalog_items?id=eq.${itemId}&select=status&limit=1`,
           { headers: admin.headers }

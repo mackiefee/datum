@@ -1,30 +1,16 @@
+import {
+  APP_TO_DB_ROLE,
+  DB_TO_APP_ROLE,
+  authenticateEdgeRequest,
+  fetchServerAccessPolicy,
+  getSupabaseAdmin,
+  isAdminRole,
+  saveServerAccessPolicy,
+} from '../../../lib/edgeAuth.js';
+
 export const runtime = 'edge';
 
-const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const DB_TO_APP_ROLE = {
-  super_admin: 'SuperAdmin',
-  admin: 'Admin',
-  editor: 'Editor',
-  member: 'Member',
-  guest: 'Guest',
-};
-
-const APP_TO_DB_ROLE = {
-  SuperAdmin: 'super_admin',
-  super_admin: 'super_admin',
-  Admin: 'admin',
-  admin: 'admin',
-  Editor: 'editor',
-  editor: 'editor',
-  Member: 'member',
-  member: 'member',
-  Guest: 'guest',
-  guest: 'guest',
-};
-
-const enc = new TextEncoder();
 
 function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -34,133 +20,6 @@ function jsonResp(data, status = 200) {
       'Cache-Control': 'no-store',
     },
   });
-}
-
-function getSecret() {
-  return (typeof process !== 'undefined' && process.env && process.env.AUTH_SECRET) || FALLBACK_SECRET;
-}
-
-function fromBase64Url(str) {
-  const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
-  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-async function verifyHmacJwt(token) {
-  const parts = String(token || '').split('.');
-  if (parts.length !== 3) return { valid: false };
-  const [header, body, sig] = parts;
-  try {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(getSecret()),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-    const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
-    if (!ok) return { valid: false };
-    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
-    if (claims.exp && Date.now() > claims.exp) return { valid: false };
-    return { valid: true, claims };
-  } catch (e) {
-    return { valid: false };
-  }
-}
-
-function getSupabaseAdmin() {
-  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
-  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
-  const anonKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
-  if (!url || !serviceKey) return null;
-  const headers = { 'Content-Type': 'application/json', apikey: serviceKey };
-  if (serviceKey.startsWith('eyJ')) {
-    headers.Authorization = `Bearer ${serviceKey}`;
-  }
-  return { url, headers, serviceKey, anonKey: anonKey || serviceKey };
-}
-
-async function verifySupabaseOAuthJwt(admin, token) {
-  if (!admin || !token || !token.startsWith('eyJ')) return null;
-  try {
-    const res = await fetch(`${admin.url}/auth/v1/user`, {
-      headers: {
-        apikey: admin.anonKey,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!res.ok) return null;
-    const user = await res.json();
-    return user && user.email ? String(user.email).trim().toLowerCase() : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function isLocalhostRequest(req) {
-  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').toLowerCase();
-  return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
-}
-
-async function resolveCaller(req, admin) {
-  const authHdr = req.headers.get('authorization') || '';
-  const bearer = authHdr.toLowerCase().startsWith('bearer ') ? authHdr.slice(7).trim() : '';
-  const supaTok = String(req.headers.get('x-datum-supa-token') || '').trim();
-  const requestedEmail = String(req.headers.get('x-datum-user-email') || '').trim().toLowerCase();
-
-  let verifiedEmail = '';
-
-  if (bearer && bearer !== 'local-dev-session' && bearer !== 'local-fallback-token') {
-    const hmac = await verifyHmacJwt(bearer);
-    if (hmac.valid && hmac.claims?.email) {
-      verifiedEmail = String(hmac.claims.email).trim().toLowerCase();
-    } else if (bearer.startsWith('eyJ')) {
-      const oauthEmail = await verifySupabaseOAuthJwt(admin, bearer);
-      if (oauthEmail) verifiedEmail = oauthEmail;
-    }
-  }
-
-  if (!verifiedEmail && supaTok && supaTok.startsWith('eyJ')) {
-    const oauthEmail = await verifySupabaseOAuthJwt(admin, supaTok);
-    if (oauthEmail) verifiedEmail = oauthEmail;
-  }
-
-  if (
-    !verifiedEmail &&
-    isLocalhostRequest(req) &&
-    (!bearer || bearer === 'local-dev-session' || bearer === 'local-fallback-token')
-  ) {
-    if (requestedEmail && requestedEmail.includes('@')) {
-      verifiedEmail = requestedEmail;
-    }
-  }
-
-  if (!verifiedEmail) {
-    return { ok: false, status: 401, error: 'Authentication required' };
-  }
-
-  const uRes = await fetch(
-    `${admin.url}/rest/v1/users?email=eq.${encodeURIComponent(verifiedEmail)}&select=id,email,name,role,status&limit=1`,
-    { headers: admin.headers }
-  );
-  if (!uRes.ok) {
-    return { ok: false, status: 502, error: 'Failed to verify user identity' };
-  }
-  const rows = await uRes.json();
-  const dbUser = Array.isArray(rows) && rows[0] ? rows[0] : null;
-  if (!dbUser) {
-    return { ok: false, status: 403, error: 'User profile not found in workspace directory' };
-  }
-  if (dbUser.status === 'deactivated') {
-    return { ok: false, status: 403, error: 'Account deactivated' };
-  }
-  return { ok: true, caller: dbUser };
-}
-
-function isAdminRole(dbRole) {
-  return dbRole === 'super_admin' || dbRole === 'admin';
 }
 
 function mapUserRow(row, teamsById, membersByUserId) {
@@ -244,7 +103,6 @@ async function fetchDirectoryPayload(admin) {
     }
   }
 
-  // Also include users whose primary_team_id points to a team cleanly
   for (const u of usersList) {
     if (u.primary_team_id && teamsById.has(u.primary_team_id) && u.status !== 'deactivated') {
       const uArr = membersByTeamId.get(u.primary_team_id) || [];
@@ -310,10 +168,15 @@ export async function GET(req) {
     return jsonResp({ configured: false, users: [], teams: [] });
   }
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: false });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     if (auth.caller.role === 'guest') {
-      return jsonResp({ error: 'External guests cannot browse internal directory' }, 403);
+      return jsonResp({ error: 'External guests cannot browse internal directory', accessDenied: true }, 403);
     }
     const payload = await fetchDirectoryPayload(admin);
     return jsonResp(payload);
@@ -327,8 +190,13 @@ export async function POST(req) {
   if (!admin) return jsonResp({ error: 'Supabase not configured' }, 503);
 
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: false });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     if (!isAdminRole(auth.caller.role)) {
       return jsonResp({ error: 'Administrator privileges required' }, 403);
     }
@@ -421,6 +289,23 @@ export async function POST(req) {
       }).catch(() => null);
     }
 
+    // Also add invited email to access_policy whitelist (and un-block if previously blocked)
+    let updatedPolicy = null;
+    if (body.addToWhitelist !== false) {
+      try {
+        const curPolicy = await fetchServerAccessPolicy(admin, { force: true });
+        const nextAllowed = [...new Set([...(curPolicy.allowedEmails || []), email])];
+        const nextBlocked = (curPolicy.blockedEmails || []).filter((e) => e !== email);
+        updatedPolicy = await saveServerAccessPolicy(
+          admin,
+          { ...curPolicy, allowedEmails: nextAllowed, blockedEmails: nextBlocked },
+          auth.caller.email
+        );
+      } catch (e) {
+        // Non-fatal if meta update fails
+      }
+    }
+
     await supaReq(admin, '/rest/v1/activities', {
       method: 'POST',
       headers: { Prefer: 'return=minimal' },
@@ -431,12 +316,17 @@ export async function POST(req) {
         target_type: 'user',
         target_id: row.id,
         target_title: `${name} (${email})`,
-        details: { role: dbRole, dept: body.dept || '' },
+        details: { role: dbRole, dept: body.dept || '', addedToWhitelist: body.addToWhitelist !== false },
       }),
     }).catch(() => null);
 
     const payload = await fetchDirectoryPayload(admin);
-    return jsonResp({ ok: true, userId: row.id, ...payload });
+    return jsonResp({
+      ok: true,
+      userId: row.id,
+      ...(updatedPolicy ? { accessPolicy: updatedPolicy } : {}),
+      ...payload,
+    });
   } catch (err) {
     return jsonResp({ error: err.message || 'User invite failed' }, 500);
   }
@@ -447,8 +337,13 @@ export async function PATCH(req) {
   if (!admin) return jsonResp({ error: 'Supabase not configured' }, 503);
 
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: false });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     if (!isAdminRole(auth.caller.role)) {
       return jsonResp({ error: 'Administrator privileges required' }, 403);
     }
@@ -577,8 +472,13 @@ export async function DELETE(req) {
   if (!admin) return jsonResp({ error: 'Supabase not configured' }, 503);
 
   try {
-    const auth = await resolveCaller(req, admin);
-    if (!auth.ok) return jsonResp({ error: auth.error }, auth.status);
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: false });
+    if (!auth.ok) {
+      return jsonResp(
+        { error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     if (!isAdminRole(auth.caller.role)) {
       return jsonResp({ error: 'Administrator privileges required' }, 403);
     }
@@ -627,7 +527,6 @@ export async function DELETE(req) {
       );
     }
 
-    // Reassign restricted ownership references before deleting user row
     await Promise.all([
       supaReq(admin, `/rest/v1/catalog_items?owner_id=eq.${encodeURIComponent(id)}`, {
         method: 'PATCH',
@@ -662,12 +561,28 @@ export async function DELETE(req) {
       }).catch(() => null),
     ]);
 
-    // Remove from public.users
     await supaReq(admin, `/rest/v1/users?id=eq.${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
 
-    // If linked to Supabase Auth, remove auth.users record as well
+    // Remove deleted user email from access_policy.allowedEmails so deleted users cannot re-enter via whitelist
+    let updatedPolicy = null;
+    if (target.email) {
+      try {
+        const curPolicy = await fetchServerAccessPolicy(admin, { force: true });
+        const cleanTarget = String(target.email).trim().toLowerCase();
+        if (curPolicy.allowedEmails.includes(cleanTarget)) {
+          updatedPolicy = await saveServerAccessPolicy(
+            admin,
+            { ...curPolicy, allowedEmails: curPolicy.allowedEmails.filter((e) => e !== cleanTarget) },
+            auth.caller.email
+          );
+        }
+      } catch (e) {
+        // Non-fatal
+      }
+    }
+
     if (target.auth_uid && UUID_RE.test(target.auth_uid)) {
       await fetch(`${admin.url}/auth/v1/admin/users/${encodeURIComponent(target.auth_uid)}`, {
         method: 'DELETE',
@@ -693,7 +608,13 @@ export async function DELETE(req) {
     }).catch(() => null);
 
     const payload = await fetchDirectoryPayload(admin);
-    return jsonResp({ ok: true, deletedId: id, deletedEmail: target.email, ...payload });
+    return jsonResp({
+      ok: true,
+      deletedId: id,
+      deletedEmail: target.email,
+      ...(updatedPolicy ? { accessPolicy: updatedPolicy } : {}),
+      ...payload,
+    });
   } catch (err) {
     return jsonResp({ error: err.message || 'Failed to delete user' }, 500);
   }

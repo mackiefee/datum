@@ -1,173 +1,148 @@
-import { USERS } from '../../../../data/seed.js';
+import {
+  authenticateEdgeRequest,
+  evaluateAccessPolicy,
+  fetchServerAccessPolicy,
+  getSupabaseAdmin,
+  lookupDbUser,
+  mapDbRole,
+  signHmacJwt,
+  verifyHmacJwt,
+} from '../../../../lib/edgeAuth.js';
 
 export const runtime = 'edge';
 
-const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
-const enc = new TextEncoder();
-
-function getSecret() {
-  return (typeof process !== 'undefined' && process.env && process.env.AUTH_SECRET) || FALLBACK_SECRET;
+function jsonResp(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
-function toBase64Url(bytes) {
-  let bin = '';
-  const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function fromBase64Url(str) {
-  const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
-  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-async function importHmacKey() {
-  return crypto.subtle.importKey(
-    'raw',
-    enc.encode(getSecret()),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign', 'verify']
-  );
-}
-
-export async function signRevitJwt(payload) {
-  const header = toBase64Url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));
-  const body = toBase64Url(enc.encode(JSON.stringify(payload)));
-  const data = `${header}.${body}`;
-  const key = await importHmacKey();
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(data));
-  return `${data}.${toBase64Url(sig)}`;
-}
-
-export async function verifyRevitJwt(token) {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 3) return { valid: false, reason: 'Malformed token' };
-    const [header, body, sig] = parts;
-    const key = await importHmacKey();
-    const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
-    if (!ok) return { valid: false, reason: 'Invalid signature' };
-    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
-    if (claims.exp && Date.now() > claims.exp) return { valid: false, reason: 'Token expired' };
-    return { valid: true, claims };
-  } catch (e) {
-    return { valid: false, reason: 'Invalid token' };
+export async function verifyRevitTokenAgainstPolicy(token, admin) {
+  const checked = await verifyHmacJwt(token);
+  if (!checked.valid || !checked.claims) {
+    return { valid: false, status: 401, reason: checked.reason || 'Invalid token' };
   }
+  const policy = await fetchServerAccessPolicy(admin, { force: true });
+  if (policy.allowRevitPlugin === false) {
+    return {
+      valid: false,
+      status: 403,
+      accessDenied: true,
+      code: 'REVIT_DISABLED',
+      reason: 'Revit plugin access is disabled by SuperAdmin policy',
+    };
+  }
+  const email = String(checked.claims.email || '').trim().toLowerCase();
+  const isGuest = checked.claims.provider === 'guest' || checked.claims.role === 'Guest' || checked.claims.role === 'guest';
+  const dbUser = !isGuest && email ? await lookupDbUser(admin, email) : null;
+  if (dbUser && checked.claims.sv && Number(dbUser.session_version || 1) > Number(checked.claims.sv)) {
+    return { valid: false, status: 401, accessDenied: true, code: 'SESSION_REVOKED', reason: 'Session revoked' };
+  }
+  const verdict = evaluateAccessPolicy({ email, isGuest, dbUser, policy });
+  if (!verdict.allowed) {
+    return { valid: false, status: 403, accessDenied: true, code: verdict.code, reason: verdict.reason };
+  }
+  const role = isGuest ? 'Guest' : mapDbRole(verdict.effectiveRole || (dbUser && dbUser.role), checked.claims.role || 'Member');
+  return {
+    valid: true,
+    policy,
+    claims: {
+      ...checked.claims,
+      role,
+    },
+  };
 }
 
 export async function POST(req) {
+  const admin = getSupabaseAdmin();
   try {
     const body = await req.json();
-    const { action = 'login', email = '', password = '', token = '' } = body || {};
+    const { action = 'login', email = '', token = '' } = body || {};
 
     if (action === 'verify') {
-      const checked = await verifyRevitJwt(token);
-      return new Response(JSON.stringify(checked), {
-        status: checked.valid ? 200 : 401,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const cleanEmail = String(email || '').trim().toLowerCase();
-    if (!cleanEmail) {
-      return new Response(JSON.stringify({ ok: false, error: 'Email is required' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
-    const matched = USERS.find(
-      (u) => u.email.toLowerCase() === cleanEmail || u.name.toLowerCase() === cleanEmail
-    );
-
-    if (!matched) {
-      // Allow any @planit.studio email as Member for seamless workspace login
-      if (cleanEmail.endsWith('@planit.studio')) {
-        const namePart = cleanEmail.split('@')[0];
-        const user = {
-          id: `revit-${namePart}`,
-          name: namePart.charAt(0).toUpperCase() + namePart.slice(1),
-          email: cleanEmail,
-          role: 'Member',
-          title: 'BIM Team Member',
-          dept: 'VDC',
-        };
-        const jwt = await signRevitJwt({
-          sub: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role,
-          client: 'revit-plugin',
-          exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
-        });
-        return new Response(JSON.stringify({ ok: true, token: jwt, user }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-
-      return new Response(
-        JSON.stringify({ ok: false, error: 'Unknown Datum user. Use your @planit.studio email (e.g. maxim@planit.studio).' }),
-        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      const checked = await verifyRevitTokenAgainstPolicy(token, admin);
+      return jsonResp(
+        {
+          ok: checked.valid,
+          valid: checked.valid,
+          claims: checked.claims || null,
+          reason: checked.reason,
+          accessDenied: Boolean(checked.accessDenied),
+          code: checked.code,
+        },
+        checked.valid ? 200 : checked.status || 401
       );
     }
 
-    if (matched.status === 'deactivated') {
-      return new Response(JSON.stringify({ ok: false, error: 'Account deactivated' }), {
-        status: 403,
-        headers: { 'Content-Type': 'application/json' },
-      });
+    // Require an authenticated web session (or strict localhost dev header) to issue a revit_lookup_only token
+    const auth = await authenticateEdgeRequest(req, admin, {
+      allowGuest: false,
+      allowRevitScope: true,
+      forcePolicyRefresh: true,
+    });
+    if (!auth.ok) {
+      return jsonResp(
+        { ok: false, error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
+    if (auth.policy && auth.policy.allowRevitPlugin === false) {
+      return jsonResp(
+        {
+          ok: false,
+          accessDenied: true,
+          code: 'REVIT_DISABLED',
+          error: 'Revit plugin API access is disabled by SuperAdmin policy',
+        },
+        403
+      );
     }
 
-    // Optional password check: if a password is provided in demo mode, accept non-empty or Datum workspace pass
-    void password;
-
+    const appRole = mapDbRole(auth.caller.role, 'Member');
     const user = {
-      id: matched.id,
-      name: matched.name,
-      email: matched.email,
-      role: matched.role,
-      title: matched.title,
-      dept: matched.dept,
+      id: auth.caller.id || `revit-${auth.caller.email.split('@')[0]}`,
+      name: auth.caller.name,
+      email: auth.caller.email,
+      role: appRole,
     };
 
-    const jwt = await signRevitJwt({
+    const jwt = await signHmacJwt({
       sub: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      scope: 'revit_lookup_only',
       client: 'revit-plugin',
+      sv: (auth.dbUser && auth.dbUser.session_version) || 1,
       exp: Date.now() + 30 * 24 * 60 * 60 * 1000,
     });
 
-    return new Response(JSON.stringify({ ok: true, token: jwt, user }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ ok: true, token: jwt, user });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: e.message || 'Auth error' }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ ok: false, error: e.message || 'Auth error' }, 500);
   }
 }
 
 export async function GET(req) {
+  const admin = getSupabaseAdmin();
   const auth = req.headers.get('authorization') || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
   if (!token) {
-    return new Response(JSON.stringify({ ok: false, error: 'Missing Bearer token' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ ok: false, error: 'Missing Bearer token' }, 401);
   }
-  const checked = await verifyRevitJwt(token);
-  return new Response(JSON.stringify({ ok: checked.valid, user: checked.claims || null, reason: checked.reason }), {
-    status: checked.valid ? 200 : 401,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  const checked = await verifyRevitTokenAgainstPolicy(token, admin);
+  return jsonResp(
+    {
+      ok: checked.valid,
+      user: checked.claims || null,
+      reason: checked.reason,
+      accessDenied: Boolean(checked.accessDenied),
+      code: checked.code,
+    },
+    checked.valid ? 200 : checked.status || 401
+  );
 }

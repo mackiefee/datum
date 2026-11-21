@@ -1,8 +1,22 @@
-import { SEED, IMG0 } from '../../../../data/seed.js';
+import { IMG0, SEED } from '../../../../data/seed.js';
 import { ASSEMBLIES_3D, matchAssemblyForRevit } from '../../../../data/assemblies3d.js';
-import { verifyRevitJwt } from '../auth/route.js';
+import {
+  authenticateEdgeRequest,
+  getSupabaseAdmin,
+  mapDbRole,
+} from '../../../../lib/edgeAuth.js';
 
 export const runtime = 'edge';
+
+function jsonResp(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
 
 const CATEGORY_BOOSTS = {
   walls: ['wall', 'partition', 'gwb', 'stud', 'shaft', 'furring', 'fire', 'acoustic', 'c1010'],
@@ -11,7 +25,7 @@ const CATEGORY_BOOSTS = {
   floors: ['floor', 'slab', 'finish'],
   plumbing: ['plumbing', 'wet-wall', 'bathroom', 'fixture', 'chase'],
   fixtures: ['plumbing', 'bathroom', 'backing', 'blocking'],
-  'casework': ['backing', 'blocking', 'millwork', 'casework'],
+  casework: ['backing', 'blocking', 'millwork', 'casework'],
   'specialty equipment': ['backing', 'blocking', 'equipment'],
 };
 
@@ -38,45 +52,46 @@ function tokenize(text) {
     .filter((t) => t.length >= 2);
 }
 
-async function resolveRole(req) {
-  const auth = req.headers.get('authorization') || '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
-  if (!token) return { role: 'Guest', user: null };
-  const checked = await verifyRevitJwt(token);
-  if (!checked.valid || !checked.claims) return { role: 'Guest', user: null };
+async function resolveRevitCaller(req) {
+  const admin = getSupabaseAdmin();
+  const auth = await authenticateEdgeRequest(req, admin, {
+    allowGuest: true,
+    allowUnauthenticatedGuest: true,
+    allowRevitScope: true,
+    forcePolicyRefresh: true,
+  });
+  if (!auth.ok) {
+    return auth;
+  }
+  if (auth.policy && auth.policy.allowRevitPlugin === false) {
+    return {
+      ok: false,
+      status: 403,
+      accessDenied: true,
+      code: 'REVIT_DISABLED',
+      error: 'Revit plugin API access is disabled by SuperAdmin policy',
+    };
+  }
+  const appRole = mapDbRole(auth.caller.role, 'Guest');
   return {
-    role: checked.claims.role || 'Member',
-    user: {
-      name: checked.claims.name,
-      email: checked.claims.email,
-      role: checked.claims.role || 'Member',
-    },
+    ok: true,
+    admin,
+    role: appRole,
+    user: appRole === 'Guest' ? null : { name: auth.caller.name, email: auth.caller.email, role: appRole },
   };
 }
 
-function getSupabaseConfig() {
-  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
-  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
-  const anonKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
-  const key = serviceKey || anonKey;
-  if (!url || !key) return null;
-  const headers = { 'Content-Type': 'application/json', apikey: key };
-  if (key.startsWith('eyJ')) headers.Authorization = `Bearer ${key}`;
-  return { url, headers };
-}
-
-async function fetchLiveStandards(role) {
-  const cfg = getSupabaseConfig();
-  if (!cfg) return null;
+async function fetchLiveStandards(admin, role) {
+  if (!admin) return null;
   try {
     const query =
       role === 'Guest'
-        ? `${cfg.url}/rest/v1/shared_catalog_items?status=eq.Approved&vis=eq.Public&select=id,data,status,vis&order=id.desc`
-        : `${cfg.url}/rest/v1/shared_catalog_items?status=neq.Deleted&select=id,data,status,vis&order=id.desc`;
-    const res = await fetch(query, { headers: cfg.headers, cache: 'no-store' });
+        ? `${admin.url}/rest/v1/shared_catalog_items?status=eq.Approved&vis=eq.Public&select=id,data,status,vis&order=id.desc`
+        : `${admin.url}/rest/v1/shared_catalog_items?status=neq.Deleted&select=id,data,status,vis&order=id.desc`;
+    const res = await fetch(query, { headers: admin.headers, cache: 'no-store' });
     if (!res.ok) return null;
     const rows = await res.json();
-    if (!Array.isArray(rows) || rows.length === 0) return null;
+    if (!Array.isArray(rows)) return null;
     return rows.map((row) => ({
       ...(row.data || {}),
       id: row.id,
@@ -99,7 +114,7 @@ function filterByRole(items, role) {
   });
 }
 
-async function runLookup({ category = '', family = '', typeName = '', params = {}, query = '' }, role) {
+async function runLookup(admin, { category = '', family = '', typeName = '', params = {}, query = '' }, role) {
   const paramStr =
     params && typeof params === 'object'
       ? Object.entries(params)
@@ -112,8 +127,8 @@ async function runLookup({ category = '', family = '', typeName = '', params = {
   const catKey = String(category || '').trim().toLowerCase();
   const catBoosts = CATEGORY_BOOSTS[catKey] || [];
 
-  const liveItems = await fetchLiveStandards(role);
-  const sourceList = liveItems && liveItems.length > 0 ? liveItems : SEED;
+  const liveItems = await fetchLiveStandards(admin, role);
+  const sourceList = liveItems !== null ? liveItems : role === 'Guest' ? [] : SEED;
   const visible = filterByRole(sourceList, role);
 
   const scored = visible
@@ -177,7 +192,7 @@ async function runLookup({ category = '', family = '', typeName = '', params = {
 
   return {
     ok: true,
-    source: liveItems && liveItems.length > 0 ? 'supabase' : 'seed',
+    source: liveItems !== null ? 'supabase' : role === 'Guest' ? 'none' : 'seed',
     role,
     context: { category, family, typeName, query },
     revitType,
@@ -197,35 +212,39 @@ async function runLookup({ category = '', family = '', typeName = '', params = {
 
 export async function POST(req) {
   try {
+    const auth = await resolveRevitCaller(req);
+    if (!auth.ok) {
+      return jsonResp(
+        { ok: false, error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+        auth.status
+      );
+    }
     const body = await req.json();
-    const { role, user } = await resolveRole(req);
-    const result = await runLookup(body || {}, role);
-    return new Response(JSON.stringify({ ...result, user }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    const result = await runLookup(auth.admin, body || {}, auth.role);
+    return jsonResp({ ...result, user: auth.user });
   } catch (e) {
-    return new Response(JSON.stringify({ ok: false, error: e.message || 'Lookup failed' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return jsonResp({ ok: false, error: e.message || 'Lookup failed' }, 400);
   }
 }
 
 export async function GET(req) {
+  const auth = await resolveRevitCaller(req);
+  if (!auth.ok) {
+    return jsonResp(
+      { ok: false, error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' },
+      auth.status
+    );
+  }
   const url = new URL(req.url);
-  const { role, user } = await resolveRole(req);
   const result = await runLookup(
+    auth.admin,
     {
       category: url.searchParams.get('category') || '',
       family: url.searchParams.get('family') || '',
       typeName: url.searchParams.get('typeName') || '',
       query: url.searchParams.get('query') || '',
     },
-    role
+    auth.role
   );
-  return new Response(JSON.stringify({ ...result, user }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return jsonResp({ ...result, user: auth.user });
 }

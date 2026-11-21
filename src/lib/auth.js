@@ -1,16 +1,39 @@
 import { ls } from '../utils/storage.js';
+import { DEFAULT_ACCESS_POLICY, toPublicLoginPolicy } from './accessPolicy.js';
 
 const SESSION_KEY = 'kb2-auth-session';
 const LOCAL_SIGNOUT_KEY = 'kb2-local-signed-out';
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://knxyslvecmjhvlgapoyl.supabase.co';
 const SUPABASE_ANON = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_XQFm2PK27ZDiEMOz3BQe7A_7KuqHNnt';
-const ALLOWED_DOMAINS = (process.env.NEXT_PUBLIC_ALLOWED_GOOGLE_DOMAINS || 'planit.studio,planit-inc.com,gmail.com')
-  .split(',')
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
+
+const SENSITIVE_STORAGE_KEYS = [
+  'kb2-res',
+  'kb2-tree',
+  'kb2-users',
+  'kb2-teams',
+  'kb2-cols',
+  'kb2-acts',
+  'kb2-slogs',
+  'kb2-flags',
+  'kb2-shares',
+  'kb2-team-acks',
+  'kb2-ack',
+  'kb2-req',
+  'kb2-hist',
+  'kb2-chk',
+  'datum-naming-custom-schemas-v1',
+  'kb2-uid',
+];
+const SENSITIVE_STORAGE_PREFIXES = [
+  'kb2-tasks:',
+  'kb2-privnotes:',
+  'kb2-privres:',
+  'kb2-brain-state:',
+  'kb2-chats',
+];
 
 export const hasSupabaseAuth = Boolean(SUPABASE_URL && SUPABASE_ANON);
-export const defaultAllowedDomains = ALLOWED_DOMAINS;
+export const defaultAllowedDomains = [...DEFAULT_ACCESS_POLICY.allowedDomains];
 
 export function makeGooglePhotoFallback(name = 'User', color = '#0a84ff') {
   const init = String(name || 'U')
@@ -28,30 +51,50 @@ export function makeGooglePhotoFallback(name = 'User', color = '#0a84ff') {
   );
 }
 
-function isLocalhostEnv() {
-  return typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+export function isLocalhostEnv() {
+  return (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  );
+}
+
+export function purgeSensitiveLocalCache() {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    SENSITIVE_STORAGE_KEYS.forEach((k) => window.localStorage.removeItem(k));
+    const allKeys = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k) allKeys.push(k);
+    }
+    allKeys.forEach((k) => {
+      if (SENSITIVE_STORAGE_PREFIXES.some((pref) => k.startsWith(pref))) {
+        window.localStorage.removeItem(k);
+      }
+    });
+  } catch (e) {}
 }
 
 export function loadStoredSession() {
   const s = ls.get(SESSION_KEY);
-  if (isLocalhostEnv()) {
-    try {
-      sessionStorage.removeItem(LOCAL_SIGNOUT_KEY);
-    } catch (e) {}
-  }
   if (s && s.token && s.claims) {
+    if (s.token === 'local-fallback-token') {
+      ls.set(SESSION_KEY, null);
+      return null;
+    }
     if (s.claims.exp && Date.now() > s.claims.exp) {
       ls.set(SESSION_KEY, null);
     } else {
-      if (isLocalhostEnv() && (s.token === 'local-dev-session' || s.claims.email === 'maf@planit-inc.com')) {
-        s.claims.role = 'SuperAdmin';
-        s.claims.sub = 'local-dev-superadmin';
-        ls.set(SESSION_KEY, s);
-      }
       return s;
     }
   }
   if (isLocalhostEnv()) {
+    let signedOut = false;
+    try {
+      signedOut = sessionStorage.getItem(LOCAL_SIGNOUT_KEY) === '1';
+    } catch (e) {}
+    if (signedOut) return null;
+
     const claims = {
       sub: 'local-dev-superadmin',
       email: 'maf@planit-inc.com',
@@ -88,22 +131,30 @@ export function startSupabaseGoogleOAuth() {
   if (!hasSupabaseAuth || typeof window === 'undefined') {
     return { redirected: false, reason: 'not_configured' };
   }
+  try {
+    sessionStorage.removeItem(LOCAL_SIGNOUT_KEY);
+  } catch (e) {}
   const redirectTo = encodeURIComponent(window.location.origin + window.location.pathname);
   const url = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}&access_type=offline&prompt=select_account`;
   window.location.assign(url);
   return { redirected: true };
 }
 
-function decodeJwtPayload(jwt) {
+export async function fetchPublicLoginPolicy() {
   try {
-    const part = String(jwt || '').split('.')[1];
-    if (!part) return null;
-    const pad = part.length % 4 ? '='.repeat(4 - (part.length % 4)) : '';
-    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/') + pad);
-    return JSON.parse(json);
-  } catch (e) {
-    return null;
-  }
+    const res = await fetch('/api/edge/auth?action=login_policy', {
+      method: 'GET',
+      cache: 'no-store',
+    });
+    const out = await res.json().catch(() => null);
+    if (res.ok && out && out.policy) {
+      return out.policy;
+    }
+  } catch (e) {}
+  return {
+    ...toPublicLoginPolicy(DEFAULT_ACCESS_POLICY),
+    isLocalDev: isLocalhostEnv(),
+  };
 }
 
 let inflightOAuthPromise = null;
@@ -117,14 +168,20 @@ export async function consumeSupabaseOAuthHash() {
   const hashParams = new URLSearchParams(hashStr);
   const searchParams = new URLSearchParams(searchStr);
 
-  const oauthErr = hashParams.get('error_description') || searchParams.get('error_description') || hashParams.get('error') || searchParams.get('error');
+  const oauthErr =
+    hashParams.get('error_description') ||
+    searchParams.get('error_description') ||
+    hashParams.get('error') ||
+    searchParams.get('error');
   const accessToken = hashParams.get('access_token');
   if (!oauthErr && !accessToken) return null;
 
   inflightOAuthPromise = (async () => {
     if (oauthErr) {
       window.history.replaceState(null, '', window.location.pathname);
-      return { ok: false, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
+      clearStoredSession();
+      purgeSensitiveLocalCache();
+      return { ok: false, accessDenied: true, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
     }
 
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -133,97 +190,118 @@ export async function consumeSupabaseOAuthHash() {
       const res = await fetch('/api/edge/auth', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({ action: 'verify_supabase_token', token: accessToken }),
       });
-      const out = await res.json();
+      const out = await res.json().catch(() => ({}));
       if (res.ok && out.ok && out.token) {
         const session = { token: out.token, claims: out.claims, supaToken: accessToken };
         saveStoredSession(session);
-        return { ok: true, session };
+        return { ok: true, session, policy: out.policy || null };
       }
-      if (res.status === 403 && out && out.error) {
-        return { ok: false, error: out.error };
-      }
-    } catch (e) {
-      // Fall back to verified Supabase access_token claims below
-    }
-
-    const jwtPayload = decodeJwtPayload(accessToken);
-    if (jwtPayload && jwtPayload.email) {
-      const meta = jwtPayload.user_metadata || {};
-      const email = String(jwtPayload.email || meta.email || '').trim().toLowerCase();
-      const name = meta.full_name || meta.name || email.split('@')[0];
-      const claims = {
-        sub: meta.provider_id || meta.sub || jwtPayload.sub,
-        email,
-        name,
-        avatar: meta.avatar_url || meta.picture || makeGooglePhotoFallback(name),
-        hd: meta.hd || email.split('@')[1] || '',
-        provider: 'google',
-        emailVerified: true,
-        role: 'Member',
-        iat: Date.now(),
-        exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+      clearStoredSession();
+      purgeSensitiveLocalCache();
+      return {
+        ok: false,
+        accessDenied: true,
+        code: out?.code || 'OAUTH_DENIED',
+        error: out?.error || 'Sign-in rejected by workspace whitelist policy.',
       };
-      const session = { token: accessToken, claims, supaToken: accessToken };
-      saveStoredSession(session);
-      return { ok: true, session };
+    } catch (e) {
+      clearStoredSession();
+      purgeSensitiveLocalCache();
+      return {
+        ok: false,
+        accessDenied: true,
+        error: 'Unable to verify Google OAuth session with workspace server.',
+      };
     }
-    return null;
   })();
 
   return inflightOAuthPromise;
 }
 
-export async function issueVerifiedSession(profile, { enforceDomain = false } = {}) {
+export async function issueVerifiedSession(profile, { idToken } = {}) {
   try {
     const res = await fetch('/api/edge/auth', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         action: 'issue',
         profile,
-        enforceDomain,
-        allowedDomains: ALLOWED_DOMAINS,
+        ...(idToken ? { idToken } : {}),
       }),
     });
-    const out = await res.json();
-    if (!res.ok) return { ok: false, error: out.error || 'Authentication denied' };
-    saveStoredSession({ token: out.token, claims: out.claims });
-    return { ok: true, session: { token: out.token, claims: out.claims } };
-  } catch (e) {
-    if (enforceDomain && profile.provider !== 'guest') {
-      const dom = String(profile.email || '').split('@')[1] || '';
-      if (!ALLOWED_DOMAINS.includes(dom.toLowerCase())) {
-        return { ok: false, error: `Security block: Domain @${dom} is not authorized.` };
-      }
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.ok || !out.token) {
+      return {
+        ok: false,
+        accessDenied: Boolean(out?.accessDenied || res.status === 403),
+        code: out?.code || '',
+        error: out?.error || 'Authentication denied by server policy',
+      };
     }
-    const claims = {
-      sub: profile.googleSub || 'local-' + Date.now(),
-      email: profile.email,
-      name: profile.name,
-      avatar: profile.avatar || makeGooglePhotoFallback(profile.name),
-      hd: String(profile.email || '').split('@')[1] || '',
-      provider: profile.provider || 'google',
-      emailVerified: profile.provider !== 'guest',
-      role: profile.provider === 'guest' ? 'Guest' : 'Member',
-      iat: Date.now(),
-      exp: Date.now() + 1000 * 60 * 60 * 24 * 7,
+    const nextSession = { token: out.token, claims: out.claims };
+    saveStoredSession(nextSession);
+    return { ok: true, session: nextSession, policy: out.policy || null };
+  } catch (e) {
+    return {
+      ok: false,
+      accessDenied: true,
+      error: 'Unable to reach workspace authentication server.',
     };
-    const fallbackSession = { token: 'local-fallback-token', claims };
-    saveStoredSession(fallbackSession);
-    return { ok: true, session: fallbackSession };
   }
 }
 
-export async function signOutAuth() {
+export async function verifyStoredSessionWithServer(session) {
+  if (!session || !session.claims) return { ok: false, reason: 'No active session' };
+  if (session.token === 'local-dev-session' && isLocalhostEnv()) {
+    return issueVerifiedSession({
+      email: session.claims.email,
+      name: session.claims.name,
+      googleSub: session.claims.sub,
+      provider: 'google',
+      emailVerified: true,
+    });
+  }
+  if (!session.token) return { ok: false, reason: 'Missing session token' };
+  try {
+    const res = await fetch('/api/edge/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({ action: 'verify', token: session.token }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok || !out.valid) {
+      return {
+        ok: false,
+        accessDenied: Boolean(out?.accessDenied || res.status === 403 || res.status === 401),
+        code: out?.code || '',
+        error: out?.reason || out?.error || 'Session is no longer authorized.',
+      };
+    }
+    const updatedSession = {
+      ...session,
+      claims: out.claims || session.claims,
+    };
+    saveStoredSession(updatedSession);
+    return { ok: true, session: updatedSession, policy: out.policy || null };
+  } catch (e) {
+    // Allow offline survival ONLY if token wasn't rejected by server
+    return { ok: true, session, offline: true };
+  }
+}
+
+export async function signOutAuth({ markLocalSignOut = true } = {}) {
   inflightOAuthPromise = null;
-  if (typeof window !== 'undefined') {
+  if (markLocalSignOut && typeof window !== 'undefined') {
     try {
       sessionStorage.setItem(LOCAL_SIGNOUT_KEY, '1');
     } catch (e) {}
   }
-  const cur = loadStoredSession();
+  const cur = ls.get(SESSION_KEY);
   if (hasSupabaseAuth && cur && cur.supaToken) {
     try {
       await fetch(`${SUPABASE_URL}/auth/v1/logout`, {
@@ -235,4 +313,5 @@ export async function signOutAuth() {
     }
   }
   clearStoredSession();
+  purgeSensitiveLocalCache();
 }

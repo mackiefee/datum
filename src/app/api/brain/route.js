@@ -1,6 +1,7 @@
+import { authenticateEdgeRequest, getSupabaseAdmin } from '../../../lib/edgeAuth.js';
+
 export const runtime = 'edge';
 
-const FALLBACK_SECRET = 'planit-edge-dev-hmac-secret-rotate-in-production-2026';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function sanitizeStatus(s) {
@@ -50,8 +51,6 @@ function sanitizePlannerPrefs(p) {
   return out;
 }
 
-const enc = new TextEncoder();
-
 function jsonResp(data, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
@@ -62,131 +61,28 @@ function jsonResp(data, status = 200) {
   });
 }
 
-function getSecret() {
-  return (typeof process !== 'undefined' && process.env && process.env.AUTH_SECRET) || FALLBACK_SECRET;
-}
-
-function fromBase64Url(str) {
-  const pad = str.length % 4 ? '='.repeat(4 - (str.length % 4)) : '';
-  const bin = atob(str.replace(/-/g, '+').replace(/_/g, '/') + pad);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
-async function verifyHmacJwt(token) {
-  const parts = String(token || '').split('.');
-  if (parts.length !== 3) return { valid: false };
-  const [header, body, sig] = parts;
-  try {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      enc.encode(getSecret()),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['verify']
-    );
-    const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
-    if (!ok) return { valid: false };
-    const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
-    if (claims.exp && Date.now() > claims.exp) return { valid: false };
-    return { valid: true, claims };
-  } catch (e) {
-    return { valid: false };
-  }
-}
-
-function getSupabaseAdmin() {
-  const url = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_URL : '';
-  const serviceKey = typeof process !== 'undefined' ? process.env.SUPABASE_SERVICE_ROLE_KEY : '';
-  const anonKey = typeof process !== 'undefined' ? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY : '';
-  if (!url || !serviceKey) return null;
-  const headers = { 'Content-Type': 'application/json', apikey: serviceKey };
-  if (serviceKey.startsWith('eyJ')) {
-    headers.Authorization = `Bearer ${serviceKey}`;
-  }
-  return { url, headers, anonKey: anonKey || serviceKey };
-}
-
-async function verifySupabaseOAuthJwt(admin, token) {
-  if (!admin || !token || !token.startsWith('eyJ')) return null;
-  try {
-    const res = await fetch(`${admin.url}/auth/v1/user`, {
-      headers: {
-        apikey: admin.anonKey,
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!res.ok) return null;
-    const user = await res.json();
-    return user && user.email ? String(user.email).trim().toLowerCase() : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-function isLocalhostRequest(req) {
-  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').toLowerCase();
-  return host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
-}
-
 async function resolveOwnerIdentity(req, admin, bodyEmail = '') {
-  const authHdr = req.headers.get('authorization') || '';
-  const bearer = authHdr.toLowerCase().startsWith('bearer ') ? authHdr.slice(7).trim() : '';
-  const requestedEmail = String(
-    req.headers.get('x-datum-user-email') ||
-      bodyEmail ||
-      new URL(req.url).searchParams.get('email') ||
-      ''
-  )
-    .trim()
-    .toLowerCase();
-
-  let verifiedEmail = '';
-
-  if (bearer && bearer !== 'local-dev-session') {
-    const hmac = await verifyHmacJwt(bearer);
-    if (hmac.valid && hmac.claims?.email) {
-      verifiedEmail = String(hmac.claims.email).trim().toLowerCase();
-    } else if (bearer.startsWith('eyJ')) {
-      const oauthEmail = await verifySupabaseOAuthJwt(admin, bearer);
-      if (oauthEmail) verifiedEmail = oauthEmail;
-    }
+  const emailHint = bodyEmail || new URL(req.url).searchParams.get('email') || '';
+  const auth = await authenticateEdgeRequest(req, admin, {
+    allowGuest: false,
+    bodyEmail: emailHint,
+  });
+  if (!auth.ok) {
+    return {
+      ok: false,
+      status: auth.status,
+      error: auth.error,
+      accessDenied: Boolean(auth.accessDenied),
+      code: auth.code || '',
+    };
   }
-
-  // Strictly only allow unverified dev identity switching on localhost
-  if (!verifiedEmail && isLocalhostRequest(req) && (!bearer || bearer === 'local-dev-session')) {
-    if (requestedEmail && requestedEmail.includes('@')) {
-      verifiedEmail = requestedEmail;
-    }
+  if (auth.caller.role === 'guest') {
+    return { ok: false, status: 403, accessDenied: true, error: 'External guests do not have Second Brain storage' };
   }
-
-  if (!verifiedEmail) {
-    return { ok: false, status: 401, error: 'Authentication required' };
-  }
-
-  let dbUser = null;
-  try {
-    const uRes = await fetch(
-      `${admin.url}/rest/v1/users?email=eq.${encodeURIComponent(verifiedEmail)}&select=id,status,role&limit=1`,
-      { headers: admin.headers }
-    );
-    if (uRes.ok) {
-      const rows = await uRes.json();
-      dbUser = Array.isArray(rows) && rows[0] ? rows[0] : null;
-    }
-  } catch (e) {
-    // Non-fatal: table lookup fallback
-  }
-
-  if (dbUser && dbUser.status === 'deactivated') {
-    return { ok: false, status: 403, error: 'Account deactivated' };
-  }
-
   return {
     ok: true,
-    ownerEmail: verifiedEmail,
-    userId: dbUser ? dbUser.id : null,
+    ownerEmail: auth.caller.email,
+    userId: auth.caller.id,
   };
 }
 
@@ -329,7 +225,10 @@ export async function GET(req) {
 
   const ident = await resolveOwnerIdentity(req, admin);
   if (!ident.ok) {
-    return jsonResp({ error: ident.error }, ident.status);
+    return jsonResp(
+      { error: ident.error, accessDenied: Boolean(ident.accessDenied), code: ident.code || '' },
+      ident.status
+    );
   }
 
   const emailEq = encodeURIComponent(ident.ownerEmail);
@@ -414,7 +313,10 @@ export async function POST(req) {
 
   const ident = await resolveOwnerIdentity(req, admin, body?.ownerEmail || '');
   if (!ident.ok) {
-    return jsonResp({ error: ident.error }, ident.status);
+    return jsonResp(
+      { error: ident.error, accessDenied: Boolean(ident.accessDenied), code: ident.code || '' },
+      ident.status
+    );
   }
 
   const action = String(body?.action || '').trim();

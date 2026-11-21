@@ -6,11 +6,14 @@ import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS, SEED_COLLECTIONS } from './data/seed.js';
 import { db } from './lib/db.js';
 import { edgeClient } from './lib/edgeClient.js';
+import { DEFAULT_ACCESS_POLICY, normalizeAccessPolicy } from './lib/accessPolicy.js';
 import {
   loadStoredSession,
   saveStoredSession,
   consumeSupabaseOAuthHash,
   startSupabaseGoogleOAuth,
+  verifyStoredSessionWithServer,
+  purgeSensitiveLocalCache,
   signOutAuth,
   makeGooglePhotoFallback,
 } from './lib/auth.js';
@@ -68,7 +71,12 @@ function ensureDatasetVersion() {
 
 export function App() {
   ensureDatasetVersion();
+  const [authSession, setAuthSession] = useState(() => loadStoredSession());
+  const hasInitialInternalSession = Boolean(authSession && normRole(authSession?.claims?.role) !== "Guest" && authSession?.claims?.provider !== "guest");
+  const [accessPolicy, setAccessPolicy] = useState(() => normalizeAccessPolicy(DEFAULT_ACCESS_POLICY));
+  const [loginError, setLoginError] = useState("");
   const [res, setRes] = useState(() => {
+    if (!hasInitialInternalSession) return [];
     const a = db.load("kb2-res", null);
     if (!a || !Array.isArray(a) || !a.length) return [GUIDE, ...SEED];
     let list = a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
@@ -79,21 +87,22 @@ export function App() {
     }
     return list;
   });
-  const [tree, setTree] = useState(() => db.load("kb2-tree", null) || TREE);
+  const [tree, setTree] = useState(() => (hasInitialInternalSession ? db.load("kb2-tree", null) || TREE : []));
   const [users, setUsers] = useState(() => {
+    if (!hasInitialInternalSession) return [];
     const saved = db.load("kb2-users", null);
     if (!saved || !Array.isArray(saved) || saved.length === 0) return USERS;
     return saved;
   });
   const [directorySyncState, setDirectorySyncState] = useState("synced");
   const [adminTabSeed, setAdminTabSeed] = useState("gov");
-  const [teams, setTeams] = useState(() => db.load("kb2-teams", null) || SEED_TEAMS);
-  const [activeUserId, setActiveUserId] = useState(() => db.load("kb2-uid", "u1"));
-  const [authSession, setAuthSession] = useState(() => loadStoredSession());
+  const [teams, setTeams] = useState(() => (hasInitialInternalSession ? db.load("kb2-teams", null) || SEED_TEAMS : []));
+  const [activeUserId, setActiveUserId] = useState(() => (hasInitialInternalSession ? db.load("kb2-uid", "u1") : ""));
   const [catModal, setCatModal] = useState(null);
-  const [cols, setCols] = useState(() => db.load("kb2-cols", null) || SEED_COLLECTIONS);
-  const [shares, setShares] = useState(() => db.load("kb2-shares", null) || []);
+  const [cols, setCols] = useState(() => (hasInitialInternalSession ? db.load("kb2-cols", null) || SEED_COLLECTIONS : []));
+  const [shares, setShares] = useState(() => (hasInitialInternalSession ? db.load("kb2-shares", null) || [] : []));
   const [activities, setActivities] = useState(() => {
+    if (!hasInitialInternalSession) return [];
     const saved = db.load("kb2-acts", null);
     if (!Array.isArray(saved)) return [];
     return saved.filter((a) => a && !["act-1", "act-2", "act-3", "act-4"].includes(String(a.id)));
@@ -136,7 +145,7 @@ export function App() {
     if (!kbDisplayLoaded.current) {
       kbDisplayLoaded.current = true;
       const saved = db.load("kb2-display-v2", "space");
-      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "tasks" || saved === "scripts") {
+      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "feed" || saved === "tasks" || saved === "scripts") {
         setKbDisplay(saved);
       }
       return;
@@ -176,29 +185,67 @@ export function App() {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [toast, setToast] = useState(null);
 
-  useEffect(() => { db.save("kb2-res", res); }, [res]);
-  useEffect(() => { db.save("kb2-tree", tree); }, [tree]);
-  useEffect(() => { db.save("kb2-users", users); }, [users]);
-  useEffect(() => { db.save("kb2-teams", teams); }, [teams]);
-  useEffect(() => { db.save("kb2-uid", activeUserId); }, [activeUserId]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-res", res); }, [res, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-tree", tree); }, [tree, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-users", users); }, [users, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-teams", teams); }, [teams, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-uid", activeUserId); }, [activeUserId, authSession]);
   const signedInRef = useRef(null);
   const readerBridgeRef = useRef(null);
   const omniRectRef = useRef(null);
   useEffect(() => {
     let alive = true;
+    const revokeToLogin = (reason) => {
+      signOutAuth({ markLocalSignOut: true }).catch(() => {});
+      purgeSensitiveLocalCache();
+      workspaceHydratedRef.current = false;
+      setAuthSession(null);
+      setRes([]);
+      resRef.current = [];
+      setUsers([]);
+      setCols([]);
+      setTree([]);
+      setLoginError(reason || "Access denied by workspace whitelist policy.");
+      setToast(reason || "Access denied by workspace whitelist policy.");
+    };
+
+    const onRevokedEvent = (ev) => {
+      if (!alive) return;
+      const msg = (ev && ev.detail && (ev.detail.error || ev.detail.reason)) || "Your access has been revoked by SuperAdmin.";
+      revokeToLogin(msg);
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("datum:access-revoked", onRevokedEvent);
+    }
+
     consumeSupabaseOAuthHash().then((out) => {
       if (!alive) return;
       if (out && out.ok && out.session && signedInRef.current) {
         signedInRef.current(out.session);
       } else if (out && out.error) {
-        setToast(out.error);
+        revokeToLogin(out.error);
       } else {
         const stored = loadStoredSession();
-        if (stored) setAuthSession(stored);
+        if (stored) {
+          verifyStoredSessionWithServer(stored).then((ver) => {
+            if (!alive) return;
+            if (ver && ver.ok && ver.session) {
+              setAuthSession(ver.session);
+              if (ver.policy) {
+                setAccessPolicy((prev) => normalizeAccessPolicy({ ...prev, ...ver.policy }));
+              }
+            } else if (ver && !ver.ok) {
+              revokeToLogin(ver.error || ver.reason || "Session revoked or blocked by whitelist policy.");
+            }
+          });
+        }
       }
     });
     return () => {
       alive = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("datum:access-revoked", onRevokedEvent);
+      }
     };
   }, []);
 
@@ -224,16 +271,19 @@ export function App() {
         const role = authSession.claims.role || "Member";
         fetch("/api/revit/auth", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: db.directory.headersFor(email),
           body: JSON.stringify({ email }),
         })
-          .then((r) => r.json())
-          .catch(() => null)
-          .then((res) => {
-            const tok = (res && res.token) || authSession.token || "";
-            const u = (res && res.user) || {};
+          .then((r) => r.json().then((d) => ({ ok: r.ok, d })).catch(() => ({ ok: false, d: null })))
+          .catch(() => ({ ok: false, d: null }))
+          .then((out) => {
+            if (!out || !out.ok || !out.d || !out.d.token) {
+              setToast((out && out.d && out.d.error) || "Revit authentication blocked by workspace policy");
+              return;
+            }
+            const u = out.d.user || {};
             const qs = new URLSearchParams({
-              token: tok,
+              token: out.d.token,
               email: u.email || email,
               name: u.name || name,
               role: u.role || role,
@@ -249,21 +299,21 @@ export function App() {
       }
     } catch (e) {}
   }, [authSession]);
-  useEffect(() => { db.save("kb2-cols", cols); }, [cols]);
-  useEffect(() => { db.save("kb2-shares", shares); }, [shares]);
-  useEffect(() => { db.save("kb2-acts", activities); }, [activities]);
-  useEffect(() => { db.save("kb2-slogs", searchLogs); }, [searchLogs]);
-  useEffect(() => { db.save("kb2-flags", flaggedIds); }, [flaggedIds]);
-  useEffect(() => { db.save("kb2-pins", pinned); }, [pinned]);
-  useEffect(() => { db.save("kb2-fav", favs); }, [favs]);
-  useEffect(() => { db.save("datum-naming-custom-schemas-v1", namingSchemas); }, [namingSchemas]);
-  useEffect(() => { db.save("kb2-team-acks", teamAcks); }, [teamAcks]);
-  useEffect(() => { db.save("kb2-ack", acks); }, [acks]);
-  useEffect(() => { db.save("kb2-req", req); }, [req]);
-  useEffect(() => { db.save("kb2-hist", hist); }, [hist]);
-  useEffect(() => { db.save("kb2-seen", seen); }, [seen]);
-  useEffect(() => { db.save("kb2-chk", chk); }, [chk]);
-  useEffect(() => { db.save("kb2-img", imgs); }, [imgs]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-cols", cols); }, [cols, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-shares", shares); }, [shares, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-acts", activities); }, [activities, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-slogs", searchLogs); }, [searchLogs, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-flags", flaggedIds); }, [flaggedIds, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-pins", pinned); }, [pinned, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-fav", favs); }, [favs, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("datum-naming-custom-schemas-v1", namingSchemas); }, [namingSchemas, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-team-acks", teamAcks); }, [teamAcks, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-ack", acks); }, [acks, authSession]);
+  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-req", req); }, [req, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-hist", hist); }, [hist, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-seen", seen); }, [seen, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-chk", chk); }, [chk, authSession]);
+  useEffect(() => { if (authSession) db.save("kb2-img", imgs); }, [imgs, authSession]);
   useEffect(() => {
     let alive = true;
     db.hydrateImages(imgs).then((hydrated) => {
@@ -482,9 +532,17 @@ export function App() {
         edgeClient.clearAiCache();
         setRes(snap.items);
         resRef.current = snap.items;
+      } else if (isGuest && Array.isArray(snap.items)) {
+        setRes(snap.items);
+        resRef.current = snap.items;
       }
       if (Array.isArray(snap.collections) && snap.collections.length > 0) {
         setCols(snap.collections);
+      } else if (isGuest && Array.isArray(snap.collections)) {
+        setCols(snap.collections);
+      }
+      if (snap.accessPolicy && typeof snap.accessPolicy === "object") {
+        setAccessPolicy((prev) => normalizeAccessPolicy({ ...prev, ...snap.accessPolicy }));
       }
       if (Array.isArray(snap.tree) && snap.tree.length > 0) {
         setTree(snap.tree);
@@ -529,8 +587,8 @@ export function App() {
   };
 
   useEffect(() => {
-    if (!sessionEmail || isGuest) return;
-    refreshDirectory(sessionEmail);
+    if (!sessionEmail) return;
+    if (!isGuest) refreshDirectory(sessionEmail);
     refreshWorkspace(sessionEmail);
   }, [sessionEmail, isGuest]);
 
@@ -993,7 +1051,7 @@ export function App() {
 
   const go = (id) => {
     setRead(null);
-    if (kbDisplay === "tasks" || kbDisplay === "scripts") setKbDisplay("space");
+    if (kbDisplay === "tasks" || kbDisplay === "scripts" || kbDisplay === "feed") setKbDisplay("space");
     setCur(id);
     setCatFilter("all");
     setActiveKitId(null);
@@ -1040,7 +1098,7 @@ export function App() {
     if (catFilter === "kits") {
       setCatFilter("all");
     }
-    setKbDisplay(mode === "grid" || mode === "graph" || mode === "tasks" || mode === "scripts" ? mode : "space");
+    setKbDisplay(mode === "grid" || mode === "graph" || mode === "feed" || mode === "tasks" || mode === "scripts" ? mode : "space");
     setSpaceStageOpen(true);
   };
 
@@ -1101,6 +1159,7 @@ export function App() {
       goV("kb");
     }
     else if (k === "scripts" || k === "team-resources") handleNavSwitch("team-resources");
+    else if (k === "feed") handleNavSwitch("feed");
     else if (k === "open-brain-task") openBrainSource({ id: "task:" + a });
     else if (k === "open-brain-note") openBrainSource({ id: "note:" + a });
     else if (k === "open-brain-resource") openBrainSource({ id: "res:" + a });
@@ -1230,12 +1289,14 @@ export function App() {
       ? crypto.randomUUID()
       : "00000000-0000-4000-8000-" + String(Date.now()).padStart(12, "0").slice(-12);
 
-  const brainOwnerEmail = db.brain.normalizeEmail(activeUser?.email || (activeUser?.id ? `${activeUser.id}@datum.local` : ""));
-  const [tasks, setTasks] = useState(() => db.brain.loadLocal(brainOwnerEmail).tasks);
-  const [privNotes, setPrivNotes] = useState(() => db.brain.loadLocal(brainOwnerEmail).notes);
-  const [privResources, setPrivResources] = useState(() => db.brain.loadLocal(brainOwnerEmail).resources || []);
+  const brainOwnerEmail = authSession
+    ? db.brain.normalizeEmail(activeUser?.email || (activeUser?.id ? `${activeUser.id}@datum.local` : ""))
+    : "";
+  const [tasks, setTasks] = useState(() => (brainOwnerEmail ? db.brain.loadLocal(brainOwnerEmail).tasks : []));
+  const [privNotes, setPrivNotes] = useState(() => (brainOwnerEmail ? db.brain.loadLocal(brainOwnerEmail).notes : []));
+  const [privResources, setPrivResources] = useState(() => (brainOwnerEmail ? db.brain.loadLocal(brainOwnerEmail).resources || [] : []));
   const [plannerPrefs, setPlannerPrefs] = useState(() =>
-    normalizePlannerPrefs(db.brain.loadLocal(brainOwnerEmail).state?.plannerPrefs, db.brain.loadLocal(brainOwnerEmail).tasks)
+    normalizePlannerPrefs(brainOwnerEmail ? db.brain.loadLocal(brainOwnerEmail).state?.plannerPrefs : null, brainOwnerEmail ? db.brain.loadLocal(brainOwnerEmail).tasks : [])
   );
   const [brainSyncState, setBrainSyncState] = useState("synced");
   const [brainTabSeed, setBrainTabSeed] = useState("all");
@@ -1246,7 +1307,7 @@ export function App() {
   const brainStateSyncTimerRef = useRef(null);
 
   useEffect(() => {
-    if (!brainOwnerEmail || isGuest) {
+    if (!authSession || !brainOwnerEmail || isGuest) {
       setTasks([]);
       setPrivNotes([]);
       setPrivResources([]);
@@ -2238,7 +2299,7 @@ export function App() {
       ? "kits"
       : kbDisplay === "tasks" && !isGuest
       ? "tasks"
-      : kbDisplay === "scripts" || kbDisplay === "grid" || kbDisplay === "graph"
+      : kbDisplay === "scripts" || kbDisplay === "grid" || kbDisplay === "graph" || kbDisplay === "feed"
       ? kbDisplay
       : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
@@ -2247,6 +2308,8 @@ export function App() {
       ? "My Work"
       : activeViewMode === "scripts" && isSpaceView
       ? "Scripts & Links"
+      : activeViewMode === "feed" && isSpaceView
+      ? "Newsfeed"
       : catFilter === "res" && (view === "kb" || view === "home" || view === "space" || view === "lib")
       ? "Team Resources"
       : view === "kb" || view === "home" || view === "space"
@@ -2328,14 +2391,41 @@ export function App() {
     try {
       const data = await db.directory.invite(payload, sessionEmail);
       applyDirectoryPayload(data);
+      if (data && data.accessPolicy) {
+        setAccessPolicy(normalizeAccessPolicy(data.accessPolicy));
+      }
       setDirectorySyncState("synced");
       logAct("Invited Member", "user", data.userId || payload.email, payload.name, payload.email);
-      flash(`Invited ${payload.name || payload.email} (saved to Supabase)`);
+      flash(`Invited ${payload.name || payload.email} (saved & whitelisted in Supabase)`);
       return true;
     } catch (e) {
       setDirectorySyncState("error");
       flash(e.message || "Failed to invite user");
       return false;
+    }
+  };
+
+  const handleSaveAccessPolicy = async (nextPolicy) => {
+    if (!can.superAdmin(role)) {
+      flash("Only SuperAdmin can modify workspace whitelist & access policy");
+      return null;
+    }
+    try {
+      const data = await db.workspace.saveAccessPolicy(nextPolicy, sessionEmail);
+      const saved = normalizeAccessPolicy((data && data.accessPolicy) || nextPolicy);
+      setAccessPolicy(saved);
+      logAct(
+        "Updated Access Policy",
+        "security",
+        "access_policy",
+        saved.enabled ? `Mode: ${saved.mode}` : "Whitelist OFF",
+        `${saved.allowedDomains.length} domains · ${saved.allowedEmails.length} emails`
+      );
+      flash("Access & whitelist policy saved to Supabase");
+      return saved;
+    } catch (e) {
+      flash(e.message || "Failed to save access policy");
+      return null;
     }
   };
 
@@ -2391,6 +2481,9 @@ export function App() {
     try {
       const data = await db.directory.deleteUser(targetUser.id, fallbackUserId, sessionEmail, targetUser.email);
       applyDirectoryPayload(data);
+      if (data && data.accessPolicy) {
+        setAccessPolicy(normalizeAccessPolicy(data.accessPolicy));
+      }
       reassignLocalOwnership(targetUser.name, fallbackName);
       setDirectorySyncState("synced");
       logAct("Deleted User", "user", targetUser.id, targetUser.name, `Ownership reassigned → ${fallbackName}`);
@@ -2483,17 +2576,29 @@ export function App() {
       ];
     });
 
+    setLoginError("");
+    if (!isGuestAuth && resRef.current.length === 0) {
+      const initialList = [GUIDE, ...SEED];
+      resRef.current = initialList;
+      setRes(initialList);
+    }
+    if (!isGuestAuth && tree.length === 0) {
+      setTree(TREE);
+    }
+    if (!isGuestAuth && cols.length === 0) {
+      setCols(SEED_COLLECTIONS);
+    }
     setActiveUserId(targetId);
     const syncedSession = { ...session, claims: { ...claims, role: targetRole } };
     saveStoredSession(syncedSession);
     setAuthSession(syncedSession);
-    if (!isGuestAuth && email) {
-      refreshDirectory(email);
+    if (email) {
+      if (!isGuestAuth) refreshDirectory(email);
       refreshWorkspace(email);
     }
     setRead(null);
     setSel(null);
-    setView(normRole(targetRole) === "Guest" ? "kb" : "home");
+    setView("kb");
     setActivities((prev) => [
       {
         id: "act-" + Date.now() + Math.random().toString(36).slice(2, 5),
@@ -2512,13 +2617,24 @@ export function App() {
   signedInRef.current = handleSignedIn;
 
   const handleLogout = async () => {
-    await signOutAuth();
+    await signOutAuth({ markLocalSignOut: true });
+    purgeSensitiveLocalCache();
+    workspaceHydratedRef.current = false;
     setAuthSession(null);
+    setLoginError("");
+    setRes([]);
+    resRef.current = [];
+    setUsers([]);
+    setTeams([]);
+    setCols([]);
+    setTree([]);
+    setTasks([]);
+    setPrivNotes([]);
+    setPrivResources([]);
     setRead(null);
     setSel(null);
     setPal(false);
     setBell(false);
-    setAi(false);
     flash("Signed out");
   };
 
@@ -2596,7 +2712,7 @@ export function App() {
 
   if (!authSession) {
     return html`<${Fragment}>
-      <${LoginView} users=${users} onSignedIn=${handleSignedIn} />
+      <${LoginView} initialError=${loginError} onSignedIn=${handleSignedIn} />
       ${revitLinkCtx &&
       html`<${RevitLinkModal}
         linkCtx=${revitLinkCtx}
@@ -2614,6 +2730,8 @@ export function App() {
   const activeSwitcherKey =
     view === "kb" && catFilter === "kits"
       ? "kits"
+      : view === "kb" && kbDisplay === "feed"
+      ? "feed"
       : (view === "kb" && kbDisplay === "scripts") || ((view === "kb" || view === "lib") && catFilter === "res")
       ? "team-resources"
       : (view === "kb" && kbDisplay === "tasks") || view === "tasks"
@@ -2632,7 +2750,16 @@ export function App() {
       setCatFilter("all");
       setCur("all");
       setBrainLayer("all");
-      if (kbDisplay === "tasks" || kbDisplay === "scripts") setKbDisplay("space");
+      if (kbDisplay === "tasks" || kbDisplay === "scripts" || kbDisplay === "feed") setKbDisplay("space");
+      setSpaceStageOpen(true);
+      goV("kb");
+    } else if (key === "feed") {
+      setRead(null);
+      setActiveKitId(null);
+      setCatFilter("all");
+      setCur("all");
+      setBrainLayer("all");
+      setKbDisplay("feed");
       setSpaceStageOpen(true);
       goV("kb");
     } else if (key === "my-work" || key === "tasks") {
@@ -2778,6 +2905,16 @@ export function App() {
       >
         <span className="side-ico"><${Ic} n="globe" s=${15} /></span>
         <span className="tn">Knowledge Space</span>
+      </button>
+
+      <button
+        type="button"
+        className=${"ti" + (activeSwitcherKey === "feed" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("feed")}
+      >
+        <span className="side-ico"><${Ic} n="feed" s=${15} /></span>
+        <span className="tn">Newsfeed</span>
       </button>
 
       <button
@@ -3066,7 +3203,7 @@ export function App() {
               showTasks=${!isGuest}
               onSelectMode=${selectSpatialMode}
             />
-            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts")) &&
+            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "feed")) &&
             html`<${FilterPopover}
               view=${view}
               curCat=${curCat}
@@ -3085,7 +3222,7 @@ export function App() {
               types=${Object.entries(TY)}
               tags=${tags}
             />`}
-            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "kits")) &&
+            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "kits" || activeViewMode === "feed")) &&
             html`<${SortPopover}
               view=${view}
               catFilter=${catFilter}
@@ -3289,6 +3426,9 @@ export function App() {
               onOpenBrainSheet=${(payload) => setQcModal(payload)}
               onSaveTeamResource=${!isGuest ? saveTeamResource : null}
               onDeleteTeamItem=${!isGuest ? delItem : null}
+              onAck=${ack}
+              imgs=${imgs}
+              flash=${flash}
             />`;
           }
 
@@ -3509,6 +3649,10 @@ export function App() {
             setAdminTabSeed("users");
             setView("admin");
           }}
+          onOpenAccessPolicy=${() => {
+            setAdminTabSeed("access");
+            setView("admin");
+          }}
           onFilterByOwner=${(authorName) => {
             setF({ author: authorName });
             setCur("all");
@@ -3537,9 +3681,12 @@ export function App() {
           role=${role}
           userName=${userName}
           currentUserId=${activeUser.id}
+          currentUserEmail=${sessionEmail}
+          accessPolicy=${accessPolicy}
           flaggedIds=${flaggedIds}
           initialTab=${adminTabSeed}
           directorySyncState=${directorySyncState}
+          onSaveAccessPolicy=${handleSaveAccessPolicy}
           onRead=${rd}
           onApprove=${(id) => act.onStatus(id, "Approved")}
           onReject=${(id) => act.onStatus(id, "Draft")}

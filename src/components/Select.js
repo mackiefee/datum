@@ -480,6 +480,7 @@ export function ViewModeSwitch({
     ["space", "globe", "Space", ""],
     ["grid", "layout", "Grid", ""],
     ["graph", "graph", "Graph", ""],
+    ["feed", "feed", "Newsfeed", ""],
     ...(showTasks ? [["tasks", "check", "Tasks", ""]] : []),
     ["scripts", "code", "Scripts & Links", ""],
     ["kits", "folder", "Kits", visibleColsCount ? String(visibleColsCount) : ""],
@@ -487,7 +488,13 @@ export function ViewModeSwitch({
   const current = modes.find((m) => m[0] === viewMode) || modes[0];
   const hasActiveStageMode = Boolean(stageOpen && viewMode && modes.some((m) => m[0] === viewMode));
   const btnIcon = hasActiveStageMode ? current[1] : "globe";
-  const shortLabel = !hasActiveStageMode ? "Views" : current[0] === "scripts" ? "Scripts" : current[2];
+  const shortLabel = !hasActiveStageMode
+    ? "Views"
+    : current[0] === "scripts"
+    ? "Scripts"
+    : current[0] === "feed"
+    ? "Feed"
+    : current[2];
 
   return html`<${Fragment}>
     <button

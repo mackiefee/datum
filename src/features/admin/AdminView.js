@@ -14,6 +14,7 @@ import {
   InviteUserSheet,
   ConfirmUserActionSheet,
 } from '../../components/UserDirectoryModals.js';
+import { AccessWhitelistTab } from './AccessWhitelistTab.js';
 
 export function AdminView(p) {
   const {
@@ -31,9 +32,12 @@ export function AdminView(p) {
     role,
     userName,
     currentUserId,
+    currentUserEmail = '',
+    accessPolicy = null,
     flaggedIds = [],
     initialTab = 'gov',
     directorySyncState = 'synced',
+    onSaveAccessPolicy,
     onRead,
     onApprove,
     onReject,
@@ -238,6 +242,7 @@ export function AdminView(p) {
             ['gov', `Governance${inReview.length + staleItems.length > 0 ? ` (${inReview.length + staleItems.length})` : ''}`],
             ['cats', 'Structure'],
             ['users', `Users (${users.length})`],
+            ['access', 'Access'],
             ['pub', `Public (${publicItems.length + publicCols.length})`],
             ['anl', 'Audit'],
           ].map(
@@ -603,6 +608,16 @@ export function AdminView(p) {
             <span>No database users match the selected filters.</span>
           </div>`}
     </${Fragment}>`}
+
+    ${tab === 'access' &&
+    html`<${AccessWhitelistTab}
+      policy=${accessPolicy}
+      users=${users}
+      isSuperAdmin=${isSuperAdmin}
+      currentUserEmail=${currentUserEmail}
+      onSavePolicy=${onSaveAccessPolicy}
+      flash=${flash}
+    />`}
 
     ${tab === 'pub' &&
     html`<div className="cd-grid2">

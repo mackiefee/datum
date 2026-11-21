@@ -10,6 +10,7 @@ import { ChatMessages } from '../../components/ChatMessages.js';
 import { Select } from '../../components/Select.js';
 import { isDoneStatus, DEFAULT_PLANNER_STATUSES } from '../../utils/planner.js';
 import { SecondBrainView, ResourceShareModal, ScriptLinkRow } from '../brain/SecondBrainView.js';
+import { NewsfeedView } from '../feed/NewsfeedView.js';
 import { TIER_LABEL, TIER_COL, canEditCol, KitComposerModal } from '../collections/CollectionsView.js';
 import {
   clamp,
@@ -135,6 +136,9 @@ export function KnowledgeSpaceView({
   onOpenBrainSheet = null,
   onSaveTeamResource = null,
   onDeleteTeamItem = null,
+  onAck = null,
+  imgs = {},
+  flash = null,
 }) {
   const [drawerBrainRef, setDrawerBrainRef] = useState(null);
   const [drawerCopiedId, setDrawerCopiedId] = useState(null);
@@ -463,13 +467,16 @@ export function KnowledgeSpaceView({
   const isKitsOverview = viewMode === 'kits' && !activeKit;
   const isTasksView = !isGuest && viewMode === 'tasks' && !activeKit;
   const isScriptsView = viewMode === 'scripts' && !activeKit;
-  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !isTasksView && !isScriptsView && !activeKit;
+  const isFeedView = viewMode === 'feed' && !activeKit;
+  const isHeroMode = !isMobile && !stageOpen && !isKitsOverview && !isTasksView && !isScriptsView && !isFeedView && !activeKit;
   const activeFormation = isKitsOverview
     ? 'kits'
     : isTasksView
     ? 'tasks'
     : isScriptsView
     ? 'scripts'
+    : isFeedView
+    ? 'feed'
     : viewMode === 'grid'
     ? 'grid'
     : viewMode === 'graph'
@@ -1832,7 +1839,8 @@ export function KnowledgeSpaceView({
         isHeroModeRef.current ||
         activeFormationRef.current === 'kits' ||
         activeFormationRef.current === 'tasks' ||
-        activeFormationRef.current === 'scripts'
+        activeFormationRef.current === 'scripts' ||
+        activeFormationRef.current === 'feed'
       ) return;
       if (document.querySelector('.side.open, .ov')) return;
       if (
@@ -1893,7 +1901,7 @@ export function KnowledgeSpaceView({
 
     vp.addEventListener('wheel', onWheel, { passive: false });
     return () => vp.removeEventListener('wheel', onWheel);
-  }, [isTasksView, isScriptsView, isMobile, Boolean(count)]);
+  }, [isTasksView, isScriptsView, isFeedView, isMobile, Boolean(count)]);
 
   const stepRotate = (dir) => {
     const mode = activeFormationRef.current;
@@ -2406,6 +2414,7 @@ export function KnowledgeSpaceView({
       ['3D Space Carousel', 'globe', 'view-mode', 'space'],
       ['Grid View (Flat Matrix)', 'layout', 'view-mode', 'grid'],
       ['Dependency Graph', 'graph', 'view-mode', 'graph'],
+      ['Newsfeed (Stories & Pulse)', 'feed', 'view-mode', 'feed'],
       ['Scripts & Links Hub', 'code', 'view-mode', 'scripts'],
       ['Playbooks & Kits', 'folder', 'view-mode', 'kits'],
       ...(can.admin(role) ? [['Administration & Governance', 'shield', 'view', 'admin']] : []),
@@ -2674,6 +2683,7 @@ export function KnowledgeSpaceView({
           !isKitsOverview &&
           !isTasksView &&
           !isScriptsView &&
+          !isFeedView &&
           isNarrowed &&
           html`<span
             className="kspace-cnt"
@@ -3103,6 +3113,37 @@ export function KnowledgeSpaceView({
             users=${brainUsers}
             currentEmail=${currentEmail}
             onShareResource=${onShareResource}
+          />
+        </div>`
+      : isFeedView
+      ? html`<div key="kspace-feed-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+          <${NewsfeedView}
+            docs=${poolAll}
+            cols=${visibleKits}
+            scriptLinks=${unifiedScriptLinks}
+            imgs=${imgs}
+            users=${brainUsers}
+            userName=${userName}
+            role=${role}
+            isGuest=${isGuest}
+            effectiveLayer=${effectiveLayer}
+            projectFilter=${projectFilter || 'all'}
+            externalQuery=${spaceQuery}
+            activities=${activities}
+            requiredIds=${requiredIds}
+            acks=${acks}
+            favs=${favs}
+            onAck=${onAck}
+            onToggleFav=${onToggleFav}
+            onOpenDoc=${(id) => onRead && onRead(id)}
+            onInspectDoc=${onInspect}
+            onOpenKit=${onOpenKit}
+            onOpenNamingStudio=${onOpenNamingStudio}
+            onSaveToNote=${onSaveToNote}
+            onSaveToTask=${onSaveToTask}
+            onOpenBrainSheet=${onOpenBrainSheet}
+            onSelectViewMode=${onSelectViewMode}
+            flash=${flash}
           />
         </div>`
       : !isMobile &&
@@ -3579,6 +3620,7 @@ export function KnowledgeSpaceView({
       !isKitsOverview &&
       !isTasksView &&
       !isScriptsView &&
+      !isFeedView &&
       spaceQuery.trim() &&
       queryIntent === 'search' &&
       displayItems.length > 0 &&
@@ -3753,6 +3795,7 @@ export function KnowledgeSpaceView({
       ${isMobile &&
       !isTasksView &&
       !isScriptsView &&
+      !isFeedView &&
       (activeChat || mobHistoryOpen || mobBrowseOpen || isKitsOverview || activeKit || spaceFilterMode === 'bookmarks' || Boolean(f && f.disc)) &&
       html`<div className="kspace-mob-toprow">
         ${chats.length > 0 &&
@@ -3964,6 +4007,9 @@ export function KnowledgeSpaceView({
 
       ${isMobile &&
       mobHistoryOpen &&
+      !isTasksView &&
+      !isScriptsView &&
+      !isFeedView &&
       !cmdOpen &&
       html`<div className="kspace-mob-results">
         <div className="kspace-mob-res-head">
@@ -4145,6 +4191,7 @@ export function KnowledgeSpaceView({
       !isKitsOverview &&
       !isTasksView &&
       !isScriptsView &&
+      !isFeedView &&
       !activeKit &&
       !cmdOpen &&
       (() => {
@@ -4343,6 +4390,20 @@ export function KnowledgeSpaceView({
               className="kspace-mob-act"
               onClick=${() => {
                 setMobMenuOpen(false);
+                setMobHistoryOpen(false);
+                setMobBrowseOpen(false);
+                onSelectKit && onSelectKit(null);
+                onSelectViewMode && onSelectViewMode('feed');
+              }}
+            >
+              <span className="kspace-mob-act-ico"><${Ic} n="feed" s=${19} /></span>
+              <span>Newsfeed & Stories</span>
+            </button>
+            <button
+              type="button"
+              className="kspace-mob-act"
+              onClick=${() => {
+                setMobMenuOpen(false);
                 onSelectKit && onSelectKit(null);
                 onSelectViewMode && onSelectViewMode('scripts');
               }}
@@ -4377,12 +4438,14 @@ export function KnowledgeSpaceView({
         </div>`;
       })()}
 
-      <div
-        ref=${askBarRef}
-        className=${'kspace-ask-bar' +
-          (spaceQuery.trim() ? ' has-q' : '') +
-          (lastChatMsg && lastChatMsg.busy && (desktopChatOpen || isMobile) ? ' is-busy' : '')}
-      >
+      ${!(isFeedView && !isMobile && !cmdOpen && !desktopChatOpen) &&
+      html`<${Fragment}>
+        <div
+          ref=${askBarRef}
+          className=${'kspace-ask-bar' +
+            (spaceQuery.trim() ? ' has-q' : '') +
+            (lastChatMsg && lastChatMsg.busy && (desktopChatOpen || isMobile) ? ' is-busy' : '')}
+        >
         ${isMobile
           ? html`<button
               type="button"
@@ -4458,6 +4521,8 @@ export function KnowledgeSpaceView({
             ? 'Search Starter Kits or ask Datum AI…'
             : isScriptsView
             ? 'Filter Scripts & Links or ask Datum AI (EN/UA)…'
+            : isFeedView
+            ? 'Search Newsfeed stories & updates or ask Datum AI…'
             : isTasksView
             ? 'Filter Tasks & Notes or ask Datum AI (EN/UA)…'
             : activeFormation === 'graph'
@@ -4470,6 +4535,7 @@ export function KnowledgeSpaceView({
         ${hasReactiveFilter &&
         !isTasksView &&
         !isScriptsView &&
+        !isFeedView &&
         (isMobile
           ? html`<button
               type="button"
@@ -4613,6 +4679,18 @@ export function KnowledgeSpaceView({
                   className="kspace-pchip kspace-pchip-ghost"
                   onClick=${() => {
                     ensureStageOpen();
+                    onSelectViewMode && onSelectViewMode('feed');
+                  }}
+                  title="Open Team Newsfeed & Stories"
+                >
+                  <${Ic} n="feed" s=${12} />
+                  <span>Feed</span>
+                </button>
+                <button
+                  type="button"
+                  className="kspace-pchip kspace-pchip-ghost"
+                  onClick=${() => {
+                    ensureStageOpen();
                     onSelectViewMode && onSelectViewMode('scripts');
                   }}
                   title="Open Scripts & Links"
@@ -4664,6 +4742,7 @@ export function KnowledgeSpaceView({
       !isKitsOverview &&
       !isTasksView &&
       !isScriptsView &&
+      !isFeedView &&
         (activeFormation === 'graph'
           ? html`<div className="kspace-hud is-graph-hud" role="toolbar" aria-label="Graph navigation controls">
               <div className="kspace-graph-modes" role="group" aria-label="Graph layout">
@@ -4838,7 +4917,8 @@ export function KnowledgeSpaceView({
                 Center
               </button>
             </div>`)}
-      </div>
+        </div>
+      </${Fragment}>`}
       ${!isMobile &&
       isHeroMode &&
       heroTodayChips.length > 0 &&
