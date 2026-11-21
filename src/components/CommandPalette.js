@@ -161,11 +161,9 @@ export function Pal(p) {
         ]
       : []),
     ["Knowledge Space (3D)", "globe", "kb-space"],
+    ["Newsfeed & Stories", "feed", "feed"],
     ["Scripts & Links Hub", "code", "scripts"],
     ["Naming Studio (Wall & Element Builder)", "layers", "view", "naming"],
-    ["Knowledge Base (Grid)", "layout", "view", "kb"],
-    ["Playbooks & Kits", "folder", "kits"],
-    ["Dependency Graph", "graph", "kb-graph"],
     ...(can.admin(p.role) ? [["Administration & Governance", "shield", "view", "admin"]] : []),
     ["Change theme", "spark", "theme"],
   ];
@@ -321,9 +319,6 @@ export function Pal(p) {
   };
 
   const bookmarksCount = Array.isArray(p.favs) ? p.favs.length : 0;
-  const kitsCount = Array.isArray(p.cols)
-    ? p.cols.filter((c) => c.tier === 'official' || c.tier === 'shared').length
-    : 0;
   const isDocked = Boolean(p.isSpaceDockActive);
 
   return html`<div
@@ -451,18 +446,19 @@ export function Pal(p) {
               <${Ic} n="star" s=${11} f=${true} />
               <span>Bookmarks${bookmarksCount ? ` (${bookmarksCount})` : ""}</span>
             </button>
-            <button
+            ${!isGuest &&
+            html`<button
               type="button"
               tabIndex=${p.open ? 0 : -1}
-              className="sw-chip sw-chip-kit"
+              className="sw-chip"
               onClick=${() => {
                 recordTopbarRect();
-                p.act("kits");
+                p.act("tasks");
               }}
             >
-              <${Ic} n="folder" s=${11} />
-              <span>Starter Kits${kitsCount ? ` (${kitsCount})` : ""}</span>
-            </button>
+              <${Ic} n="check" s=${11} />
+              <span>Tasks</span>
+            </button>`}
             ${PAL_PROMPTS.map(
               (prompt) => html`<button
                 key=${prompt.label}

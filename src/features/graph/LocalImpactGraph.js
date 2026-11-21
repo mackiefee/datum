@@ -1,7 +1,6 @@
 import { html, useEffect, useMemo, useState } from '../../lib/react.js';
 import { DC, ST, TY } from '../../config/constants.js';
 import { Ic } from '../../components/Icon.js';
-import { Graph } from './GraphView.js';
 
 function getNeighbors(doc, res) {
   const map = new Map(res.map((r) => [r.id, r]));
@@ -73,7 +72,6 @@ function ImpactList({ title, subtitle, entries, emptyText, onRead }) {
 }
 
 export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], collapsedByDefault = false, onRead, onInfo }) {
-  const [mode, setMode] = useState('flow');
   const [expanded, setExpanded] = useState(!collapsedByDefault);
 
   useEffect(() => {
@@ -192,22 +190,6 @@ export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], c
         <p className="lig-sub">${model.upstream.length} upstream · ${model.outEntries.length} downstream</p>
       </div>
       <div className="lig-head-r">
-        <div className="seg" role="tablist" aria-label="Dependency view mode">
-          <button
-            type="button"
-            className=${mode === 'flow' ? 'on' : ''}
-            onClick=${() => setMode('flow')}
-          >
-            Flow
-          </button>
-          <button
-            type="button"
-            className=${mode === 'graph' ? 'on' : ''}
-            onClick=${() => setMode('graph')}
-          >
-            Graph
-          </button>
-        </div>
         ${item &&
         onInfo &&
         html`<button type="button" className="btn sm" onClick=${() => onInfo(item.id, 'l')}>
@@ -226,31 +208,21 @@ export function LocalImpactGraph({ item, revitCtx, relatedDocs = [], res = [], c
       </div>
     </div>
 
-    ${mode === 'flow'
-      ? html`<div className="lig-grid">
-          <${ImpactList}
-            title=${item ? 'Depends On' : 'Governing Standards'}
-            subtitle=${item ? 'Upstream codes & specs required' : 'Core Datum specs matched to this type'}
-            entries=${model.upstream}
-            emptyText="No upstream dependencies"
-            onRead=${onRead}
-          />
-          <${ImpactList}
-            title=${model.outTitle}
-            subtitle=${model.outSub}
-            entries=${model.outEntries}
-            emptyText="No downstream impacts yet"
-            onRead=${onRead}
-          />
-        </div>`
-      : html`<div className="lig-canvas">
-          <${Graph}
-            res=${model.localRes}
-            selId=${model.focusId}
-            pick=${(id) => {
-              if (id && id !== 'revit-focus' && onRead) onRead(id);
-            }}
-          />
-        </div>`}
+    <div className="lig-grid">
+      <${ImpactList}
+        title=${item ? 'Depends On' : 'Governing Standards'}
+        subtitle=${item ? 'Upstream codes & specs required' : 'Core Datum specs matched to this type'}
+        entries=${model.upstream}
+        emptyText="No upstream dependencies"
+        onRead=${onRead}
+      />
+      <${ImpactList}
+        title=${model.outTitle}
+        subtitle=${model.outSub}
+        entries=${model.outEntries}
+        emptyText="No downstream impacts yet"
+        onRead=${onRead}
+      />
+    </div>
   </section>`;
 }

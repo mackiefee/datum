@@ -159,6 +159,52 @@ export async function fetchPublicLoginPolicy() {
 
 let inflightOAuthPromise = null;
 
+export function formatLoginError(rawError = '', code = '') {
+  const raw = String(rawError || '').trim();
+  const c = String(code || '').trim().toUpperCase();
+
+  if (c === 'ACCOUNT_DEACTIVATED' || /deactivated/i.test(raw)) {
+    return {
+      title: 'Account Deactivated',
+      message: 'Your Datum workspace account has been deactivated. Contact your administrator to restore access.',
+      kind: 'deactivated',
+    };
+  }
+
+  if (/access_denied|cancelled|canceled/i.test(raw) && !/explicitly|not on the|policy|whitelist|domain|blocked/i.test(raw)) {
+    return {
+      title: 'Sign-in Cancelled',
+      message: 'Google sign-in was cancelled before completion. You can try again whenever you’re ready.',
+      kind: 'neutral',
+    };
+  }
+
+  if (c === 'SESSION_REVOKED' || /session revoked|no longer authorized|expired|session has ended/i.test(raw)) {
+    return {
+      title: 'Session Ended',
+      message: 'Your workspace session has ended or your access permissions were updated. Please sign in again.',
+      kind: 'neutral',
+    };
+  }
+
+  if (
+    ['NOT_WHITELISTED', 'DOMAIN_NOT_ALLOWED', 'DIRECTORY_REQUIRED', 'EMAIL_BLOCKED', 'OAUTH_DENIED', 'GUEST_DISABLED', 'UNEXPECTED_FAILURE', 'SERVER_ERROR'].includes(c) ||
+    /database error saving new user|unexpected_failure|server_error|not on the approved|not in allowed|must be invited|whitelist|strict policy blocked|explicitly blocked|access denied|403|unauthorized|isn['’]?t authorized|not authorized|access restricted|approved workspace email/i.test(raw)
+  ) {
+    return {
+      title: 'Access Restricted',
+      message: 'This Google account isn’t authorized to access Datum. Please sign in with an approved workspace email or ask your administrator for an invitation.',
+      kind: 'restricted',
+    };
+  }
+
+  return {
+    title: 'Unable to Sign In',
+    message: raw || 'We couldn’t complete sign-in right now. Please try again.',
+    kind: 'restricted',
+  };
+}
+
 export async function consumeSupabaseOAuthHash() {
   if (typeof window === 'undefined') return null;
   if (inflightOAuthPromise) return inflightOAuthPromise;
@@ -173,6 +219,12 @@ export async function consumeSupabaseOAuthHash() {
     searchParams.get('error_description') ||
     hashParams.get('error') ||
     searchParams.get('error');
+  const errCode =
+    hashParams.get('error_code') ||
+    searchParams.get('error_code') ||
+    hashParams.get('error') ||
+    searchParams.get('error') ||
+    '';
   const accessToken = hashParams.get('access_token');
   if (!oauthErr && !accessToken) return null;
 
@@ -181,7 +233,15 @@ export async function consumeSupabaseOAuthHash() {
       window.history.replaceState(null, '', window.location.pathname);
       clearStoredSession();
       purgeSensitiveLocalCache();
-      return { ok: false, accessDenied: true, error: decodeURIComponent(oauthErr.replace(/\+/g, ' ')) };
+      const decoded = decodeURIComponent(oauthErr.replace(/\+/g, ' '));
+      const formatted = formatLoginError(decoded, errCode);
+      return {
+        ok: false,
+        accessDenied: true,
+        code: 'OAUTH_DENIED',
+        error: formatted.message,
+        errorTitle: formatted.title,
+      };
     }
 
     window.history.replaceState(null, '', window.location.pathname + window.location.search);
@@ -201,11 +261,13 @@ export async function consumeSupabaseOAuthHash() {
       }
       clearStoredSession();
       purgeSensitiveLocalCache();
+      const formatted = formatLoginError(out?.error || 'Sign-in rejected by workspace whitelist policy.', out?.code);
       return {
         ok: false,
         accessDenied: true,
         code: out?.code || 'OAUTH_DENIED',
-        error: out?.error || 'Sign-in rejected by workspace whitelist policy.',
+        error: formatted.message,
+        errorTitle: formatted.title,
       };
     } catch (e) {
       clearStoredSession();

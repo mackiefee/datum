@@ -1304,7 +1304,6 @@ function NewsComposerModal({
 
 export function NewsfeedView({
   docs = [],
-  cols = [],
   scriptLinks = [],
   imgs = {},
   users = [],
@@ -1322,7 +1321,6 @@ export function NewsfeedView({
   onToggleFav,
   onOpenDoc,
   onInspectDoc,
-  onOpenKit,
   onOpenNamingStudio,
   onSaveToNote,
   onSaveToTask,
@@ -1426,20 +1424,6 @@ export function NewsfeedView({
       });
     });
 
-    (cols || []).slice(0, 3).forEach((kit) => {
-      items.push({
-        id: `pulse-kit-${kit.id}`,
-        feedType: 'kit-release',
-        date: '2026-11-01',
-        author: kit.owner || 'Maxim',
-        disc: 'Interior',
-        project: 'C10_INTERIOR',
-        title: kit.name,
-        summary: kit.desc || 'Curated playbook & standard bundle',
-        kit,
-      });
-    });
-
     (activities || [])
       .filter((a) => a && a.targetTitle && !String(a.action || '').includes('Signed in'))
       .slice(0, 6)
@@ -1460,7 +1444,7 @@ export function NewsfeedView({
       });
 
     return items.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  }, [docs, imgs, scriptLinks, cols, activities, docById, userName]);
+  }, [docs, imgs, scriptLinks, activities, docById, userName]);
 
   const savedSet = useMemo(() => new Set(metaState.savedIds || []), [metaState.savedIds]);
 
@@ -1809,7 +1793,7 @@ export function NewsfeedView({
 
   const gridSubtitle =
     catTab === 'pulse'
-      ? 'Live standard revisions, Revit automation releases, starter kits, and team activity.'
+      ? 'Live standard revisions, Revit automation releases, and team activity.'
       : authorFilter
       ? `${gridStories.length} published ${gridStories.length === 1 ? 'story' : 'stories'} by ${authorFilter} · Click again to reset.`
       : 'Behind-the-scenes project case studies, BIM engineering workflows, and team stories from across Planit.';
@@ -2150,23 +2134,6 @@ export function NewsfeedView({
                       html`<div className="nf-snippet-row">
                         <code>${snippet.split('\n').slice(0, 2).join(' · ')}</code>
                       </div>`}
-                    </article>`;
-                  }
-
-                  if (entry.feedType === 'kit-release') {
-                    const { kit } = entry;
-                    return html`<article key=${entry.id} className="nf-pulse-row">
-                      <div className="nf-pulse-row-top">
-                        <div className="nf-pulse-id">
-                          <span className="nf-pulse-tag is-kit">Starter Kit</span>
-                          <span className="nf-meta-txt">${(kit.items || []).length} standards</span>
-                        </div>
-                        <button type="button" className="btn sm p" onClick=${() => onOpenKit && onOpenKit(kit.id)}>
-                          Unpack Kit →
-                        </button>
-                      </div>
-                      <h3>${kit.name}</h3>
-                      <p>${kit.desc || 'Curated playbook & standards bundle'}</p>
                     </article>`;
                   }
 

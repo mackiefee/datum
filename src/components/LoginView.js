@@ -1,13 +1,9 @@
 import { Fragment, html, useEffect, useState } from '../lib/react.js';
 import { ROLES, normRole } from '../config/constants.js';
 import {
-  ACCESS_MODES,
-  DEFAULT_ACCESS_POLICY,
-  toPublicLoginPolicy,
-} from '../lib/accessPolicy.js';
-import {
   hasSupabaseAuth,
   fetchPublicLoginPolicy,
+  formatLoginError,
   startSupabaseGoogleOAuth,
   issueVerifiedSession,
   makeGooglePhotoFallback,
@@ -23,6 +19,16 @@ const GoogleMark = () =>
     <path fill="#EA4335" d="M12 4.8c1.8 0 3.3.6 4.6 1.8l3.4-3.4C17.9 1.2 15.2 0 12 0 7.3 0 3.2 2.7 1.2 6.7l4 3.1c.9-2.9 3.6-5 6.8-5z" />
   </svg>`;
 
+const ThemeGlyph = ({ theme = 'dark' }) =>
+  theme === 'dark'
+    ? html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="12" cy="12" r="4.2" />
+        <path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </svg>`
+    : html`<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M20.35 14.35A8.5 8.5 0 0 1 9.65 3.65a8.5 8.5 0 1 0 10.7 10.7z" />
+      </svg>`;
+
 const LOCAL_DEV_PRESETS = [
   {
     id: 'local-dev-superadmin',
@@ -37,13 +43,55 @@ const LOCAL_DEV_PRESETS = [
   },
 ];
 
+const SHOWCASE_SLIDES = [
+  {
+    title: 'Diman High School',
+    subtitle: 'Modern Campus Exterior · BIM & VDC Standards',
+    tag: 'VDC Standards',
+    img: 'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6ab23b06b375f7dd6e146ffe_exterior_-_front_sunset.1600x0%20(1).webp',
+  },
+  {
+    title: 'Park Summit',
+    subtitle: '21-Story Mixed-Use · San Diego Bay',
+    tag: 'High-Rise BIM',
+    img: 'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6a74495628023a5bb1f5876f_General%20View%20(1).jpg',
+  },
+  {
+    title: '1900 Broadway',
+    subtitle: 'Urban High-Rise · Architectural Detailing',
+    tag: 'Architectural BIM',
+    img: 'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6aea0b80f817d9be41517d22_Broadway.jpg',
+  },
+  {
+    title: 'The Ritz-Carlton Residences',
+    subtitle: 'Vanderbilt Beach, Naples · Waterfront Complex',
+    tag: 'Waterfront Residential',
+    img: 'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6a3e50b6431ffc535712b493_Naples%205.jpg',
+  },
+];
+
+function resolveActiveTheme() {
+  if (typeof document === 'undefined') return 'dark';
+  const ds = document.documentElement.dataset.theme;
+  if (ds === 'light' || ds === 'dark') return ds;
+  return typeof window !== 'undefined' &&
+    window.matchMedia &&
+    window.matchMedia('(prefers-color-scheme: light)').matches
+    ? 'light'
+    : 'dark';
+}
+
 export function LoginView({ initialError = '', onSignedIn }) {
   const [chooser, setChooser] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(initialError || '');
+  const [errCode, setErrCode] = useState('');
+  const [themeMode, setThemeMode] = useState(() => resolveActiveTheme());
   const [policy, setPolicy] = useState(() => ({
-    ...toPublicLoginPolicy(DEFAULT_ACCESS_POLICY),
+    enabled: true,
+    mode: 'domain_or_whitelist',
+    allowGuestPortal: false,
     isLocalDev: false,
   }));
   const [custom, setCustom] = useState({
@@ -53,10 +101,39 @@ export function LoginView({ initialError = '', onSignedIn }) {
     title: 'Studio Member',
     dept: 'VDC',
   });
+  const [slideIdx, setSlideIdx] = useState(0);
 
   useEffect(() => {
-    if (initialError) setErr(initialError);
+    if (typeof window === 'undefined') return undefined;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return undefined;
+    }
+    const id = window.setTimeout(() => {
+      setSlideIdx((idx) => (idx + 1) % SHOWCASE_SLIDES.length);
+    }, 7500);
+    return () => window.clearTimeout(id);
+  }, [slideIdx]);
+
+  useEffect(() => {
+    if (initialError) {
+      setErr(initialError);
+      setErrCode('');
+    }
   }, [initialError]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return undefined;
+    const sync = () => setThemeMode(resolveActiveTheme());
+    sync();
+    const obs = new MutationObserver(sync);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    const mq = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+    if (mq && mq.addEventListener) mq.addEventListener('change', sync);
+    return () => {
+      obs.disconnect();
+      if (mq && mq.removeEventListener) mq.removeEventListener('change', sync);
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -68,19 +145,27 @@ export function LoginView({ initialError = '', onSignedIn }) {
     };
   }, []);
 
-  const modeMeta = ACCESS_MODES.find((m) => m.id === policy.mode) || ACCESS_MODES[2];
-  const domainsText =
-    Array.isArray(policy.allowedDomains) && policy.allowedDomains.length
-      ? policy.allowedDomains.map((d) => `@${d}`).join(', ')
-      : 'None';
+  const toggleLoginTheme = () => {
+    if (typeof document === 'undefined') return;
+    const current = resolveActiveTheme();
+    const next = current === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try {
+      localStorage.setItem('kb2-theme', JSON.stringify(next));
+    } catch (e) {}
+    setThemeMode(next);
+  };
 
   const handleServerAuth = async (profile) => {
     setErr('');
+    setErrCode('');
     setBusy(true);
     const out = await issueVerifiedSession(profile);
     setBusy(false);
     if (!out.ok) {
-      setErr(out.error || 'Access denied by workspace whitelist policy.');
+      const formatted = formatLoginError(out.error || 'Access denied by workspace policy.', out.code || '');
+      setErr(formatted.message);
+      setErrCode(out.code || '');
       return;
     }
     onSignedIn && onSignedIn(out.session, profile);
@@ -92,6 +177,7 @@ export function LoginView({ initialError = '', onSignedIn }) {
     const cleanName = custom.name.trim() || cleanEmail.split('@')[0];
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
       setErr('Enter a valid Google email address.');
+      setErrCode('');
       return;
     }
     const avatarUrl = custom.avatar.trim() || makeGooglePhotoFallback(cleanName, '#0071e3');
@@ -107,89 +193,176 @@ export function LoginView({ initialError = '', onSignedIn }) {
     });
   };
 
+  const alertObj = err ? formatLoginError(err, errCode) : null;
+
+  const renderAlert = (compact = false) =>
+    alertObj
+      ? html`<div
+          className=${'lgn-alert' + (alertObj.kind === 'neutral' ? ' is-neutral' : '') + (compact ? ' is-compact' : '')}
+          role="alert"
+        >
+          <span className="lgn-alert-ico">
+            <${Ic} n=${alertObj.kind === 'neutral' ? 'clock' : 'lock'} s=${15} />
+          </span>
+          <div className="lgn-alert-body">
+            <b>${alertObj.title}</b>
+            <p>${alertObj.message}</p>
+          </div>
+          <button
+            type="button"
+            className="lgn-alert-x"
+            aria-label="Dismiss message"
+            onClick=${() => {
+              setErr('');
+              setErrCode('');
+            }}
+          >
+            <${Ic} n="x" s=${12} />
+          </button>
+        </div>`
+      : null;
+
+  const activeSlide = SHOWCASE_SLIDES[slideIdx] || SHOWCASE_SLIDES[0];
+  const prevSlide = () => setSlideIdx((idx) => (idx - 1 + SHOWCASE_SLIDES.length) % SHOWCASE_SLIDES.length);
+  const nextSlide = () => setSlideIdx((idx) => (idx + 1) % SHOWCASE_SLIDES.length);
+
   return html`<div className="lgn-wrap">
-    <div className="lgn-card">
-      <div className="lgn-brand">
-        <div className="logo" style=${{ padding: 0, justifyContent: 'center', fontSize: 20 }}>
-          <${DatumMark} s=${30} />
-          <span>Datum</span>
-        </div>
-        <h1>Sign in</h1>
+    <header className="lgn-head">
+      <div className="lgn-top-brand">
+        <${DatumMark} s=${24} />
+        <span className="lgn-top-name">Datum</span>
       </div>
+      <button
+        type="button"
+        className="lgn-theme-btn"
+        title=${themeMode === 'dark' ? 'Switch to Light appearance' : 'Switch to Dark appearance'}
+        aria-label=${themeMode === 'dark' ? 'Switch to Light appearance' : 'Switch to Dark appearance'}
+        onClick=${toggleLoginTheme}
+      >
+        <${ThemeGlyph} theme=${themeMode} />
+      </button>
+    </header>
 
-      ${err &&
-      html`<div className="lgn-err" role="alert">
-        <${Ic} n="shield" s=${16} />
-        <span>${err}</span>
-      </div>`}
+    <main className="lgn-auth-col">
+      <div className="lgn-auth">
+        <div className="lgn-kicker">DATUM WORKSPACE</div>
+        <h1>Sign in to Datum</h1>
+        <p className="lgn-lead">
+          Standards, 3D knowledge space, and engineering workflows in one place.
+        </p>
 
-      <div className="lgn-actions">
-        <button
-          type="button"
-          className="gg-btn"
-          disabled=${busy}
-          onClick=${() => {
-            setErr('');
-            if (policy.isLocalDev) {
+        ${renderAlert(false)}
+
+        <div className="lgn-actions">
+          <button
+            type="button"
+            className="gg-btn"
+            disabled=${busy}
+            onClick=${() => {
+              setErr('');
+              setErrCode('');
+              if (policy.isLocalDev) {
+                setChooser(true);
+                setCustomMode(false);
+                return;
+              }
+              if (hasSupabaseAuth) {
+                setBusy(true);
+                const out = startSupabaseGoogleOAuth();
+                if (out && out.redirected) return;
+                setBusy(false);
+              }
               setChooser(true);
               setCustomMode(false);
-              return;
-            }
-            if (hasSupabaseAuth) {
-              setBusy(true);
-              const out = startSupabaseGoogleOAuth();
-              if (out && out.redirected) return;
-              setBusy(false);
-            }
-            setChooser(true);
-            setCustomMode(false);
-          }}
-        >
-          <${GoogleMark} />
-          <span>${busy ? 'Redirecting to Google…' : 'Continue with Google'}</span>
-        </button>
+            }}
+          >
+            <span className="gg-ico-badge"><${GoogleMark} /></span>
+            <span>
+              ${busy ? 'Connecting to Google…' : err ? 'Try another Google account' : 'Continue with Google'}
+            </span>
+            <span className="gg-arrow" aria-hidden="true">→</span>
+          </button>
 
-        ${policy.allowGuestPortal &&
-        html`<button
-          type="button"
-          className="btn"
-          style=${{ width: '100%', height: 42, justifyContent: 'center', borderRadius: 12 }}
-          disabled=${busy}
-          onClick=${() =>
-            handleServerAuth({
-              id: 'guest-portal',
-              name: 'External Partner',
-              email: 'partner@client.example',
-              role: 'Guest',
-              provider: 'guest',
-              emailVerified: false,
-            })
-          }
-        >
-          <${Ic} n="globe" s=${15} />
-          <span>Continue as External Guest</span>
-        </button>`}
-      </div>
-
-      <div className="lgn-sec">
-        <div className="lgn-sec-row">
-          <${Ic} n="shield" s=${14} />
-          <span>
-            ${policy.enabled
-              ? html`<${Fragment}><b>${modeMeta.shortLabel}</b>${policy.mode !== 'whitelist_only' ? ` · ${domainsText}` : ' · Invite / Approved emails only'}</${Fragment}>`
-              : 'Access Policy: Open (Non-blocked Google accounts)'}
-          </span>
+          ${policy.allowGuestPortal &&
+          html`<button
+            type="button"
+            className="btn lgn-guest-btn"
+            disabled=${busy}
+            onClick=${() =>
+              handleServerAuth({
+                id: 'guest-portal',
+                name: 'External Partner',
+                email: 'partner@client.example',
+                role: 'Guest',
+                provider: 'guest',
+                emailVerified: false,
+              })
+            }
+          >
+            <${Ic} n="globe" s=${15} />
+            <span>Continue as External Guest</span>
+          </button>`}
         </div>
-        <div className="lgn-sec-row">
-          <${Ic} n="lock" s=${14} />
-          <span>
-            ${policy.allowGuestPortal
-              ? 'External Guest portal enabled for Approved Public items'
-              : 'Strict isolation active — unauthorized emails receive 403'}
-          </span>
+
+        <div className="lgn-note">
+          <${Ic} n="lock" s=${12} />
+          <span>Invitation-only access · Authorized accounts only</span>
         </div>
       </div>
-    </div>
+    </main>
+
+    <footer className="lgn-meta">
+      <span>Datum</span>
+      <span>BIM · VDC · Standards</span>
+    </footer>
+
+    <aside className="lgn-media" aria-label="Architectural showcase">
+      <div className="lgn-showcase">
+        ${SHOWCASE_SLIDES.map(
+          (s, i) =>
+            html`<img
+              key=${s.img}
+              src=${s.img}
+              alt=${s.title}
+              loading="eager"
+              decoding="async"
+              className=${'lgn-sc-img' + (i === slideIdx ? ' is-active' : '')}
+            />`
+        )}
+        <div className="lgn-sc-scrim" aria-hidden="true"></div>
+        <div className="lgn-sc-top">
+          <span className="lgn-sc-pill">${activeSlide.tag}</span>
+          <div className="lgn-sc-nav">
+            <span className="lgn-sc-count">
+              ${String(slideIdx + 1).padStart(2, '0')} / ${String(SHOWCASE_SLIDES.length).padStart(2, '0')}
+            </span>
+            <button type="button" className="lgn-sc-btn" aria-label="Previous project" onClick=${prevSlide}>‹</button>
+            <button type="button" className="lgn-sc-btn" aria-label="Next project" onClick=${nextSlide}>›</button>
+          </div>
+        </div>
+        <div className="lgn-sc-foot">
+          <div className="lgn-sc-kicker">FEATURED PROJECT</div>
+          <h2 className="lgn-sc-title">${activeSlide.title}</h2>
+          <p className="lgn-sc-sub">${activeSlide.subtitle}</p>
+          <div className="lgn-sc-bars" role="tablist" aria-label="Featured projects">
+            ${SHOWCASE_SLIDES.map(
+              (s, i) =>
+                html`<button
+                  key=${s.title}
+                  type="button"
+                  role="tab"
+                  className=${'lgn-sc-bar' + (i === slideIdx ? ' is-active' : '')}
+                  aria-label=${s.title}
+                  aria-selected=${i === slideIdx}
+                  onClick=${() => setSlideIdx(i)}
+                >
+                  <span key=${i === slideIdx ? 'run-' + slideIdx : 'idle-' + i}></span>
+                </button>`
+            )}
+          </div>
+        </div>
+      </div>
+    </aside>
 
     ${chooser &&
     policy.isLocalDev &&
@@ -200,16 +373,12 @@ export function LoginView({ initialError = '', onSignedIn }) {
         <div className="gg-head">
           <${GoogleMark} />
           <div>
-            <h3>${customMode ? 'Verify Email Against Whitelist' : 'Local Dev & Whitelist Sign-In'}</h3>
-            <small>Server validates every login against live Supabase access_policy</small>
+            <h3>${customMode ? 'Verify Email Against Allowlist' : 'Local Development Sign-In'}</h3>
+            <small>Server validates every sign-in against live workspace access rules</small>
           </div>
         </div>
 
-        ${err &&
-        html`<div className="lgn-err" style=${{ margin: '0 0 12px' }} role="alert">
-          <${Ic} n="shield" s=${16} />
-          <span>${err}</span>
-        </div>`}
+        ${renderAlert(true)}
 
         ${!customMode
           ? html`<div className="gg-list">
@@ -234,13 +403,14 @@ export function LoginView({ initialError = '', onSignedIn }) {
                 className="gg-acc gg-other"
                 onClick=${() => {
                   setErr('');
+                  setErrCode('');
                   setCustomMode(true);
                 }}
               >
                 <div className="av" style=${{ background: 'var(--fill2)', color: 'var(--text)' }}><${Ic} n="plus" s=${15} /></div>
                 <div className="gg-acc-t">
                   <b>Test or sign in with another email</b>
-                  <small>Tests real server-side whitelist & domain rejection</small>
+                  <small>Tests real server-side allowlist & domain verification</small>
                 </div>
               </button>
               ${hasSupabaseAuth &&
@@ -262,13 +432,12 @@ export function LoginView({ initialError = '', onSignedIn }) {
           : html`<form onSubmit=${submitCustomGoogle}>
               <div className="pdl-form-grid">
                 <label className="pdl-field">
-                  <span>Full Name</span>
+                  <span>Full Name <em style=${{ fontStyle: 'normal', opacity: 0.6 }}>(optional)</em></span>
                   <input
                     className="inp"
                     placeholder="e.g. Taras Kovalenko"
                     value=${custom.name}
                     onChange=${(e) => setCustom({ ...custom, name: e.target.value })}
-                    required
                   />
                 </label>
                 <label className="pdl-field">
@@ -276,7 +445,7 @@ export function LoginView({ initialError = '', onSignedIn }) {
                   <input
                     className="inp"
                     type="email"
-                    placeholder="name@planit-inc.com or test@gmail.com"
+                    placeholder="name@company.com"
                     value=${custom.email}
                     onChange=${(e) => setCustom({ ...custom, email: e.target.value })}
                     required
@@ -290,6 +459,7 @@ export function LoginView({ initialError = '', onSignedIn }) {
                   className="btn"
                   onClick=${() => {
                     setErr('');
+                    setErrCode('');
                     setCustomMode(false);
                   }}
                 >

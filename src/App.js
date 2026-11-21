@@ -3,7 +3,7 @@
 import { html, Fragment, useState, useMemo, useEffect, useRef } from './lib/react.js';
 import { TODAY, KB, ST, TY, STG, DISC, DC, RD, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
-import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS, SEED_COLLECTIONS } from './data/seed.js';
+import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS } from './data/seed.js';
 import { db } from './lib/db.js';
 import { edgeClient } from './lib/edgeClient.js';
 import { DEFAULT_ACCESS_POLICY, normalizeAccessPolicy } from './lib/accessPolicy.js';
@@ -16,8 +16,9 @@ import {
   purgeSensitiveLocalCache,
   signOutAuth,
   makeGooglePhotoFallback,
+  formatLoginError,
 } from './lib/auth.js';
-import { fmt, pl, relTime } from './utils/format.js';
+import { relTime } from './utils/format.js';
 import { hay, scoreDocument, tokenizeUnique } from './utils/search.js';
 import {
   loadChats,
@@ -29,31 +30,26 @@ import {
 } from './utils/chats.js';
 import { docxImport } from './utils/docx.js';
 import { Ic, DatumMark } from './components/Icon.js';
-import { Pill, VisPill } from './components/Badge.js';
 import { FilterPopover, SortPopover, ViewModeSwitch, UserSwitcher } from './components/Select.js';
 import { Node } from './components/SpaceTree.js';
 import { Pal } from './components/CommandPalette.js';
 import { Drawer } from './components/ResourceDrawer.js';
-import { PublicPreviewModal } from './components/PublicPreviewModal.js';
 import { RevitLinkModal, parseRevitLinkUrl } from './components/RevitLinkModal.js';
 import { LoginView } from './components/LoginView.js';
 import { CategoryModal } from './components/CategoryModal.js';
 import { Reader } from './features/reader/Reader.js';
-import { Graph } from './features/graph/GraphView.js';
-import { CollectionsView } from './features/collections/CollectionsView.js';
 import { RevitTypeView } from './features/revitType/RevitTypeView.js';
 import { NamingStudioView } from './features/naming/NamingStudioView.js';
 import { KnowledgeSpaceView } from './features/space/KnowledgeSpaceView.js';
 import { AdminView } from './features/admin/AdminView.js';
 import { TeamView } from './features/team/TeamView.js';
-import { SecondBrainView } from './features/brain/SecondBrainView.js';
 import { QuickCaptureModal } from './components/QuickCaptureModal.js';
 import { PlannerManageSheet } from './components/PlannerManageSheet.js';
 import { normalizePlannerPrefs, isDoneStatus, getFirstActiveStatus } from './utils/planner.js';
 
 const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
-  "kb2-res", "kb2-tree", "kb2-cols", "kb2-acts", "kb2-notes",
+  "kb2-res", "kb2-tree", "kb2-acts", "kb2-notes",
   "kb2-pins", "kb2-fav", "kb2-req", "kb2-ack",
   "kb2-hist", "kb2-chk", "kb2-img", "kb2-users", "kb2-teams",
 ];
@@ -99,7 +95,6 @@ export function App() {
   const [teams, setTeams] = useState(() => (hasInitialInternalSession ? db.load("kb2-teams", null) || SEED_TEAMS : []));
   const [activeUserId, setActiveUserId] = useState(() => (hasInitialInternalSession ? db.load("kb2-uid", "u1") : ""));
   const [catModal, setCatModal] = useState(null);
-  const [cols, setCols] = useState(() => (hasInitialInternalSession ? db.load("kb2-cols", null) || SEED_COLLECTIONS : []));
   const [shares, setShares] = useState(() => (hasInitialInternalSession ? db.load("kb2-shares", null) || [] : []));
   const [activities, setActivities] = useState(() => {
     if (!hasInitialInternalSession) return [];
@@ -145,16 +140,13 @@ export function App() {
     if (!kbDisplayLoaded.current) {
       kbDisplayLoaded.current = true;
       const saved = db.load("kb2-display-v2", "space");
-      if (saved === "grid" || saved === "space" || saved === "graph" || saved === "feed" || saved === "tasks" || saved === "scripts") {
+      if (saved === "space" || saved === "feed" || saved === "tasks" || saved === "scripts") {
         setKbDisplay(saved);
       }
       return;
     }
     db.save("kb2-display-v2", kbDisplay);
   }, [kbDisplay]);
-  const [activeKitId, setActiveKitId] = useState(null);
-  const [kitTier, setKitTier] = useState("all");
-  const [creatingKit, setCreatingKit] = useState(false);
   const [spaceStageOpen, setSpaceStageOpen] = useState(false);
   const [heroResetSig, setHeroResetSig] = useState(0);
   const [open, setOpen] = useState([]);
@@ -168,7 +160,6 @@ export function App() {
   const navRef = useRef(false);
   navRef.current = nav;
 
-  const [pubTarget, setPubTarget] = useState(null);
   const [acks, setAcks] = useState(() => db.load("kb2-ack", null) || {});
   const [req, setReq] = useState(() => db.load("kb2-req", null) || [100, 112, 127]);
   const [hist, setHist] = useState(() => db.load("kb2-hist", null) || []);
@@ -181,8 +172,6 @@ export function App() {
   const [readSection, setReadSection] = useState(null);
   const [imgs, setImgs] = useState(() => ({ ...IMG0, ...(db.load("kb2-img", null) || {}) }));
   const [sort, setSort] = useState("new");
-  const PAGE_SIZE = 24;
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [toast, setToast] = useState(null);
 
   useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-res", res); }, [res, authSession]);
@@ -195,7 +184,7 @@ export function App() {
   const omniRectRef = useRef(null);
   useEffect(() => {
     let alive = true;
-    const revokeToLogin = (reason) => {
+    const revokeToLogin = (reason, code = "") => {
       signOutAuth({ markLocalSignOut: true }).catch(() => {});
       purgeSensitiveLocalCache();
       workspaceHydratedRef.current = false;
@@ -203,16 +192,15 @@ export function App() {
       setRes([]);
       resRef.current = [];
       setUsers([]);
-      setCols([]);
       setTree([]);
-      setLoginError(reason || "Access denied by workspace whitelist policy.");
-      setToast(reason || "Access denied by workspace whitelist policy.");
+      const formatted = formatLoginError(reason, code);
+      setLoginError(formatted.message);
     };
 
     const onRevokedEvent = (ev) => {
       if (!alive) return;
       const msg = (ev && ev.detail && (ev.detail.error || ev.detail.reason)) || "Your access has been revoked by SuperAdmin.";
-      revokeToLogin(msg);
+      revokeToLogin(msg, (ev && ev.detail && ev.detail.code) || "");
     };
     if (typeof window !== "undefined") {
       window.addEventListener("datum:access-revoked", onRevokedEvent);
@@ -223,7 +211,7 @@ export function App() {
       if (out && out.ok && out.session && signedInRef.current) {
         signedInRef.current(out.session);
       } else if (out && out.error) {
-        revokeToLogin(out.error);
+        revokeToLogin(out.error, out.code || "");
       } else {
         const stored = loadStoredSession();
         if (stored) {
@@ -299,7 +287,6 @@ export function App() {
       }
     } catch (e) {}
   }, [authSession]);
-  useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-cols", cols); }, [cols, authSession]);
   useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-shares", shares); }, [shares, authSession]);
   useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-acts", activities); }, [activities, authSession]);
   useEffect(() => { if (authSession && normRole(authSession?.claims?.role) !== "Guest") db.save("kb2-slogs", searchLogs); }, [searchLogs, authSession]);
@@ -516,7 +503,6 @@ export function App() {
           .seedIfEmpty(
             {
               items: [GUIDE, ...SEED],
-              collections: SEED_COLLECTIONS,
               tree: TREE,
               activities: [],
               requiredIds: req,
@@ -535,11 +521,6 @@ export function App() {
       } else if (isGuest && Array.isArray(snap.items)) {
         setRes(snap.items);
         resRef.current = snap.items;
-      }
-      if (Array.isArray(snap.collections) && snap.collections.length > 0) {
-        setCols(snap.collections);
-      } else if (isGuest && Array.isArray(snap.collections)) {
-        setCols(snap.collections);
       }
       if (snap.accessPolicy && typeof snap.accessPolicy === "object") {
         setAccessPolicy((prev) => normalizeAccessPolicy({ ...prev, ...snap.accessPolicy }));
@@ -1004,7 +985,6 @@ export function App() {
 
   const goHome = (focusAi) => {
     setRead(null);
-    setActiveKitId(null);
     setCatFilter("all");
     setView("kb");
     setNav(false);
@@ -1054,7 +1034,6 @@ export function App() {
     if (kbDisplay === "tasks" || kbDisplay === "scripts" || kbDisplay === "feed") setKbDisplay("space");
     setCur(id);
     setCatFilter("all");
-    setActiveKitId(null);
     setView("lib");
     setSpaceStageOpen(true);
     setNav(false);
@@ -1074,7 +1053,6 @@ export function App() {
   };
 
   const switchKbDisplay = (nextMode) => {
-    if (catFilter === "kits" && !activeKitId) setCatFilter("all");
     setKbDisplay(nextMode);
     setSpaceStageOpen(true);
     if (view === "space" && nextMode !== "space") {
@@ -1085,20 +1063,10 @@ export function App() {
   const selectSpatialMode = (mode) => {
     setRead(null);
     setNav(false);
-    if (view === "naming" || view === "team" || view === "admin" || view === "type") {
+    if (view === "naming" || view === "team" || view === "admin" || view === "type" || view === "tasks") {
       setView("kb");
     }
-    if (mode === "kits") {
-      setActiveKitId(null);
-      setCatFilter("kits");
-      setSpaceStageOpen(true);
-      return;
-    }
-    setActiveKitId(null);
-    if (catFilter === "kits") {
-      setCatFilter("all");
-    }
-    setKbDisplay(mode === "grid" || mode === "graph" || mode === "feed" || mode === "tasks" || mode === "scripts" ? mode : "space");
+    setKbDisplay(mode === "feed" || mode === "tasks" || mode === "scripts" ? mode : "space");
     setSpaceStageOpen(true);
   };
 
@@ -1107,7 +1075,6 @@ export function App() {
     setBell(false);
     setPal(false);
     setRead(null);
-    setActiveKitId(null);
     setCatFilter("all");
     setCur("all");
     setF({});
@@ -1122,9 +1089,6 @@ export function App() {
   const handleSetCatFilter = (nextCat) => {
     setCatFilter(nextCat);
     if (nextCat !== "all") setSpaceStageOpen(true);
-    if (view === "space" && nextCat === "kits") {
-      setView("kb");
-    }
   };
 
   const setSpaceF = (nextF) => {
@@ -1171,19 +1135,11 @@ export function App() {
       goV("kb");
     }
     else if (k === "home") goHome();
-    else if (k === "kits") {
-      selectSpatialMode("kits");
-    } else if (k === "kb-space") {
-      setActiveKitId(null);
-      if (catFilter === "kits") setCatFilter("all");
+    else if (k === "kb-space") {
       setBrainLayer("all");
       setKbDisplay("space");
       setSpaceStageOpen(true);
       goV("kb");
-    } else if (k === "grid") {
-      selectSpatialMode("grid");
-    } else if (k === "kb-graph") {
-      selectSpatialMode("graph");
     } else if (k === "view") goV(a);
     else if (k === "go") go(a);
     else if (k === "theme") theme();
@@ -1196,8 +1152,7 @@ export function App() {
       setQ(a);
       setRead(null);
       setCatFilter("all");
-      setActiveKitId(null);
-      setKbDisplay("grid");
+      setKbDisplay("space");
       setSpaceStageOpen(true);
       setView("lib");
       setCur("all");
@@ -1223,19 +1178,6 @@ export function App() {
   const visibleRes = useMemo(
     () => res.filter((r) => can.view(r, role, userName, byId(r.node, tree), shares, userTeams)),
     [res, role, userName, tree, shares, userTeams]
-  );
-
-  const visibleCols = useMemo(
-    () =>
-      cols.filter((c) => {
-        const r = normRole(role);
-        if (r === "SuperAdmin" || r === "Admin") return true;
-        if (r === "Guest") return c.vis === "Public";
-        if (c.tier === "personal") return c.owner === userName;
-        if (c.vis === "Restricted") return c.owner === userName || (c.coEditors || []).includes(userName);
-        return true;
-      }),
-    [cols, role, userName]
   );
 
   const visibleTree = useMemo(() => {
@@ -1893,7 +1835,6 @@ export function App() {
     const raw = String(s.id);
     if (raw.startsWith("task:") || raw.startsWith("note:") || raw.startsWith("res:")) {
       setRead(null);
-      setActiveKitId(null);
       setCatFilter("all");
       setSpaceStageOpen(true);
       if (raw.startsWith("res:")) {
@@ -2088,10 +2029,6 @@ export function App() {
       return true;
     });
   }, [visibleRes, q, view, cur, catFilter, f, favs, hist, userName, flatCats]);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [view, cur, catFilter, q, f, sort]);
 
   const recentSearches = useMemo(() => [...new Set(searchLogs.map((l) => l.query))].slice(0, 5), [searchLogs]);
   const pendingApprovalCount = res.filter((r) => {
@@ -2293,13 +2230,9 @@ export function App() {
   const isSpaceView =
     view === "space" || view === "lib" || view === "kb" || view === "home" || view === "reslib";
   const activeViewMode =
-    (view === "kb" || view === "space" || view === "lib" || view === "home" || view === "reslib") &&
-    catFilter === "kits" &&
-    !activeKitId
-      ? "kits"
-      : kbDisplay === "tasks" && !isGuest
+    kbDisplay === "tasks" && !isGuest
       ? "tasks"
-      : kbDisplay === "scripts" || kbDisplay === "grid" || kbDisplay === "graph" || kbDisplay === "feed"
+      : kbDisplay === "scripts" || kbDisplay === "feed"
       ? kbDisplay
       : "space";
   const isSpaceDockActive = Boolean(isSpaceView && !rr);
@@ -2314,22 +2247,10 @@ export function App() {
       ? "Team Resources"
       : view === "kb" || view === "home" || view === "space"
       ? "Knowledge Space"
-      : view === "wall"
-      ? "Detail Wall"
-      : view === "3d"
-      ? "3D Assemblies"
       : view === "type"
       ? (revitTypeCtx && revitTypeCtx.typeName) || "Revit Type"
       : view === "naming"
       ? "Naming Studio"
-      : view === "tasks"
-      ? "Second Brain"
-      : view === "reslib"
-      ? "Resource Library"
-      : view === "boards"
-      ? "Collections & Link Boards"
-      : view === "graph"
-      ? "Dependency Graph"
       : view === "team"
       ? "People & Teams"
       : view === "admin"
@@ -2344,11 +2265,9 @@ export function App() {
         : cur === "recent"
         ? "Recently Viewed"
         : (curCat && curCat.name) || "Category"
-      : "Dashboard";
+      : "Knowledge Space";
 
   const hasF = Object.values(f).some(Boolean) || catFilter !== "all";
-  const showFeat = (view === "kb" || view === "reslib" || (view === "lib" && cur === "all")) && !q.trim() && !hasF && !isGuest;
-  const rec = [...visibleRes].filter((r) => r.status === "Approved").sort((a, b) => b.upd.localeCompare(a.upd)).slice(0, 3);
   const shown = [...list].sort(
     sort === "az"
       ? (a, b) => a.title.localeCompare(b.title, "en")
@@ -2356,20 +2275,6 @@ export function App() {
       ? (a, b) => ((b.links && b.links.length) || 0) - ((a.links && a.links.length) || 0)
       : (a, b) => b.upd.localeCompare(a.upd)
   );
-
-  const addCol = (c) => {
-    const colObj = { ...c, ownerEmail: c.ownerEmail || sessionEmail || "" };
-    setCols((prev) => [colObj, ...prev]);
-    if (sessionEmail && !isGuest) db.workspace.upsertCollection(colObj, sessionEmail).catch(() => {});
-  };
-  const saveCol = (c) => {
-    setCols((prev) => prev.map((x) => (x.id === c.id ? c : x)));
-    if (sessionEmail && !isGuest) db.workspace.upsertCollection(c, sessionEmail).catch(() => {});
-  };
-  const delCol = (id) => {
-    setCols((prev) => prev.filter((x) => x.id !== id));
-    if (sessionEmail && !isGuest) db.workspace.deleteCollection(id, sessionEmail).catch(() => {});
-  };
 
   // Sync Directory Handlers (Live Supabase public.users + auth.users)
   const reassignLocalOwnership = (oldName, targetName) => {
@@ -2382,7 +2287,6 @@ export function App() {
         kids: n.kids ? reassignCats(n.kids) : [],
       }));
     setTree(reassignCats(tree));
-    setCols((prev) => prev.map((c) => (c.owner === oldName && c.tier !== "personal" ? { ...c, owner: targetName } : c)));
     setShares((prev) => prev.filter((s) => s.grantee !== oldName));
   };
 
@@ -2585,9 +2489,6 @@ export function App() {
     if (!isGuestAuth && tree.length === 0) {
       setTree(TREE);
     }
-    if (!isGuestAuth && cols.length === 0) {
-      setCols(SEED_COLLECTIONS);
-    }
     setActiveUserId(targetId);
     const syncedSession = { ...session, claims: { ...claims, role: targetRole } };
     saveStoredSession(syncedSession);
@@ -2626,7 +2527,6 @@ export function App() {
     resRef.current = [];
     setUsers([]);
     setTeams([]);
-    setCols([]);
     setTree([]);
     setTasks([]);
     setPrivNotes([]);
@@ -2728,13 +2628,11 @@ export function App() {
   const activeUserCount = users.filter((u) => u.status === "active").length;
   const drawerKb = String(KB || "").includes("⌘") ? "⌘\\" : "Ctrl+\\";
   const activeSwitcherKey =
-    view === "kb" && catFilter === "kits"
-      ? "kits"
-      : view === "kb" && kbDisplay === "feed"
+    view === "kb" && kbDisplay === "feed"
       ? "feed"
       : (view === "kb" && kbDisplay === "scripts") || ((view === "kb" || view === "lib") && catFilter === "res")
       ? "team-resources"
-      : (view === "kb" && kbDisplay === "tasks") || view === "tasks"
+      : view === "kb" && kbDisplay === "tasks"
       ? "my-work"
       : view === "naming" || view === "team" || view === "admin"
       ? view
@@ -2746,7 +2644,6 @@ export function App() {
     setNav(false);
     if (key === "kb-space") {
       setRead(null);
-      setActiveKitId(null);
       setCatFilter("all");
       setCur("all");
       setBrainLayer("all");
@@ -2755,7 +2652,6 @@ export function App() {
       goV("kb");
     } else if (key === "feed") {
       setRead(null);
-      setActiveKitId(null);
       setCatFilter("all");
       setCur("all");
       setBrainLayer("all");
@@ -2764,7 +2660,6 @@ export function App() {
       goV("kb");
     } else if (key === "my-work" || key === "tasks") {
       setRead(null);
-      setActiveKitId(null);
       setCatFilter("all");
       setCur("all");
       setBrainTabSeed("tasks");
@@ -2774,20 +2669,12 @@ export function App() {
       goV("kb");
     } else if (key === "team-resources" || key === "scripts") {
       setRead(null);
-      setActiveKitId(null);
       setCur("all");
       setCatFilter("all");
       setKbDisplay("scripts");
       setSpaceStageOpen(true);
       goV("kb");
-    } else if (key === "kits") {
-      setRead(null);
-      setActiveKitId(null);
-      setCatFilter("kits");
-      setSpaceStageOpen(true);
-      goV("kb");
-    } else if (key === "naming" || key === "team" || key === "admin" || key === "tasks") {
-      if (key === "tasks") setBrainTabSeed("all");
+    } else if (key === "naming" || key === "team" || key === "admin") {
       goV(key);
     } else if (key === "fav" || key === "drafts" || key === "recent") {
       setSpaceStageOpen(true);
@@ -2798,7 +2685,6 @@ export function App() {
   const selectChatFromDrawer = (chatId) => {
     setActiveChatId(chatId);
     setRead(null);
-    setActiveKitId(null);
     setCatFilter("all");
     setCur("all");
     setKbDisplay("space");
@@ -2812,7 +2698,6 @@ export function App() {
   const startNewChatFromDrawer = () => {
     setActiveChatId(null);
     setRead(null);
-    setActiveKitId(null);
     setCatFilter("all");
     setCur("all");
     setF({});
@@ -2899,13 +2784,25 @@ export function App() {
       <div className="sec">Workspace</div>
       <button
         type="button"
-        className=${"ti" + (activeSwitcherKey === "kb-space" || activeSwitcherKey === "kits" ? " on" : "")}
+        className=${"ti" + (activeSwitcherKey === "kb-space" ? " on" : "")}
         style=${{ paddingLeft: 10 }}
         onClick=${() => handleNavSwitch("kb-space")}
       >
         <span className="side-ico"><${Ic} n="globe" s=${15} /></span>
         <span className="tn">Knowledge Space</span>
       </button>
+
+      ${!isGuest &&
+      html`<button
+        type="button"
+        className=${"ti" + (activeSwitcherKey === "my-work" ? " on" : "")}
+        style=${{ paddingLeft: 10 }}
+        onClick=${() => handleNavSwitch("my-work")}
+      >
+        <span className="side-ico"><${Ic} n="check" s=${15} /></span>
+        <span className="tn">My Work & Tasks</span>
+        ${openTasksCount > 0 && html`<span className="ct">${openTasksCount}</span>`}
+      </button>`}
 
       <button
         type="button"
@@ -2981,11 +2878,6 @@ export function App() {
       ${!isGuest &&
       html`<div>
         <div className="sec">Personal</div>
-        <button type="button" className=${"ti" + (activeSwitcherKey === "my-work" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => handleNavSwitch("my-work")}>
-          <span className="side-ico"><${Ic} n="check" s=${15} /></span>
-          <span className="tn">My Work</span>
-          ${openTasksCount > 0 && html`<span className="ct">${openTasksCount}</span>`}
-        </button>
         <button type="button" className=${"ti" + (view === "lib" && cur === "fav" ? " on" : "")} style=${{ paddingLeft: 10 }} onClick=${() => go("fav")}>
           <span className="side-ico"><${Ic} n="star" s=${15} /></span>
           <span className="tn">Bookmarks</span>
@@ -3084,7 +2976,6 @@ export function App() {
           tree=${tree}
           role=${role}
           userName=${userName}
-          cols=${visibleCols}
           favs=${favs}
           privTasks=${isGuest ? [] : tasks}
           privNotes=${isGuest ? [] : privNotes}
@@ -3100,7 +2991,6 @@ export function App() {
           <${ViewModeSwitch}
             viewMode=${!rr && isSpaceView ? activeViewMode : ""}
             stageOpen=${Boolean(!rr && isSpaceView && spaceStageOpen)}
-            visibleColsCount=${visibleCols.length}
             showTasks=${!isGuest}
             onSelectMode=${selectSpatialMode}
           />
@@ -3181,7 +3071,6 @@ export function App() {
           flash("Flagged for Category Owner review");
           logAct("Flagged Outdated", "item", id, titleOf(id));
         }}
-        onOpenPublic=${(t) => setPubTarget(t)}
         privNotes=${isGuest ? [] : privNotes}
         privResources=${isGuest ? [] : privResources}
         onAddTaskForDoc=${!isGuest ? (doc, sec) => setQcModal({ mode: "task", doc, linkedSection: sec?.title || "" }) : null}
@@ -3193,26 +3082,21 @@ export function App() {
       />`}
 
       <div className=${"pad" + (isSpaceView ? " pad-space" : "")} hidden=${!!rr}>
-        ${(view === "home" || view === "lib" || view === "kb" || view === "space" || view === "reslib") &&
+        ${isSpaceView &&
         (() => {
           const catalogToolbarControls = html`<${Fragment}>
             <${ViewModeSwitch}
               viewMode=${activeViewMode}
               stageOpen=${spaceStageOpen}
-              visibleColsCount=${visibleCols.length}
               showTasks=${!isGuest}
               onSelectMode=${selectSpatialMode}
             />
-            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "feed")) &&
+            ${activeViewMode === "space" &&
             html`<${FilterPopover}
               view=${view}
               curCat=${curCat}
               catFilter=${catFilter}
               setCatFilter=${handleSetCatFilter}
-              setActiveKitId=${setActiveKitId}
-              visibleColsCount=${visibleCols.length}
-              kitTier=${kitTier}
-              setKitTier=${setKitTier}
               f=${f}
               setF=${setSpaceF}
               disciplines=${DISC}
@@ -3222,21 +3106,10 @@ export function App() {
               types=${Object.entries(TY)}
               tags=${tags}
             />`}
-            ${!(isSpaceView && (activeViewMode === "tasks" || activeViewMode === "scripts" || activeViewMode === "kits" || activeViewMode === "feed")) &&
+            ${activeViewMode === "space" &&
             html`<${SortPopover}
-              view=${view}
-              catFilter=${catFilter}
-              setCatFilter=${handleSetCatFilter}
-              setActiveKitId=${setActiveKitId}
-              activeKitId=${activeKitId}
-              kbDisplay=${kbDisplay}
-              setKbDisplay=${switchKbDisplay}
-              onSelectViewMode=${selectSpatialMode}
-              stageOpen=${spaceStageOpen}
-              hideViewDesktop=${true}
               sort=${sort}
               setSort=${setSort}
-              visibleColsCount=${visibleCols.length}
             />`}
           <//>`;
 
@@ -3297,266 +3170,113 @@ export function App() {
             />
           </${Fragment}>`;
 
-          if (isSpaceView) {
-            return html`<${KnowledgeSpaceView}
-              items=${shown}
-              allItems=${visibleRes}
-              allCount=${list.length}
-              pageTitle=${pageTitle}
-              curCat=${curCat}
-              tree=${tree}
-              role=${role}
-              userName=${userName}
-              pinned=${pinned}
-              cols=${visibleCols}
-              viewMode=${activeViewMode}
-              onSelectViewMode=${selectSpatialMode}
-              stageOpen=${spaceStageOpen}
-              onStageOpenChange=${setSpaceStageOpen}
-              heroResetSignal=${heroResetSig}
-              activeKitId=${activeKitId}
-              onSelectKit=${(kitId) => {
-                setActiveKitId(kitId || null);
-                setCatFilter("kits");
-                setSpaceStageOpen(true);
-              }}
-              kitTier=${kitTier}
-              onKitTierChange=${setKitTier}
-              creatingKit=${creatingKit}
-              onCreatingKitChange=${setCreatingKit}
-              onAddCol=${addCol}
-              onSaveCol=${saveCol}
-              onDelCol=${delCol}
-              onOpenPublic=${(t) => setPubTarget(t)}
-              aq=${aq}
-              focusSignal=${hf}
-              openChatSignal=${spaceChatSig}
-              catalogQ=${q}
-              onCatalogQChange=${setQ}
-              onOpenKit=${(kitId) => {
-                setActiveKitId(kitId);
-                setCatFilter("kits");
-                setSpaceStageOpen(true);
-              }}
-              onOpenAllKits=${() => {
-                setActiveKitId(null);
-                setCatFilter("kits");
-                setSpaceStageOpen(true);
-              }}
-              favs=${favs}
-              onToggleFav=${(id) => tgl(setFavs, id)}
-              onRead=${rd}
-              onInspect=${pick}
-              isGuest=${isGuest}
-              hasFilters=${hasF || Boolean(q.trim())}
-              onResetFilters=${() => {
-                setF({});
-                setQ("");
-                if (catFilter !== "kits") setCatFilter("all");
-              }}
-              onClearCategory=${() => goHome()}
-              f=${f}
-              setF=${setSpaceF}
-              toolbarRight=${catalogToolbarControls}
-              spaceLeftNav=${spaceLeftNav}
-              spaceActions=${spaceHeaderActions}
-              onImportDocx=${can.createDraft(role) ? () => dxr.current && dxr.current.click() : null}
-              active=${isSpaceDockActive}
-              cmdOpen=${pal && isSpaceDockActive}
-              onSetCmdOpen=${setPal}
-              recentSearches=${recentSearches}
-              onLogSearch=${logSearch}
-              chats=${chats}
-              activeChatId=${activeChatId}
-              onSelectChat=${setActiveChatId}
-              onNewChat=${startNewChat}
-              onDeleteChat=${deleteChatThread}
-              onClearChats=${clearAllChats}
-              onSendChat=${sendUnifiedChat}
-              onOpenNamingStudio=${openNamingFromChat}
-              onFlagGap=${flagMissingStandard}
-              onCommand=${pa}
-              kb=${KB}
-              omniRectRef=${omniRectRef}
-              todayTaskCount=${todayPendingTasksCount}
-              openTasksCount=${openTasksCount}
-              onOpenTasks=${() => handleNavSwitch("tasks")}
-              onOpenQuickCapture=${(mode = "task") => setQcModal({ mode, doc: null })}
-              onQuickCommand=${handleQuickCommand}
-              onOpenBrainSource=${openBrainSource}
-              onSaveToNote=${!isGuest ? saveAiMessageToNote : null}
-              onSaveToTask=${!isGuest ? saveAiMessageToTask : null}
-              brainLayer=${brainLayer}
-              onBrainLayerChange=${setBrainLayer}
-              projectFilter=${spaceProject}
-              brainProjects=${brainProjects}
-              onProjectFilterChange=${setSpaceProject}
-              privTasks=${isGuest ? [] : tasks}
-              privNotes=${isGuest ? [] : privNotes}
-              privResources=${isGuest ? [] : privResources}
-              brainUsers=${users}
-              currentEmail=${brainOwnerEmail}
-              activities=${activities}
-              requiredIds=${req}
-              acks=${Object.keys(acks || {}).filter((k) => acks[k]).map(Number)}
-              plannerPrefs=${plannerPrefs}
-              brainCategories=${brainCategories}
-              brainSyncState=${brainSyncState}
-              canPromote=${can.createDraft(role)}
-              brainInitialTab=${brainTabSeed}
-              brainHighlightId=${brainHighlightId}
-              onSaveTask=${saveTask}
-              onDeleteTask=${deleteTask}
-              onSaveNote=${savePrivNote}
-              onDeleteNote=${deletePrivNote}
-              onSaveResource=${savePrivResource}
-              onDeleteResource=${deletePrivResource}
-              onShareResource=${shareResourceWithTeammates}
-              onSuggestResourceToTeam=${suggestResourceToTeamKb}
-              onSuggestNoteToTeam=${suggestNoteToTeamKb}
-              onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
-              onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
-              onPromoteNoteToDoc=${(note) =>
-                createNewDoc({
-                  title: note.title || "From Private Note",
-                  body: note.body || "",
-                  tags: [note.project || "General", ...(note.tags || [])].filter(Boolean),
-                })
-              }
-              onOpenBrainSheet=${(payload) => setQcModal(payload)}
-              onSaveTeamResource=${!isGuest ? saveTeamResource : null}
-              onDeleteTeamItem=${!isGuest ? delItem : null}
-              onAck=${ack}
-              imgs=${imgs}
-              flash=${flash}
-            />`;
-          }
-
-          return html`<div>
-            <div className="pdl-top">
-              <div className="pdl-top-l">
-                <h1>${pageTitle}</h1>
-                <span className="pdl-cnt">
-                  ${view === "kb" && catFilter === "kits"
-                    ? visibleCols.filter((c) => kitTier === "all" || c.tier === kitTier).length
-                    : list.length}
-                </span>
-              </div>
-              <div className="pdl-top-r">${catalogToolbarControls}</div>
-            </div>
-
-          ${view === "kb" && catFilter === "kits"
-            ? html`<${CollectionsView}
-                embedded=${true}
-                hideSubbar=${true}
-                externalTab=${kitTier}
-                onExternalTabChange=${setKitTier}
-                externalCreating=${creatingKit}
-                onExternalCreatingChange=${setCreatingKit}
-                initialColId=${activeKitId}
-                onClearInitialCol=${() => setActiveKitId(null)}
-                cols=${cols}
-                res=${visibleRes}
-                role=${role}
-                userName=${userName}
-                onAddCol=${addCol}
-                onSaveCol=${saveCol}
-                onDelCol=${delCol}
-                onRead=${rd}
-                onOpenPublic=${(t) => setPubTarget(t)}
-              />`
-            : kbDisplay === "graph"
-            ? html`<div className="gxw kb-gxw">
-                <${Graph} res=${shown.length ? shown : visibleRes} selId=${sel} pick=${pick} />
-              </div>`
-            : html`<div>
-                ${showFeat &&
-                rec.length > 0 &&
-                html`<section>
-                  <h2>Recently published</h2>
-                  <div className="feat">
-                    ${rec.map(
-                      (r) => html`<button key=${r.id} className="big" style=${{ "--c": DC[r.disc] }} onClick=${() => rd(r.id)}>
-                        <span className="bt"><${Ic} n=${r.type} s=${20} /></span>
-                        <span className="bm"><small>${r.disc}, ${fmt(r.upd)}</small><b>${r.title}</b><span>${r.desc}</span></span>
-                      </button>`
-                    )}
-                  </div>
-                  <h2>All items</h2>
-                </section>`}
-
-                ${(() => {
-                  const gridItems = showFeat ? shown.filter((r) => !rec.includes(r)) : shown;
-                  const pageItems = gridItems.slice(0, visibleCount);
-                  const remaining = gridItems.length - pageItems.length;
-                  return list.length
-                    ? html`<div>
-                        <div className="grid">
-                          ${pageItems.map(
-                            (r) => html`<div
-                              key=${r.id}
-                              className="card"
-                              role="button"
-                              tabIndex="0"
-                              onClick=${() => rd(r.id)}
-                              onKeyDown=${(e) => e.key === "Enter" && rd(r.id)}
-                            >
-                              ${!isGuest &&
-                              html`<div className="acts">
-                                <button
-                                  className=${favs.includes(r.id) ? "on" : ""}
-                                  aria-label="Bookmark"
-                                  onClick=${(e) => {
-                                    e.stopPropagation();
-                                    tgl(setFavs, r.id);
-                                  }}
-                                >
-                                  ${html`<${Ic} n="star" s=${16} f=${favs.includes(r.id)} />`}
-                                </button>
-                              </div>`}
-                              <div className="ch2">
-                                <span className="tl" style=${{ "--c": DC[r.disc] }}><${Ic} n=${r.type} s=${18} /></span>
-                                <span className="who"><b>${r.disc}</b><small>${TY[r.type] || "Document"}</small></span>
-                              </div>
-                              <h3>${r.title}</h3>
-                              <p>${r.desc}</p>
-                              <div className="row">
-                                <${Pill} s=${r.status} />
-                                ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
-                                <span>v${r.v.length}</span>
-                                ${r.url &&
-                                isResType(r.type) &&
-                                html`<a
-                                  className="mn"
-                                  style=${{ marginLeft: "auto" }}
-                                  href=${r.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  onClick=${(e) => e.stopPropagation()}
-                                >
-                                  Open ↗
-                                </a>`}
-                                ${(!r.url || !isResType(r.type)) && html`<span style=${{ marginLeft: "auto" }}>${fmt(r.upd)}</span>`}
-                              </div>
-                            </div>`
-                          )}
-                        </div>
-                        ${remaining > 0 &&
-                        html`<div style=${{ display: "flex", justifyContent: "center", marginTop: 22 }}>
-                          <button className="btn" onClick=${() => setVisibleCount((c) => c + PAGE_SIZE)}>
-                            Show more (${remaining} remaining)
-                          </button>
-                        </div>`}
-                      </div>`
-                    : html`<div className="empty">
-                        <${Ic} n="search" s=${34} />
-                        <b>Nothing found</b>
-                        <span>Try adjusting your query or filters.</span>
-                        ${hasF && html`<button className="btn" onClick=${() => setF({})}>Reset filters</button>`}
-                      </div>`;
-                })()}
-              </div>`}
-        </div>`;
+          return html`<${KnowledgeSpaceView}
+            items=${shown}
+            allItems=${visibleRes}
+            allCount=${list.length}
+            pageTitle=${pageTitle}
+            curCat=${curCat}
+            tree=${tree}
+            role=${role}
+            userName=${userName}
+            pinned=${pinned}
+            viewMode=${activeViewMode}
+            onSelectViewMode=${selectSpatialMode}
+            stageOpen=${spaceStageOpen}
+            onStageOpenChange=${setSpaceStageOpen}
+            heroResetSignal=${heroResetSig}
+            aq=${aq}
+            focusSignal=${hf}
+            openChatSignal=${spaceChatSig}
+            catalogQ=${q}
+            onCatalogQChange=${setQ}
+            favs=${favs}
+            onToggleFav=${(id) => tgl(setFavs, id)}
+            onRead=${rd}
+            onInspect=${pick}
+            isGuest=${isGuest}
+            hasFilters=${hasF || Boolean(q.trim())}
+            onResetFilters=${() => {
+              setF({});
+              setQ("");
+              setCatFilter("all");
+            }}
+            onClearCategory=${() => goHome()}
+            f=${f}
+            setF=${setSpaceF}
+            toolbarRight=${catalogToolbarControls}
+            spaceLeftNav=${spaceLeftNav}
+            spaceActions=${spaceHeaderActions}
+            onImportDocx=${can.createDraft(role) ? () => dxr.current && dxr.current.click() : null}
+            active=${isSpaceDockActive}
+            cmdOpen=${pal && isSpaceDockActive}
+            onSetCmdOpen=${setPal}
+            recentSearches=${recentSearches}
+            onLogSearch=${logSearch}
+            chats=${chats}
+            activeChatId=${activeChatId}
+            onSelectChat=${setActiveChatId}
+            onNewChat=${startNewChat}
+            onDeleteChat=${deleteChatThread}
+            onClearChats=${clearAllChats}
+            onSendChat=${sendUnifiedChat}
+            onOpenNamingStudio=${openNamingFromChat}
+            onFlagGap=${flagMissingStandard}
+            onCommand=${pa}
+            kb=${KB}
+            omniRectRef=${omniRectRef}
+            todayTaskCount=${todayPendingTasksCount}
+            openTasksCount=${openTasksCount}
+            onOpenTasks=${() => handleNavSwitch("tasks")}
+            onOpenQuickCapture=${(mode = "task") => setQcModal({ mode, doc: null })}
+            onQuickCommand=${handleQuickCommand}
+            onOpenBrainSource=${openBrainSource}
+            onSaveToNote=${!isGuest ? saveAiMessageToNote : null}
+            onSaveToTask=${!isGuest ? saveAiMessageToTask : null}
+            brainLayer=${brainLayer}
+            onBrainLayerChange=${setBrainLayer}
+            projectFilter=${spaceProject}
+            brainProjects=${brainProjects}
+            onProjectFilterChange=${setSpaceProject}
+            privTasks=${isGuest ? [] : tasks}
+            privNotes=${isGuest ? [] : privNotes}
+            privResources=${isGuest ? [] : privResources}
+            brainUsers=${users}
+            currentEmail=${brainOwnerEmail}
+            activities=${activities}
+            requiredIds=${req}
+            acks=${Object.keys(acks || {}).filter((k) => acks[k]).map(Number)}
+            plannerPrefs=${plannerPrefs}
+            brainCategories=${brainCategories}
+            brainSyncState=${brainSyncState}
+            canPromote=${can.createDraft(role)}
+            brainInitialTab=${brainTabSeed}
+            brainHighlightId=${brainHighlightId}
+            onSaveTask=${saveTask}
+            onDeleteTask=${deleteTask}
+            onSaveNote=${savePrivNote}
+            onDeleteNote=${deletePrivNote}
+            onSaveResource=${savePrivResource}
+            onDeleteResource=${deletePrivResource}
+            onShareResource=${shareResourceWithTeammates}
+            onSuggestResourceToTeam=${suggestResourceToTeamKb}
+            onSuggestNoteToTeam=${suggestNoteToTeamKb}
+            onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
+            onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
+            onPromoteNoteToDoc=${(note) =>
+              createNewDoc({
+                title: note.title || "From Private Note",
+                body: note.body || "",
+                tags: [note.project || "General", ...(note.tags || [])].filter(Boolean),
+              })
+            }
+            onOpenBrainSheet=${(payload) => setQcModal(payload)}
+            onSaveTeamResource=${!isGuest ? saveTeamResource : null}
+            onDeleteTeamItem=${!isGuest ? delItem : null}
+            onAck=${ack}
+            imgs=${imgs}
+            flash=${flash}
+          />`;
         })()}
 
         ${view === "type" &&
@@ -3585,48 +3305,6 @@ export function App() {
           onChangeCustomSchemas=${setNamingSchemas}
           onReadDoc=${rd}
           onToast=${setToast}
-        />`}
-
-        ${view === "tasks" &&
-        !isGuest &&
-        html`<${SecondBrainView}
-          tasks=${tasks}
-          notes=${privNotes}
-          resources=${privResources}
-          docs=${visibleRes}
-          users=${users}
-          currentEmail=${brainOwnerEmail}
-          activities=${activities}
-          requiredIds=${req}
-          acks=${Object.keys(acks || {}).filter((k) => acks[k]).map(Number)}
-          statuses=${plannerPrefs.statuses}
-          categories=${brainCategories}
-          projects=${brainProjects}
-          ownerName=${userName}
-          syncState=${brainSyncState}
-          canPromote=${can.createDraft(role)}
-          initialTab=${brainTabSeed}
-          highlightId=${brainHighlightId}
-          onSaveTask=${saveTask}
-          onDeleteTask=${deleteTask}
-          onSaveNote=${savePrivNote}
-          onDeleteNote=${deletePrivNote}
-          onSaveResource=${savePrivResource}
-          onDeleteResource=${deletePrivResource}
-          onShareResource=${shareResourceWithTeammates}
-          onSuggestResourceToTeam=${suggestResourceToTeamKb}
-          onSuggestNoteToTeam=${suggestNoteToTeamKb}
-          onOpenSheet=${(payload) => setQcModal(payload)}
-          onOpenManageSheet=${(mode) => setManageSheetMode(mode)}
-          onStartRevision=${(parentTask) => setQcModal({ mode: "task", revisionParent: parentTask })}
-          onOpenDoc=${(id) => rd(id)}
-          onPromoteNoteToDoc=${(note) =>
-            createNewDoc({
-              title: note.title || "From Private Note",
-              body: note.body || "",
-              tags: [note.project || "General", ...(note.tags || [])].filter(Boolean),
-            })
-          }
         />`}
 
         ${view === "team" &&
@@ -3672,7 +3350,6 @@ export function App() {
           setTree=${setTree}
           users=${users}
           teams=${teams}
-          cols=${cols}
           activities=${activities}
           searchLogs=${searchLogs}
           acks=${acks}
@@ -3691,16 +3368,6 @@ export function App() {
           onApprove=${(id) => act.onStatus(id, "Approved")}
           onReject=${(id) => act.onStatus(id, "Draft")}
           onVerify=${act.onVerify}
-          onRevokePublic=${(kind, id) => {
-            if (kind === "item") act.onChangeVis(id, "Internal");
-            else {
-              const targetCol = cols.find((c) => c.id === id);
-              if (targetCol) saveCol({ ...targetCol, vis: "Internal" });
-              else setCols((prev) => prev.map((c) => (c.id === id ? { ...c, vis: "Internal" } : c)));
-            }
-            flash("Public access revoked");
-          }}
-          onOpenPublic=${(t) => setPubTarget(t)}
           onRenameTag=${(oldT, nextT) => {
             if (!nextT || oldT === nextT) return;
             const changed = [];
@@ -3817,12 +3484,8 @@ export function App() {
       close=${() => setSel(null)}
       pick=${pick}
       read=${rd}
-      onOpenPublic=${(t) => setPubTarget(t)}
       ...${act}
     />`}
-
-    ${pubTarget &&
-    html`<${PublicPreviewModal} target=${pubTarget} res=${res} imgs=${imgs} close=${() => setPubTarget(null)} />`}
 
     ${catModal &&
     html`<${CategoryModal}

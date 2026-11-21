@@ -23,7 +23,6 @@ export function AdminView(p) {
     setTree,
     users = [],
     teams = [],
-    cols = [],
     activities = [],
     searchLogs = [],
     acks = {},
@@ -42,8 +41,6 @@ export function AdminView(p) {
     onApprove,
     onReject,
     onVerify,
-    onRevokePublic,
-    onOpenPublic,
     onRenameTag,
     onDeleteTag,
     onInviteUser,
@@ -100,8 +97,6 @@ export function AdminView(p) {
     return r.status === 'Approved' && days(r.verified || r.upd) > cycle;
   });
   const flaggedItems = governedItems.filter((r) => flaggedIds.includes(r.id));
-  const publicItems = res.filter((r) => r.vis === 'Public' && r.status === 'Approved');
-  const publicCols = cols.filter((c) => c.vis === 'Public');
 
   const tagCounts = {};
   res.forEach((r) => (r.tags || []).forEach((t) => (tagCounts[t] = (tagCounts[t] || 0) + 1)));
@@ -243,7 +238,6 @@ export function AdminView(p) {
             ['cats', 'Structure'],
             ['users', `Users (${users.length})`],
             ['access', 'Access'],
-            ['pub', `Public (${publicItems.length + publicCols.length})`],
             ['anl', 'Audit'],
           ].map(
             ([k, lb]) => html`<button
@@ -618,77 +612,6 @@ export function AdminView(p) {
       onSavePolicy=${onSaveAccessPolicy}
       flash=${flash}
     />`}
-
-    ${tab === 'pub' &&
-    html`<div className="cd-grid2">
-      <section className="cd-card">
-        <div className="cd-card-h">
-          <b>Public Documents</b>
-          <small>${publicItems.length}</small>
-        </div>
-        ${publicItems.length > 0
-          ? publicItems.map(
-              (r) => html`<div key=${r.id} className="cd-row is-inset-0">
-                <div className="cd-row-tx">
-                  <button type="button" className="cd-row-link" onClick=${() => onRead && onRead(r.id)}>
-                    ${r.title}
-                  </button>
-                  <div className="cd-row-s">Attachments: ${(r.publicAttachments || []).length} · ${r.author}</div>
-                </div>
-                <div className="cd-row-end">
-                  <button type="button" className="btn sm" onClick=${() => onOpenPublic && onOpenPublic({ kind: 'item', data: r })}>
-                    Preview
-                  </button>
-                  ${isAdmin &&
-                  html`<button
-                    type="button"
-                    className="btn sm"
-                    style=${{ color: '#ff453a' }}
-                    onClick=${() => onRevokePublic && onRevokePublic('item', r.id)}
-                  >
-                    Revoke
-                  </button>`}
-                </div>
-              </div>`
-            )
-          : html`<div style=${{ padding: '18px 16px', fontSize: 13, color: 'var(--sub)' }}>No items published externally.</div>`}
-      </section>
-
-      <section className="cd-card">
-        <div className="cd-card-h">
-          <b>Public Collections</b>
-          <small>${publicCols.length}</small>
-        </div>
-        ${publicCols.length > 0
-          ? publicCols.map(
-              (c) => html`<div key=${c.id} className="cd-row is-inset-0">
-                <div className="cd-row-tx">
-                  <span className="cd-row-name">${c.name}</span>
-                  <div className="cd-row-s">${(c.items || []).length} items · ${c.owner}</div>
-                </div>
-                <div className="cd-row-end">
-                  <button
-                    type="button"
-                    className="btn sm"
-                    onClick=${() => onOpenPublic && onOpenPublic({ kind: 'collection', data: c })}
-                  >
-                    Preview
-                  </button>
-                  ${isAdmin &&
-                  html`<button
-                    type="button"
-                    className="btn sm"
-                    style=${{ color: '#ff453a' }}
-                    onClick=${() => onRevokePublic && onRevokePublic('collection', c.id)}
-                  >
-                    Revoke
-                  </button>`}
-                </div>
-              </div>`
-            )
-          : html`<div style=${{ padding: '18px 16px', fontSize: 13, color: 'var(--sub)' }}>No active public collections.</div>`}
-      </section>
-    </div>`}
 
     ${tab === 'anl' &&
     html`<${Fragment}>

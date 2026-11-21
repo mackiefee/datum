@@ -1,4 +1,4 @@
-import { runAiEdgeLogic, runPublicPreflightLogic, runGovernanceScanLogic } from './edgeLogic.js';
+import { runAiEdgeLogic, runGovernanceScanLogic } from './edgeLogic.js';
 import { db } from './db.js';
 
 const AI_CACHE_MAX = 50;
@@ -37,36 +37,6 @@ const projectGovItem = (r) => ({
   reviewDays: r.reviewDays,
   links: r.links || [],
 });
-
-const projectPreflightPayload = (payload) => {
-  if (!payload) return payload;
-  const { item, allItems = [], categoryVis, clearedAttachmentIds } = payload;
-  return {
-    ...payload,
-    item: item
-      ? {
-          id: item.id,
-          title: item.title,
-          desc: item.desc,
-          body: item.body,
-          url: item.url,
-          upd: item.upd,
-          tags: item.tags,
-          status: item.status,
-          vis: item.vis,
-          links: item.links || [],
-        }
-      : null,
-    allItems: allItems.map((x) => ({
-      id: x.id,
-      title: x.title,
-      vis: x.vis || 'Internal',
-      status: x.status,
-    })),
-    categoryVis,
-    clearedAttachmentIds,
-  };
-};
 
 function aiCacheKey(payload) {
   const items = payload.items || [];
@@ -197,10 +167,6 @@ export const edgeClient = {
     }
     aiCache.set(key, out);
     return out;
-  },
-
-  publicPreflight(payload) {
-    return callEdge('/api/edge/public-preflight', projectPreflightPayload(payload), runPublicPreflightLogic);
   },
 
   governance(payload) {

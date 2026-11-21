@@ -3,7 +3,6 @@ import '../styles/base.css';
 import '../styles/reader.css';
 import '../styles/home.css';
 import '../styles/graph.css';
-import '../styles/boards.css';
 import '../styles/wall.css';
 import '../styles/assembly3d.css';
 import '../styles/revitType.css';
@@ -17,7 +16,7 @@ import '../styles/directory.css';
 
 export const metadata = {
   title: 'Datum',
-  description: 'Datum — Centralized BIM standards, engineering SOPs, dependency graph, and visual link boards.',
+  description: 'Datum — Centralized BIM standards, engineering SOPs, task tracker, and editorial knowledge space.',
 };
 
 export const viewport = {

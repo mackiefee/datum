@@ -296,10 +296,6 @@ export function FilterPopover({
   curCat,
   catFilter,
   setCatFilter,
-  setActiveKitId,
-  visibleColsCount = 0,
-  kitTier = "all",
-  setKitTier,
   f = {},
   setF,
   disciplines = [],
@@ -318,14 +314,11 @@ export function FilterPopover({
   const isKbLike = view === "kb" || view === "space";
   const showScope = isKbLike || Boolean(curCat);
   const docFilterKeys = ["status", "type", "tag", "disc", "author", "stage"].filter((k) => Boolean(f[k]));
-  const activeCount =
-    (showScope && catFilter !== "all" && catFilter !== "kits" ? 1 : 0) +
-    (catFilter === "kits" ? (kitTier !== "all" ? 1 : 0) : docFilterKeys.length);
+  const activeCount = (showScope && catFilter !== "all" ? 1 : 0) + docFilterKeys.length;
 
   const resetAll = () => {
     setF && setF({});
-    if (catFilter !== "kits") setCatFilter && setCatFilter("all");
-    setKitTier && setKitTier("all");
+    setCatFilter && setCatFilter("all");
   };
 
   const renderChipGroup = (label, opts, currentVal, onSelect, extraCls = "") =>
@@ -363,7 +356,7 @@ export function FilterPopover({
       onClick=${toggle}
     >
       <${Ic} n="sliders" s=${13} />
-      <span className="asel-lb">${catFilter === "kits" ? "Tier" : "Filter"}</span>
+      <span className="asel-lb">Filter</span>
       ${activeCount > 0 && html`<span className="lpop-cnt">${activeCount}</span>`}
       ${activeCount > 0 &&
       html`<span
@@ -405,54 +398,39 @@ export function FilterPopover({
           html`<button type="button" className="lpop-rst" onClick=${resetAll}>Reset all</button>`}
         </div>
         ${showScope &&
-        catFilter !== "kits" &&
         renderChipGroup("Scope", scopeOpts, catFilter, (k) => {
           setCatFilter && setCatFilter(k);
         })}
-        ${catFilter === "kits"
-          ? renderChipGroup(
-              "Kit Tier",
-              [
-                ["all", "All"],
-                ["official", "Official"],
-                ["shared", "Shared"],
-                ["personal", "Personal"],
-              ],
-              kitTier,
-              (k) => setKitTier && setKitTier(k)
-            )
-          : html`<${Fragment}>
-              ${disciplines.length > 0 &&
-              renderChipGroup(
-                "Discipline",
-                [["", "All"], ...disciplines.map((d) => [d, d, discColors[d]])],
-                f.disc || "",
-                (k) => setF({ ...f, disc: !k || f.disc === k ? undefined : k })
-              )}
-              ${types.length > 0 &&
-              renderChipGroup(
-                "Type",
-                [["", "All"], ...types],
-                f.type || "",
-                (k) => setF({ ...f, type: !k || f.type === k ? undefined : k })
-              )}
-              ${canFilterStatus &&
-              statuses.length > 0 &&
-              renderChipGroup(
-                "Status",
-                [["", "All"], ...statuses],
-                f.status || "",
-                (k) => setF({ ...f, status: !k || f.status === k ? undefined : k })
-              )}
-              ${tags.length > 0 &&
-              renderChipGroup(
-                "Tag",
-                [["", "All"], ...tags.map((t) => [t, "#" + t])],
-                f.tag || "",
-                (k) => setF({ ...f, tag: !k || f.tag === k ? undefined : k }),
-                "lpop-tags"
-              )}
-            <//>`}
+        ${disciplines.length > 0 &&
+        renderChipGroup(
+          "Discipline",
+          [["", "All"], ...disciplines.map((d) => [d, d, discColors[d]])],
+          f.disc || "",
+          (k) => setF({ ...f, disc: !k || f.disc === k ? undefined : k })
+        )}
+        ${types.length > 0 &&
+        renderChipGroup(
+          "Type",
+          [["", "All"], ...types],
+          f.type || "",
+          (k) => setF({ ...f, type: !k || f.type === k ? undefined : k })
+        )}
+        ${canFilterStatus &&
+        statuses.length > 0 &&
+        renderChipGroup(
+          "Status",
+          [["", "All"], ...statuses],
+          f.status || "",
+          (k) => setF({ ...f, status: !k || f.status === k ? undefined : k })
+        )}
+        ${tags.length > 0 &&
+        renderChipGroup(
+          "Tag",
+          [["", "All"], ...tags.map((t) => [t, "#" + t])],
+          f.tag || "",
+          (k) => setF({ ...f, tag: !k || f.tag === k ? undefined : k }),
+          "lpop-tags"
+        )}
       </div>`,
       document.body
     )}
@@ -460,12 +438,11 @@ export function FilterPopover({
 }
 
 /**
- * Compact 1-click segmented switcher for unified spatial canvas modes (Space | Grid | Graph | Kits).
+ * Compact segmented switcher for the 4 core workspace modes (Space | Tasks | Newsfeed | Scripts & Links).
  */
 export function ViewModeSwitch({
   viewMode = "space",
   stageOpen = true,
-  visibleColsCount = 0,
   showTasks = false,
   onSelectMode,
   className = "",
@@ -478,12 +455,9 @@ export function ViewModeSwitch({
 
   const modes = [
     ["space", "globe", "Space", ""],
-    ["grid", "layout", "Grid", ""],
-    ["graph", "graph", "Graph", ""],
-    ["feed", "feed", "Newsfeed", ""],
     ...(showTasks ? [["tasks", "check", "Tasks", ""]] : []),
+    ["feed", "feed", "Newsfeed", ""],
     ["scripts", "code", "Scripts & Links", ""],
-    ["kits", "folder", "Kits", visibleColsCount ? String(visibleColsCount) : ""],
   ];
   const current = modes.find((m) => m[0] === viewMode) || modes[0];
   const hasActiveStageMode = Boolean(stageOpen && viewMode && modes.some((m) => m[0] === viewMode));
@@ -546,77 +520,33 @@ export function ViewModeSwitch({
 }
 
 /**
- * Linear-style unified Display View & Sort Popover
+ * Clean Sort Popover for Knowledge Space items
  */
 export function SortPopover({
-  view,
-  catFilter,
-  setCatFilter,
-  setActiveKitId,
-  activeKitId = null,
-  kbDisplay,
-  setKbDisplay,
-  onSelectViewMode,
-  stageOpen = true,
-  hideViewDesktop = false,
   sort,
   setSort,
-  visibleColsCount = 0,
 }) {
   const { open, setOpen, pos, btnRef, menuRef, toggle } = usePopover({
-    minWidth: 230,
-    maxWidth: 280,
-    maxHeight: 360,
+    minWidth: 210,
+    maxWidth: 260,
+    maxHeight: 300,
   });
 
-  const isKbLike = view === "kb" || view === "space" || view === "lib" || view === "home" || view === "reslib";
-  const isKitsOverview = isKbLike && catFilter === "kits" && !activeKitId;
-  const effectiveDisplay =
-    kbDisplay === "grid" || kbDisplay === "graph" || kbDisplay === "scripts" ? kbDisplay : "space";
-  const currentView = isKitsOverview ? "kits" : effectiveDisplay;
-  const isActive = (!hideViewDesktop && (isKitsOverview || effectiveDisplay === "graph")) || sort !== "new";
-  const icoName = hideViewDesktop
-    ? "sliders"
-    : currentView === "space"
-    ? "globe"
-    : currentView === "graph"
-    ? "graph"
-    : currentView === "scripts"
-    ? "code"
-    : currentView === "kits"
-    ? "folder"
-    : "layout";
-  const viewNames = { grid: "Grid", space: "Space", graph: "Graph", scripts: "Scripts & Links", kits: "Kits" };
   const sortNames = { new: "Sort", az: "A–Z", links: "Most linked" };
-  const sortSuffix = sort === "az" ? " · A–Z" : sort === "links" ? " · Links" : "";
-  const label = hideViewDesktop
-    ? sortNames[sort] || "Sort"
-    : `${viewNames[currentView] || "Space"}${sortSuffix}`;
-
-  const chooseLayout = (mode) => {
-    if (onSelectViewMode) {
-      onSelectViewMode(mode);
-    } else if (mode === "kits") {
-      setActiveKitId && setActiveKitId(null);
-      setCatFilter && setCatFilter("kits");
-    } else {
-      if (catFilter === "kits") setCatFilter && setCatFilter("all");
-      setKbDisplay && setKbDisplay(mode);
-    }
-    setOpen(false);
-  };
+  const isActive = sort !== "new";
+  const label = sortNames[sort] || "Sort";
 
   return html`<${Fragment}>
     <button
       ref=${btnRef}
       type="button"
       className=${"asel asel-pill" + (isActive ? " asel-active" : "") + (open ? " open" : "")}
-      aria-label="View layout and sort options"
+      aria-label="Sort options"
       aria-haspopup="dialog"
       aria-expanded=${open}
       onClick=${toggle}
     >
-      <${Ic} n=${icoName} s=${13} />
+      <${Ic} n="sliders" s=${13} />
       <span className="asel-lb">${label}</span>
       <span className="asel-ar"><${Ic} n="chev" s=${11} /></span>
     </button>
@@ -628,45 +558,10 @@ export function SortPopover({
         ref=${menuRef}
         className="asel-menu lpop-menu"
         role="dialog"
-        aria-label="Sort and view options"
+        aria-label="Sort options"
         style=${menuStyleFromPos(pos)}
       >
-        <div className=${"lpop-sec" + (hideViewDesktop ? " lpop-view-mob" : "")}>
-          <div className="lpop-sec-lbl">View</div>
-          <div className="lpop-layout">
-            <button
-              type="button"
-              className=${"lpop-chip" + (stageOpen && currentView === "space" ? " on" : "")}
-              onClick=${() => chooseLayout("space")}
-            >
-              <${Ic} n="globe" s=${14} /><span>Space</span>
-            </button>
-            <button
-              type="button"
-              className=${"lpop-chip" + (stageOpen && currentView === "grid" ? " on" : "")}
-              onClick=${() => chooseLayout("grid")}
-            >
-              <${Ic} n="layout" s=${14} /><span>Grid</span>
-            </button>
-            <button
-              type="button"
-              className=${"lpop-chip" + (stageOpen && currentView === "graph" ? " on" : "")}
-              onClick=${() => chooseLayout("graph")}
-            >
-              <${Ic} n="graph" s=${14} /><span>Graph</span>
-            </button>
-            ${isKbLike &&
-            html`<button
-              type="button"
-              className=${"lpop-chip" + (stageOpen && currentView === "kits" ? " on" : "")}
-              onClick=${() => chooseLayout("kits")}
-            >
-              <${Ic} n="folder" s=${14} /><span>Kits (${visibleColsCount})</span>
-            </button>`}
-          </div>
-        </div>
-        ${!isKitsOverview &&
-        html`<div className="lpop-sec">
+        <div className="lpop-sec">
           <div className="lpop-sec-lbl">Sort by</div>
           ${[
             ["new", "Newest first"],
@@ -687,7 +582,7 @@ export function SortPopover({
               <span className="asel-tx"><span>${lb}</span></span>
             </button>`;
           })}
-        </div>`}
+        </div>
       </div>`,
       document.body
     )}

@@ -37,7 +37,6 @@ export function Drawer(p) {
   const [sm, setSm] = useState(null);
   const [smBusy, setSmBusy] = useState(false);
   const [ln, setLn] = useState({ id: "", t: "soft" });
-  const [preflight, setPreflight] = useState(null);
   const [shareTarget, setShareTarget] = useState("");
   const [urlDraft, setUrlDraft] = useState(r.url || "");
   const [addingTag, setAddingTag] = useState(false);
@@ -51,7 +50,6 @@ export function Drawer(p) {
     setCm("");
     setSm(null);
     setSmBusy(false);
-    setPreflight(null);
     setUrlDraft(r.url || "");
     setAddingTag(false);
     setNewTag("");
@@ -126,19 +124,7 @@ export function Drawer(p) {
     }
   };
 
-  const handleVisChange = async (nextVis) => {
-    if (nextVis === "Public") {
-      const pf = await edgeClient.publicPreflight({
-        item: r,
-        allItems: res,
-        categoryVis: (cat && cat.vis) || "Internal",
-        clearedAttachmentIds: r.publicAttachments || [],
-      });
-      setPreflight(pf);
-      if (!pf.eligible) return;
-    } else {
-      setPreflight(null);
-    }
+  const handleVisChange = (nextVis) => {
     p.onChangeVis && p.onChangeVis(r.id, nextVis);
   };
 
@@ -415,15 +401,14 @@ export function Drawer(p) {
                 <span className="insp-k">Visibility</span>
                 <div className="insp-v">
                   ${canEditItem || can.admin(role)
-                    ? html`<${Select}
+                      ? html`<${Select}
                         variant="meta"
                         ariaLabel="Visibility"
                         color=${(VIS[r.vis || "Internal"] || VIS.Internal)[1]}
-                        value=${r.vis || "Internal"}
+                        value=${r.vis === "Restricted" ? "Restricted" : "Internal"}
                         options=${[
                           ["Restricted", "Restricted (Overrides Category)", false, VIS.Restricted[1]],
                           ["Internal", "Internal (Company-wide)", false, VIS.Internal[1]],
-                          ["Public", "Public (External Portal)", !can.publicize(role), VIS.Public[1]],
                         ]}
                         onChange=${(v) => handleVisChange(v)}
                         minMenuWidth=${240}
@@ -456,28 +441,6 @@ export function Drawer(p) {
                 onToggle=${() => p.onToggleReq(r.id)}
               />`}
             </div>
-
-            ${preflight &&
-            html`<div className="insp-preflight">
-              <b>Public Preflight Check · ${preflight.eligible ? "Ready" : "Blocked"}</b>
-              ${preflight.blockers.map((b, i) => html`<div key=${i} className="insp-pf-err">• ${b}</div>`)}
-              ${preflight.attachments.length > 0 &&
-              html`<div className="insp-pf-atts">
-                <small>Clear attachments for public download:</small>
-                ${preflight.attachments.map((att) => {
-                  const checked = (r.publicAttachments || []).includes(att.id);
-                  return html`<button
-                    key=${att.id}
-                    type="button"
-                    className="pdl-ckrow"
-                    onClick=${() => p.onTogglePublicAtt && p.onTogglePublicAtt(r.id, att.id)}
-                  >
-                    <span className=${"ckb" + (checked ? " on" : "")}>${checked ? html`<${Ic} n="check" s=${12} />` : null}</span>
-                    <span>${att.caption} (${att.id})</span>
-                  </button>`;
-                })}
-              </div>`}
-            </div>`}
 
             ${canManageShares &&
             html`<div className="insp-group" style=${{ marginTop: 10 }}>
@@ -623,14 +586,6 @@ export function Drawer(p) {
               >
                 <span className="insp-act-ico"><${Ic} n="layers" s=${15} /></span>
                 <span className="insp-act-lbl">Save Version Snapshot</span>
-              </button>`}
-
-              ${r.vis === "Public" &&
-              r.status === "Approved" &&
-              p.onOpenPublic &&
-              html`<button type="button" className="insp-act" onClick=${() => p.onOpenPublic({ kind: "item", data: r })}>
-                <span className="insp-act-ico" style=${{ color: "var(--blue)" }}><${Ic} n="globe" s=${15} /></span>
-                <span className="insp-act-lbl">Public Share Preview</span>
               </button>`}
             </div>
 

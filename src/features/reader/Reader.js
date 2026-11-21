@@ -10,7 +10,6 @@ import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { db } from '../../lib/db.js';
 import { EW_TBL, EW_SL, EW_CL, TURN, BLOCK_LABELS, TEXT_COLORS, HL_COLORS, AI_ACTIONS, BlockGlyph } from '../editor/editorConfig.js';
-import { createDocCollabSession } from '../../lib/realtimeCollab.js';
 import { LocalImpactGraph } from '../graph/LocalImpactGraph.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
 
@@ -117,12 +116,8 @@ export function Reader(p) {
   const [act, setAct] = useState('');
   const [zm, setZm] = useState(null);
 
-  // Collaboration states
-  const [peers, setPeers] = useState([]);
-  const [collabStatus, setCollabStatus] = useState('connecting');
+  // Sync state
   const [syncState, setSyncState] = useState('Saved');
-  const [simOn, setSimOn] = useState(false);
-  const [peerBoxes, setPeerBoxes] = useState([]);
 
   // Refs
   const root = useRef(null);
@@ -137,15 +132,11 @@ export function Reader(p) {
   const loc = useRef({});
   const clickLockRef = useRef(0);
   const lastRecBucketRef = useRef({ key: '' });
-  const collabRef = useRef(null);
   const lastBodyRef = useRef(r.body || '');
   const autoSaveTimerRef = useRef(null);
-  const applyingRemoteRef = useRef(false);
   const activeFieldRef = useRef(null);
   const rRef = useRef(r);
   rRef.current = r;
-  const peersRef = useRef(peers);
-  peersRef.current = peers;
 
   const closeMenus = (except) => {
     if (except !== 'sl') setSl(null);
@@ -166,7 +157,6 @@ export function Reader(p) {
     setReadLock(false);
     closeMenus();
     setFb(null);
-    setSimOn(false);
     setSelCount(0);
     setSyncState('Saved');
     lastBodyRef.current = r.body || '';
@@ -265,38 +255,6 @@ export function Reader(p) {
     }
   };
 
-  const computePeerBoxes = () => {
-    const elRoot = root.current;
-    const elWrap = wrap.current;
-    if (!elRoot || !elWrap) {
-      setPeerBoxes([]);
-      return;
-    }
-    const wRect = elWrap.getBoundingClientRect();
-    const list = [];
-    (peersRef.current || []).forEach((peer) => {
-      if (peer.activeField === 'block' && peer.activeBlock !== null && peer.activeBlock !== undefined) {
-        const blk = elRoot.children[peer.activeBlock] || elRoot.lastElementChild;
-        if (blk) {
-          const bRect = blk.getBoundingClientRect();
-          list.push({
-            clientId: peer.clientId,
-            name: peer.name,
-            color: peer.color,
-            isTyping: peer.isTyping,
-            top: bRect.top - wRect.top,
-            height: Math.max(26, bRect.height),
-          });
-        }
-      }
-    });
-    setPeerBoxes(list);
-  };
-
-  useEffect(() => {
-    computePeerBoxes();
-  }, [peers, liveToc, r.id, sourceMode]);
-
   const up = (sel) => {
     const s = getSelection();
     if (!s || !s.rangeCount) return null;
@@ -313,12 +271,6 @@ export function Reader(p) {
     let n = s.anchorNode;
     while (n && n.parentNode !== rEl) n = n.parentNode;
     return n && n.nodeType === 1 ? n : null;
-  };
-
-  const blockIndexOf = (el) => {
-    const rEl = root.current;
-    if (!rEl || !el) return -1;
-    return [...rEl.children].indexOf(el);
   };
 
   const caret = (e, end) => {
@@ -352,19 +304,7 @@ export function Reader(p) {
     }, 220);
   };
 
-  const broadcastCurrentBlock = (bEl, isTyping = false) => {
-    if (!collabRef.current || !root.current || !bEl) return;
-    const idx = blockIndexOf(bEl);
-    if (idx < 0) return;
-    collabRef.current.broadcastCursor({
-      activeField: 'block',
-      activeBlock: idx,
-      blockPreview: (bEl.textContent || '').trim().slice(0, 40),
-      isTyping,
-    });
-  };
-
-  const sync = (isTyping = true) => {
+  const sync = () => {
     const rEl = root.current;
     if (!rEl) return;
     const last = rEl.lastElementChild;
@@ -378,38 +318,15 @@ export function Reader(p) {
       lastBodyRef.current = nextMd;
       setSourceText(nextMd);
       scheduleAutoSave(nextMd);
-      const cb = blockOf();
-      const idx = blockIndexOf(cb);
-      if (collabRef.current && !applyingRemoteRef.current) {
-        if (idx >= 0 && cb) {
-          const clone = cb.cloneNode(true);
-          clone.classList && clone.classList.remove('ewc');
-          collabRef.current.broadcastPatch({
-            kind: 'block',
-            blockIndex: idx,
-            blockHtml: clone.outerHTML,
-            totalBlocks: rEl.children.length,
-            fullBody: nextMd,
-          });
-        } else {
-          collabRef.current.broadcastPatch({ kind: 'full_body', fullBody: nextMd });
-        }
-      }
     }
-    const cb = blockOf();
-    if (cb) broadcastCurrentBlock(cb, isTyping);
-    computePeerBoxes();
   };
 
   const loadDom = (s) => {
     const rEl = root.current;
     if (!rEl) return;
-    applyingRemoteRef.current = true;
     rEl.innerHTML = toDom(s).innerHTML;
     refreshTocFromDom(rEl);
     setEmp(!rEl.textContent.trim() && !rEl.querySelector('img,table,hr,details'));
-    applyingRemoteRef.current = false;
-    computePeerBoxes();
   };
 
   useEffect(() => {
@@ -429,126 +346,9 @@ export function Reader(p) {
     }
   }, [r.body, isEditing, sourceMode]);
 
-  // Real-Time Collaboration Session
   useEffect(() => {
-    const session = createDocCollabSession({
-      docId: r.id,
-      user: { name: userName, role: p.role, avatar: p.userAvatar || '' },
-      onPresenceChange: setPeers,
-      onStatusChange: setCollabStatus,
-      onRemotePatch: (patch) => {
-        if (!patch) return;
-        setSyncState(`Synced · ${patch.by || 'Peer'}`);
-        setTimeout(() => setSyncState('Saved'), 2200);
-
-        if (patch.kind === 'field' && patch.field) {
-          if (patch.field === 'title') {
-            if (activeFieldRef.current !== 'title') setTitleVal(patch.value || '');
-            p.onInlineUpdate && p.onInlineUpdate(rRef.current.id, { title: patch.value || '' }, { silent: true });
-          } else if (patch.field === 'desc') {
-            if (activeFieldRef.current !== 'desc') setDescVal(patch.value || '');
-            p.onInlineUpdate && p.onInlineUpdate(rRef.current.id, { desc: patch.value || '' }, { silent: true });
-          } else if (patch.field === 'meta' && patch.meta) {
-            p.onInlineUpdate && p.onInlineUpdate(rRef.current.id, patch.meta, { silent: true });
-          }
-          return;
-        }
-
-        if (patch.kind === 'block' && root.current && isEditing && !sourceMode) {
-          const rEl = root.current;
-          const activeBlk = blockOf();
-          const activeIdx = blockIndexOf(activeBlk);
-          applyingRemoteRef.current = true;
-          if (patch.blockIndex !== activeIdx && patch.blockHtml) {
-            const tpl = document.createElement('template');
-            tpl.innerHTML = patch.blockHtml;
-            const newNode = tpl.content.firstElementChild;
-            if (newNode) {
-              const target = rEl.children[patch.blockIndex];
-              if (target) target.replaceWith(newNode);
-              else rEl.appendChild(newNode);
-              newNode.classList.add('block-remote-flash');
-              setTimeout(() => newNode.classList && newNode.classList.remove('block-remote-flash'), 1200);
-            }
-            refreshTocFromDom(rEl);
-            const mergedMd = ewMd(rEl, { ...imgs, ...loc.current });
-            lastBodyRef.current = mergedMd;
-            setSourceText(mergedMd);
-            p.onInlineUpdate && p.onInlineUpdate(rRef.current.id, { body: mergedMd }, { silent: true });
-          }
-          applyingRemoteRef.current = false;
-          computePeerBoxes();
-          return;
-        }
-
-        if (patch.fullBody !== undefined) {
-          const nextBody = patch.fullBody;
-          if (isEditing && !sourceMode && root.current) {
-            const curFocused = document.activeElement && root.current.contains(document.activeElement);
-            if (!curFocused) loadDom(nextBody);
-          }
-          lastBodyRef.current = nextBody;
-          setSourceText(nextBody);
-          p.onInlineUpdate && p.onInlineUpdate(rRef.current.id, { body: nextBody }, { silent: true });
-        }
-      },
-      onSimEditAction: (step) => {
-        const rEl = root.current;
-        if (!rEl || !rEl.children.length) {
-          return { activeField: 'desc', activeBlock: 0, blockPreview: 'Reviewing summary…', isTyping: true };
-        }
-        const total = rEl.children.length;
-        if (step === 1) {
-          return { activeField: 'block', activeBlock: 0, blockPreview: 'Reading intro section…', isTyping: false };
-        }
-        if (step === 2) {
-          const idx = Math.min(total - 1, 1);
-          return { activeField: 'block', activeBlock: idx, blockPreview: 'Checking requirements…', isTyping: true };
-        }
-        if (step === 3 && isEditing && !sourceMode) {
-          const existingNote = rEl.querySelector('[data-sim-peer="elena"]');
-          if (!existingNote) {
-            const q = document.createElement('blockquote');
-            q.className = 'tip';
-            q.setAttribute('data-sim-peer', 'elena');
-            q.innerHTML =
-              '<b contenteditable="false">Tip</b><div><b>Elena (Live Review):</b> Confirmed Revit 2025 shared parameters &amp; sheet tags match current BIM Execution Plan.</div>';
-            const insertAt = Math.min(2, Math.max(0, rEl.children.length - 1));
-            const refNode = rEl.children[insertAt];
-            if (refNode) refNode.after(q);
-            else rEl.appendChild(q);
-            q.classList.add('block-remote-flash');
-            setTimeout(() => q.classList && q.classList.remove('block-remote-flash'), 1400);
-            refreshTocFromDom(rEl);
-            const nextMd = ewMd(rEl, { ...imgs, ...loc.current });
-            commitInlinePatch({ body: nextMd }, { silent: true });
-            setSyncState('Synced · Elena');
-            setTimeout(() => setSyncState('Saved'), 2000);
-          }
-          const simIdx = existingNote ? blockIndexOf(existingNote) : Math.min(rEl.children.length - 1, 3);
-          return {
-            activeField: 'block',
-            activeBlock: Math.max(0, simIdx),
-            blockPreview: 'Added BIM review tip',
-            isTyping: false,
-          };
-        }
-        const loopIdx = step % Math.max(1, total);
-        return {
-          activeField: 'block',
-          activeBlock: loopIdx,
-          blockPreview: (rEl.children[loopIdx]?.textContent || '').trim().slice(0, 32) || 'Inspecting block…',
-          isTyping: step % 2 === 0,
-        };
-      },
-    });
-    collabRef.current = session;
-    return () => {
-      clearTimeout(autoSaveTimerRef.current);
-      session.destroy();
-      collabRef.current = null;
-    };
-  }, [r.id, userName, p.role]);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [r.id]);
 
   const topBlockOf = (node) => {
     const rEl = root.current;
@@ -621,7 +421,6 @@ export function Reader(p) {
         const bk = blockTypeOf(cb);
         setCurBlkKey(bk);
         setCurBlkLabel(BLOCK_LABELS[bk] || 'Text');
-        broadcastCurrentBlock(cb, false);
       }
 
       const tt = up('table');
@@ -1205,7 +1004,6 @@ export function Reader(p) {
       patch.body = nextBody;
       loadDom(nextBody);
       commitInlinePatch(patch);
-      collabRef.current && collabRef.current.broadcastPatch({ kind: 'full_body', fullBody: nextBody });
       p.flash && p.flash('Document imported into page');
       db.uploadImagesMap(imp.imgs).then((uploaded) => {
         if (!uploaded || !Object.keys(uploaded).length) return;
@@ -2032,7 +1830,6 @@ export function Reader(p) {
 
   const updateMetaField = (patch) => {
     commitInlinePatch(patch);
-    collabRef.current && collabRef.current.broadcastPatch({ kind: 'field', field: 'meta', meta: patch });
   };
 
   const applyTemplate = (tplKey) => {
@@ -2041,7 +1838,6 @@ export function Reader(p) {
     const tplBody = TPL[tplKey];
     loadDom(tplBody);
     commitInlinePatch({ body: tplBody });
-    collabRef.current && collabRef.current.broadcastPatch({ kind: 'full_body', fullBody: tplBody });
     p.flash && p.flash(`Applied “${tplKey}” template`);
   };
 
@@ -2058,7 +1854,6 @@ export function Reader(p) {
     p.bridgeRef.current = {
       docId: r.id,
       sourceMode,
-      simOn,
       ib,
       applyTemplate,
       triggerDocx: () => dx.current && dx.current.click(),
@@ -2067,23 +1862,12 @@ export function Reader(p) {
           setSourceText(ewMd(root.current, { ...imgs, ...loc.current }));
         } else if (sourceMode) {
           commitInlinePatch({ body: sourceText });
-          collabRef.current && collabRef.current.broadcastPatch({ kind: 'full_body', fullBody: sourceText });
         }
         setSourceMode((v) => !v);
       },
       saveSnapshot: () => {
         const curBody = sourceMode ? sourceText : root.current ? ewMd(root.current, { ...imgs, ...loc.current }) : r.body;
         p.onSaveSnapshot && p.onSaveSnapshot(r.id, curBody);
-      },
-      toggleSim: () => {
-        if (!collabRef.current) return;
-        if (simOn) {
-          collabRef.current.stopSimulatedPeer();
-          setSimOn(false);
-        } else {
-          collabRef.current.startSimulatedPeer();
-          setSimOn(true);
-        }
       },
     };
   }
@@ -2194,9 +1978,6 @@ export function Reader(p) {
     return [...docs, ...noteMentions, ...resourceMentions];
   }, [res, r.id, r.title, p.privNotes, p.privResources]);
 
-  const titlePeer = peers.find((x) => x.activeField === 'title');
-  const descPeer = peers.find((x) => x.activeField === 'desc');
-
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
   const tplKeys = Object.keys(TPL);
 
@@ -2224,29 +2005,12 @@ export function Reader(p) {
         </div>
 
         <div className="rd-topbar-r">
-          ${(peers.length > 0 || syncState === 'Saving…') &&
+          ${syncState === 'Saving…' &&
           html`<div className="collab-bar">
-            <span className="collab-status" title=${collabStatus === 'live' ? 'Supabase Realtime connected + local multi-tab sync' : 'Local multi-tab sync active'}>
-              <span className=${'collab-dot ' + (collabStatus === 'live' ? 'live' : 'local')}></span>
+            <span className="collab-status">
+              <span className="collab-dot live"></span>
               <span>${syncState}</span>
             </span>
-
-            ${peers.length > 0 &&
-            html`<div className="collab-avs" aria-label="Active collaborators">
-              <span className="collab-av self" title=${`${userName} (You)`} style=${{ '--pc': 'var(--blue)' }}>
-                ${p.userAvatar ? html`<img src=${p.userAvatar} alt="" />` : userName.split(' ').map((w) => w[0]).join('').slice(0, 2)}
-              </span>
-              ${peers.map(
-                (peer) => html`<span
-                  key=${peer.clientId}
-                  className="collab-av peer"
-                  title=${`${peer.name} · ${peer.blockPreview || 'Viewing'}`}
-                  style=${{ '--pc': peer.color }}
-                >
-                  ${peer.avatar ? html`<img src=${peer.avatar} alt="" />` : peer.name.split(' ').map((w) => w[0]).join('').slice(0, 2)}
-                </span>`
-              )}
-            </div>`}
           </div>`}
 
           ${canEditItem &&
@@ -2349,8 +2113,7 @@ export function Reader(p) {
       </div>
 
       ${isEditing
-        ? html`<div className=${'rd-title-wrap' + (titlePeer ? ' has-peer' : '')} style=${titlePeer ? { '--pc': titlePeer.color } : undefined}>
-            ${titlePeer && html`<span className="field-peer-tag" style=${{ '--pc': titlePeer.color }}>${titlePeer.name} editing title</span>`}
+        ? html`<div className="rd-title-wrap">
             <h1>
               <textarea
                 className="rd-title-input"
@@ -2366,17 +2129,14 @@ export function Reader(p) {
                 }}
                 onFocus=${() => {
                   activeFieldRef.current = 'title';
-                  collabRef.current && collabRef.current.broadcastCursor({ activeField: 'title', activeBlock: -1, blockPreview: 'Editing title', isTyping: true });
                 }}
                 onBlur=${() => {
                   activeFieldRef.current = null;
-                  collabRef.current && collabRef.current.broadcastCursor({ activeField: null, activeBlock: null, blockPreview: '', isTyping: false });
                 }}
                 onChange=${(e) => {
                   const val = e.target.value.replace(/\r?\n/g, '');
                   setTitleVal(val);
                   commitInlinePatch({ title: val }, { silent: true });
-                  collabRef.current && collabRef.current.broadcastPatch({ kind: 'field', field: 'title', value: val });
                 }}
                 onKeyDown=${(e) => {
                   if (e.key === 'Enter') {
@@ -2390,8 +2150,7 @@ export function Reader(p) {
         : html`<h1>${r.title || 'Untitled standard'}</h1>`}
 
       ${isEditing
-        ? html`<div className=${'rd-desc-wrap' + (descPeer ? ' has-peer' : '')} style=${descPeer ? { '--pc': descPeer.color } : undefined}>
-            ${descPeer && html`<span className="field-peer-tag" style=${{ '--pc': descPeer.color }}>${descPeer.name} editing summary</span>`}
+        ? html`<div className="rd-desc-wrap">
             <p className="lead">
               <textarea
                 className="rd-desc-input"
@@ -2406,17 +2165,14 @@ export function Reader(p) {
                 }}
                 onFocus=${() => {
                   activeFieldRef.current = 'desc';
-                  collabRef.current && collabRef.current.broadcastCursor({ activeField: 'desc', activeBlock: -2, blockPreview: 'Editing summary', isTyping: true });
                 }}
                 onBlur=${() => {
                   activeFieldRef.current = null;
-                  collabRef.current && collabRef.current.broadcastCursor({ activeField: null, activeBlock: null, blockPreview: '', isTyping: false });
                 }}
                 onChange=${(e) => {
                   const val = e.target.value;
                   setDescVal(val);
                   commitInlinePatch({ desc: val }, { silent: true });
-                  collabRef.current && collabRef.current.broadcastPatch({ kind: 'field', field: 'desc', value: val });
                 }}
                 onKeyDown=${(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
@@ -2479,7 +2235,6 @@ export function Reader(p) {
                       const v = e.target.value;
                       setSourceText(v);
                       scheduleAutoSave(v);
-                      collabRef.current && collabRef.current.broadcastPatch({ kind: 'full_body', fullBody: v });
                     }}
                     spellCheck="false"
                   />`
@@ -2496,14 +2251,6 @@ export function Reader(p) {
                       onInput=${onInput}
                       onKeyDown=${onKey}
                       onClick=${onCanvasClick}
-                      onBlur=${() => {
-                        setTimeout(() => {
-                          if (!root.current || !root.current.contains(document.activeElement)) {
-                            collabRef.current &&
-                              collabRef.current.broadcastCursor({ activeField: null, activeBlock: null, blockPreview: '', isTyping: false });
-                          }
-                        }, 80);
-                      }}
                       onPaste=${(e) => {
                         const fs = [...e.clipboardData.files];
                         e.preventDefault();
@@ -2528,19 +2275,6 @@ export function Reader(p) {
                         document.execCommand('insertText', false, tx);
                       }}
                     ></div>
-
-                    ${peerBoxes.map(
-                      (pb) => html`<div
-                        key=${pb.clientId}
-                        className="block-remote-peer"
-                        style=${{ top: pb.top + 'px', height: pb.height + 'px', '--pc': pb.color }}
-                      >
-                        <span className="block-remote-tag">
-                          <span className="block-remote-dot"></span>
-                          ${pb.name}${pb.isTyping ? ' · typing' : ''}
-                        </span>
-                      </div>`
-                    )}
 
                     ${hd &&
                     html`<div className="ewh" style=${{ top: hd.top }}>

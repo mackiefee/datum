@@ -419,40 +419,6 @@ export function runAiEdgeLogic(payload) {
   };
 }
 
-export function runPublicPreflightLogic(payload) {
-  const { item, allItems = [], categoryVis = "Internal", clearedAttachmentIds = [] } = payload || {};
-  if (!item) return { eligible: false, blockers: ["Missing target item"], attachments: [], nonPublicLinks: [] };
-
-  const attachments = [...(item.body || "").matchAll(/!\[([^\]]*)\]\(img:(\w+)\)/g)].map((m) => ({
-    id: m[2],
-    caption: m[1] || `Attachment ${m[2]}`,
-    cleared: clearedAttachmentIds.includes(m[2]),
-  }));
-
-  const nonPublicLinks = (item.links || [])
-    .map(([targetId, kind]) => {
-      const target = allItems.find((x) => x.id === targetId);
-      return target ? { id: target.id, title: target.title, kind, vis: target.vis || "Internal" } : null;
-    })
-    .filter((x) => x && x.vis !== "Public");
-
-  const blockers = [];
-  if (item.status !== "Approved") {
-    blockers.push(`Item status is "${item.status}". Only Published (Approved) items can be made Public.`);
-  }
-  if (categoryVis === "Restricted") {
-    blockers.push("Item belongs to a Restricted category. Move it first or override via Admin.");
-  }
-
-  return {
-    eligible: blockers.length === 0,
-    blockers,
-    attachments,
-    nonPublicLinks,
-    strippedFields: ["Comments & @mentions", "Version history & Rollback", "Author emails", "Dependency graph"],
-  };
-}
-
 export function runGovernanceScanLogic(payload) {
   const { items = [], categories = [], today = "2026-10-22", requiredIds = [], acks = {} } = payload || {};
   const catMap = new Map(categories.map((c) => [c.id, c]));
