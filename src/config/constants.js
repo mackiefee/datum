@@ -19,6 +19,7 @@ export const VIS = {
 
 export const TY = {
   doc: "Document",
+  news: "News",
   report: "Report",
   script: "Script / Macro",
   service: "Tool / Service",
@@ -28,7 +29,8 @@ export const TY = {
 };
 
 export const isDocType = (t) => t === "doc" || t === "report";
-export const isResType = (t) => !isDocType(t);
+export const isNewsType = (t) => t === "news";
+export const isResType = (t) => !isDocType(t) && !isNewsType(t);
 
 export const STG = ["Concept", "Design", "Construction"];
 export const DISC = ["Architecture", "Structure", "MEP", "Interior", "VDC"];

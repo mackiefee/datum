@@ -1,4 +1,4 @@
-import { html } from '../../lib/react.js';
+import { html, createElement } from '../../lib/react.js';
 
 export const EW_TBL =
   '<div class="tw"><table><tr><th>Name</th><th>Description</th></tr><tr><td>\u200b</td><td>\u200b</td></tr><tr><td>\u200b</td><td>\u200b</td></tr></table></div>';
@@ -17,6 +17,9 @@ export const EW_SL = [
   ['note', 'Callout', '', 'Callouts', 'info note callout', ''],
   ['tip', 'Tip callout', '', 'Callouts', 'success green tip callout', ''],
   ['warn', 'Warning callout', '', 'Callouts', 'alert caution warning callout', ''],
+  ['cards', 'Feature cards', '', 'Editorial', 'bento grid highlights cards', ':::'],
+  ['qcard', 'Quote card', '', 'Editorial', 'testimonial endorsement quote author card', '“'],
+  ['qa', 'Q&A block', '', 'Editorial', 'interview question answer qa', '?'],
   ['img', 'Image', '', 'Media', 'picture photo upload', ''],
   ['tbl', 'Table', '', 'Advanced', 'grid rows columns table', ''],
   ['code', 'Code', '', 'Advanced', 'snippet pre code', '```'],
@@ -65,6 +68,9 @@ export const BLOCK_LABELS = {
   note: 'Callout',
   tip: 'Tip',
   warn: 'Warning',
+  cards: 'Feature cards',
+  qcard: 'Quote card',
+  qa: 'Q&A block',
   code: 'Code',
 };
 
@@ -86,7 +92,21 @@ export const TURN = [
 
 export function BlockGlyph({ type, size = 15 }) {
   const S = (children, vb = '0 0 24 24') =>
-    html`<svg width=${size} height=${size} viewBox=${vb} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">${children}</svg>`;
+    createElement(
+      'svg',
+      {
+        width: size,
+        height: size,
+        viewBox: vb,
+        fill: 'none',
+        stroke: 'currentColor',
+        strokeWidth: '1.8',
+        strokeLinecap: 'round',
+        strokeLinejoin: 'round',
+        'aria-hidden': 'true',
+      },
+      ...(Array.isArray(children) ? children : [children])
+    );
 
   if (type === 'p') return html`<span className="ewg-txt">Aa</span>`;
   if (type === 'h1') return html`<span className="ewg-txt">H1</span>`;
@@ -112,6 +132,12 @@ export function BlockGlyph({ type, size = 15 }) {
       return S(html`<circle cx="12" cy="12" r="9" /><path d="M8.5 12.2l2.4 2.4 4.8-5" />`);
     case 'warn':
       return S(html`<path d="M12 3.8L2.8 19.5h18.4L12 3.8z" /><line x1="12" y1="10" x2="12" y2="14" /><circle cx="12" cy="16.8" r=".9" fill="currentColor" stroke="none" />`);
+    case 'cards':
+      return S(html`<rect x="3.5" y="3.5" width="7.2" height="7.2" rx="1.8" /><rect x="13.3" y="3.5" width="7.2" height="7.2" rx="1.8" /><rect x="3.5" y="13.3" width="7.2" height="7.2" rx="1.8" /><rect x="13.3" y="13.3" width="7.2" height="7.2" rx="1.8" />`);
+    case 'qcard':
+      return S(html`<rect x="3.5" y="4.5" width="17" height="15" rx="3" /><path d="M7.5 11.5h3v3a1.5 1.5 0 0 1-1.5 1.5M13.5 11.5h3v3a1.5 1.5 0 0 1-1.5 1.5" />`);
+    case 'qa':
+      return S(html`<circle cx="12" cy="12" r="9" /><path d="M9.6 9.5a2.4 2.4 0 1 1 3.7 2c-.9.6-1.3 1-1.3 2" /><circle cx="12" cy="16.6" r=".9" fill="currentColor" stroke="none" />`);
     case 'img':
       return S(html`<rect x="3.5" y="4.5" width="17" height="15" rx="3" /><circle cx="8.8" cy="9.5" r="1.4" /><path d="M4.5 17l4.6-4.5 3.6 3.5 2.7-2.6 4.1 3.6" />`);
     case 'tbl':

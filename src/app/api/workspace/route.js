@@ -220,6 +220,9 @@ export async function POST(req) {
         return jsonResp({ error: 'Valid item payload required' }, 400);
       }
       const itemId = Number(item.id);
+      if (!Number.isFinite(itemId)) {
+        return jsonResp({ error: 'Valid numeric item id required' }, 400);
+      }
       const isSharedResource = ['script', 'link', 'service', 'template', 'media'].includes(item.type);
       const isSuggest =
         !isSharedResource && (body.mode === 'suggest' || auth.caller.role === 'member');

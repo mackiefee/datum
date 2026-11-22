@@ -1,7 +1,7 @@
 'use client';
 
 import { html, Fragment, useState, useMemo, useEffect, useRef } from './lib/react.js';
-import { TODAY, KB, ST, TY, STG, DISC, DC, RD, ROLES, can, normRole, isDocType, isResType } from './config/constants.js';
+import { TODAY, KB, ST, TY, STG, DISC, DC, RD, ROLES, can, normRole, isDocType, isNewsType, isResType } from './config/constants.js';
 import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS } from './data/seed.js';
 import { db } from './lib/db.js';
@@ -46,6 +46,8 @@ import { TeamView } from './features/team/TeamView.js';
 import { QuickCaptureModal } from './components/QuickCaptureModal.js';
 import { PlannerManageSheet } from './components/PlannerManageSheet.js';
 import { normalizePlannerPrefs, isDoneStatus, getFirstActiveStatus } from './utils/planner.js';
+import { estimateReadTime, extractLinkedDocIds, mergeSeedNewsIntoRes } from './utils/newsMarkdown.js';
+import { plain } from './utils/markdown.js';
 
 const DATASET_VER = "c10-interior-v3";
 const RESET_KEYS_ON_CUTOVER = [
@@ -71,17 +73,25 @@ export function App() {
   const hasInitialInternalSession = Boolean(authSession && normRole(authSession?.claims?.role) !== "Guest" && authSession?.claims?.provider !== "guest");
   const [accessPolicy, setAccessPolicy] = useState(() => normalizeAccessPolicy(DEFAULT_ACCESS_POLICY));
   const [loginError, setLoginError] = useState("");
+  const [deletedNewsKeys, setDeletedNewsKeys] = useState(() => db.load("kb2-deleted-news-seeds", []) || []);
+  const deletedNewsRef = useRef(deletedNewsKeys);
+  deletedNewsRef.current = deletedNewsKeys;
+  useEffect(() => {
+    db.save("kb2-deleted-news-seeds", deletedNewsKeys);
+  }, [deletedNewsKeys]);
   const [res, setRes] = useState(() => {
     if (!hasInitialInternalSession) return [];
     const a = db.load("kb2-res", null);
-    if (!a || !Array.isArray(a) || !a.length) return [GUIDE, ...SEED];
-    let list = a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
+    let list = !a || !Array.isArray(a) || !a.length ? [GUIDE, ...SEED] : a.some((x) => x.id === 100) ? a : [GUIDE, ...a];
     // Non-destructively ensure newly added standard naming doc (#137) is available in existing sessions
     const seed137 = SEED.find((x) => x.id === 137);
     if (seed137 && !list.some((x) => x.id === 137)) {
       list = [...list, seed137];
     }
-    return list;
+    return mergeSeedNewsIntoRes(list, {
+      legacyOverrides: db.load("kb2-news-posts-v2", null),
+      deletedNewsKeys: db.load("kb2-deleted-news-seeds", []) || [],
+    });
   });
   const [tree, setTree] = useState(() => (hasInitialInternalSession ? db.load("kb2-tree", null) || TREE : []));
   const [users, setUsers] = useState(() => {
@@ -108,6 +118,13 @@ export function App() {
     const saved = db.load("datum-naming-custom-schemas-v1", null);
     return Array.isArray(saved) ? saved : [];
   });
+  const newsProjects = useMemo(() => {
+    const set = new Set(["General", "C10_INTERIOR"]);
+    (res || []).forEach((x) => {
+      if (x && x.project && x.project !== "General") set.add(x.project);
+    });
+    return [...set];
+  }, [res]);
   const [teamAcks, setTeamAcks] = useState(() => db.load("kb2-team-acks", null) || {});
   const [pinned, setPinned] = useState(() => db.load("kb2-pins", null) || [100, 113, 129, 132]);
 
@@ -502,7 +519,7 @@ export function App() {
         await db.workspace
           .seedIfEmpty(
             {
-              items: [GUIDE, ...SEED],
+              items: mergeSeedNewsIntoRes([GUIDE, ...SEED]),
               tree: TREE,
               activities: [],
               requiredIds: req,
@@ -516,8 +533,12 @@ export function App() {
 
       if (Array.isArray(snap.items) && snap.items.length > 0) {
         edgeClient.clearAiCache();
-        setRes(snap.items);
-        resRef.current = snap.items;
+        const merged = mergeSeedNewsIntoRes(snap.items, {
+          legacyOverrides: db.load("kb2-news-posts-v2", null),
+          deletedNewsKeys: deletedNewsRef.current,
+        });
+        setRes(merged);
+        resRef.current = merged;
       } else if (isGuest && Array.isArray(snap.items)) {
         setRes(snap.items);
         resRef.current = snap.items;
@@ -894,6 +915,8 @@ export function App() {
     const catObj = byId(node, tree);
     const title = initial.title || "";
     const body = initial.body || "";
+    const itemType = initial.type || "doc";
+    const isNewsItem = itemType === "news";
     db.invalidateArticle(id);
     edgeClient.clearAiCache();
     const newItem = {
@@ -902,8 +925,19 @@ export function App() {
       title,
       desc: initial.desc || "",
       url: initial.url || "",
+      cover: initial.cover || "",
       body,
-      type: initial.type || "doc",
+      ...(isNewsItem
+        ? {
+            bodyFormat: "markdown",
+            feedCategory: initial.feedCategory || "technical",
+            feedKind: initial.feedKind || "article",
+            project: initial.project || "General",
+            featured: Boolean(initial.featured),
+            readTime: initial.readTime || (initial.feedKind === "update" ? "Quick update" : estimateReadTime(body)),
+          }
+        : {}),
+      type: itemType,
       status: "Draft",
       vis: (catObj && catObj.vis) || "Internal",
       stage: STG[0],
@@ -922,19 +956,35 @@ export function App() {
     setRes(nextList);
     syncSharedItem(newItem, "save");
     if (title) logAct("Created", "item", id, title, "Draft");
-    flash(title ? `Created “${title}”` : "New draft opened");
+    flash(title ? `Created “${title}”` : isNewsItem ? "New story draft opened" : "New draft opened");
     rd(id);
   };
 
   const autoSaveItem = (id, patch, options = {}) => {
     if (!id || !patch) return;
     const prev = resRef.current.find((x) => x.id === id) || res.find((x) => x.id === id);
-    upd(id, (r) => ({
-      ...r,
-      ...patch,
-      upd: TODAY,
-      verified: patch.status === "Approved" ? TODAY : r.verified,
-    }));
+    upd(id, (r) => {
+      const next = {
+        ...r,
+        ...patch,
+        upd: TODAY,
+        verified: patch.status === "Approved" ? TODAY : r.verified,
+      };
+      if (next.type === "news" && patch.body !== undefined) {
+        const inlineIds = extractLinkedDocIds(patch.body);
+        const existingLinks = Array.isArray(r.links) ? r.links : [];
+        const existingIds = new Set(existingLinks.map((l) => Number(Array.isArray(l) ? l[0] : l.to)));
+        const mergedLinks = [
+          ...existingLinks,
+          ...inlineIds.filter((lid) => !existingIds.has(lid)).map((lid) => [lid, "soft"]),
+        ];
+        next.bodyFormat = "markdown";
+        next.bodyHtml = "";
+        next.readTime = next.feedKind === "update" ? "Quick update" : estimateReadTime(patch.body);
+        next.links = mergedLinks;
+      }
+      return next;
+    });
     if (!options.silent && patch.status && prev && prev.status !== patch.status) {
       push(`Status of “${prev.title || "Untitled"}” → ${(ST[patch.status] && ST[patch.status][0]) || patch.status}`, id);
       logAct("Status Changed", "item", id, prev.title || "Untitled", patch.status);
@@ -942,7 +992,9 @@ export function App() {
     if (!options.silent && patch.type && prev && prev.type !== patch.type) {
       const typeLabel = TY[patch.type] || patch.type;
       const movedHint =
-        isResType(prev.type) && isDocType(patch.type)
+        isNewsType(patch.type)
+          ? " · moved to Newsfeed"
+          : isResType(prev.type) && isDocType(patch.type)
           ? " · moved to Library Docs"
           : isDocType(prev.type) && isResType(patch.type)
           ? " · added to Scripts & Links"
@@ -964,8 +1016,12 @@ export function App() {
     logAct("Updated", "item", id, titleOf(id) || "Untitled", "Snapshot");
   };
 
-  const delItem = (id) => {
-    const t = titleOf(id);
+  const delItem = (id, opts = {}) => {
+    const target = resRef.current.find((x) => x.id === id) || res.find((x) => x.id === id);
+    const t = (target && target.title) || "";
+    if (target && target.newsSeedKey) {
+      setDeletedNewsKeys((prev) => (prev.includes(target.newsSeedKey) ? prev : [...prev, target.newsSeedKey]));
+    }
     db.invalidateArticle(id);
     edgeClient.clearAiCache();
     const nextList = resRef.current
@@ -978,9 +1034,26 @@ export function App() {
     }
     setFavs((a) => a.filter((x) => x !== id));
     setPinned((a) => a.filter((x) => x !== id));
+    setRead((curRead) => (curRead === id ? null : curRead));
+    if (!opts.silent) {
+      flash(target && target.type === "news" ? "Post removed from Newsfeed" : "Item deleted");
+      logAct("Deleted", "item", id, t);
+    }
+  };
+
+  const closeReader = () => {
+    if (
+      rr &&
+      rr.status === "Draft" &&
+      !String(rr.title || "").trim() &&
+      !String(rr.desc || "").trim() &&
+      !plain(rr.body || "").trim() &&
+      !String(rr.cover || "").trim()
+    ) {
+      delItem(rr.id, { silent: true });
+      return;
+    }
     setRead(null);
-    flash("Item deleted");
-    logAct("Deleted", "item", id, t);
   };
 
   const goHome = (focusAi) => {
@@ -2011,6 +2084,7 @@ export function App() {
     const ids = catNode ? sub(catNode) : null;
 
     return visibleRes.filter((r) => {
+      if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "all" && !f.type && !s && isNewsType(r.type)) return false;
       if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "docs" && !isDocType(r.type)) return false;
       if ((view === "kb" || view === "space" || isCategoryScope) && catFilter === "res" && !isResType(r.type)) return false;
       if (view === "lib") {
@@ -2235,7 +2309,8 @@ export function App() {
       : kbDisplay === "scripts" || kbDisplay === "feed"
       ? kbDisplay
       : "space";
-  const isSpaceDockActive = Boolean(isSpaceView && !rr);
+  const isSpaceChromeActive = Boolean(isSpaceView && !rr);
+  const isSpaceDockActive = Boolean(isSpaceChromeActive && activeViewMode === "space");
   const pageTitle =
     activeViewMode === "tasks" && isSpaceView
       ? "My Work"
@@ -2482,7 +2557,7 @@ export function App() {
 
     setLoginError("");
     if (!isGuestAuth && resRef.current.length === 0) {
-      const initialList = [GUIDE, ...SEED];
+      const initialList = mergeSeedNewsIntoRes([GUIDE, ...SEED], { deletedNewsKeys: deletedNewsRef.current });
       resRef.current = initialList;
       setRes(initialList);
     }
@@ -2937,7 +3012,7 @@ export function App() {
         }}
       />`}
 
-      <div className=${"bar" + (sc ? " sc" : "") + (pal ? " pal-open" : "") + (isSpaceDockActive ? " bar-space" : "")}>
+      <div className=${"bar" + (sc ? " sc" : "") + (pal ? " pal-open" : "") + (isSpaceChromeActive && !pal ? " bar-space" : "")}>
         <div className="bar-l">
           <button
             type="button"
@@ -2992,15 +3067,16 @@ export function App() {
             viewMode=${!rr && isSpaceView ? activeViewMode : ""}
             stageOpen=${Boolean(!rr && isSpaceView && spaceStageOpen)}
             showTasks=${!isGuest}
+            variant="dropdown"
             onSelectMode=${selectSpatialMode}
           />
-          ${can.createDraft(role) &&
+          ${(can.createDraft(role) || (!isGuest && isSpaceView && activeViewMode === "feed")) &&
           html`<button
             type="button"
             className="kspace-create-btn"
-            title="Create Document or Resource"
-            aria-label="Create Document or Resource"
-            onClick=${() => createNewDoc()}
+            title=${isSpaceView && activeViewMode === "feed" ? "New Newsfeed Post" : "Create Document or Resource"}
+            aria-label=${isSpaceView && activeViewMode === "feed" ? "New Newsfeed Post" : "Create Document or Resource"}
+            onClick=${() => createNewDoc(isSpaceView && activeViewMode === "feed" ? { type: "news" } : {})}
           >
             <${Ic} n="plus" s=${15} />
           </button>`}
@@ -3036,6 +3112,7 @@ export function App() {
         tree=${tree}
         imgs=${imgs}
         setImgs=${setImgs}
+        users=${users}
         role=${role}
         userName=${userName}
         userAvatar=${activeUser.avatar || ""}
@@ -3044,7 +3121,7 @@ export function App() {
         pinned=${pinned.includes(rr.id)}
         tf=${(id) => tgl(setFavs, id)}
         onTogglePin=${(id) => tgl(setPinned, id)}
-        back=${() => setRead(null)}
+        back=${closeReader}
         go=${rd}
         info=${pick}
         rec=${recRead}
@@ -3081,16 +3158,10 @@ export function App() {
         onOpenBrainSource=${openBrainSource}
       />`}
 
-      <div className=${"pad" + (isSpaceView ? " pad-space" : "")} hidden=${!!rr}>
+      <div className=${"pad" + (isSpaceView ? " pad-space" : "")} hidden=${Boolean(rr)}>
         ${isSpaceView &&
         (() => {
           const catalogToolbarControls = html`<${Fragment}>
-            <${ViewModeSwitch}
-              viewMode=${activeViewMode}
-              stageOpen=${spaceStageOpen}
-              showTasks=${!isGuest}
-              onSelectMode=${selectSpatialMode}
-            />
             ${activeViewMode === "space" &&
             html`<${FilterPopover}
               view=${view}
@@ -3113,6 +3184,14 @@ export function App() {
             />`}
           <//>`;
 
+          const spaceCenterNav = html`<${ViewModeSwitch}
+            viewMode=${activeViewMode}
+            stageOpen=${spaceStageOpen}
+            showTasks=${!isGuest}
+            variant="segmented"
+            onSelectMode=${selectSpatialMode}
+          />`;
+
           const spaceLeftNav = html`<${Fragment}>
             <button
               type="button"
@@ -3133,12 +3212,25 @@ export function App() {
               onClick=${returnCleanChatHero}
             >
               <${DatumMark} s=${20} />
-              <span className="nav-brand-label">${pageTitle}</span>
+              <span className="nav-brand-label">Datum</span>
             </button>
           </${Fragment}>`;
 
           const spaceHeaderActions = html`<${Fragment}>
-            ${can.createDraft(role) &&
+            ${activeViewMode !== "space" &&
+            html`<button
+              type="button"
+              className="kspace-search-btn"
+              title="Search & Ask AI (⌘K)"
+              aria-label="Search & Ask AI"
+              onClick=${() => setPal(true)}
+            >
+              <${Ic} n="search" s=${14} />
+              <span>Search</span>
+              <kbd>⌘K</kbd>
+            </button>`}
+            ${activeViewMode === "space" &&
+            can.createDraft(role) &&
             html`<button
               type="button"
               className="kspace-create-btn"
@@ -3206,6 +3298,7 @@ export function App() {
             setF=${setSpaceF}
             toolbarRight=${catalogToolbarControls}
             spaceLeftNav=${spaceLeftNav}
+            centerNav=${spaceCenterNav}
             spaceActions=${spaceHeaderActions}
             onImportDocx=${can.createDraft(role) ? () => dxr.current && dxr.current.click() : null}
             active=${isSpaceDockActive}
@@ -3273,6 +3366,9 @@ export function App() {
             onOpenBrainSheet=${(payload) => setQcModal(payload)}
             onSaveTeamResource=${!isGuest ? saveTeamResource : null}
             onDeleteTeamItem=${!isGuest ? delItem : null}
+            onCreateNewsPost=${() => createNewDoc({ type: "news" })}
+            onEditNewsPost=${(p) => p && rd(p.id)}
+            onDeleteNewsPost=${(id) => delItem(id)}
             onAck=${ack}
             imgs=${imgs}
             flash=${flash}
@@ -3461,6 +3557,7 @@ export function App() {
       role=${role}
       userName=${userName}
       users=${users}
+      newsProjects=${newsProjects}
       shares=${shares}
       fav=${favs.includes(sr.id)}
       pinned=${pinned.includes(sr.id)}

@@ -1,37 +1,41 @@
 import { createPortal } from 'react-dom';
 import { html, Fragment, useState, useMemo, useEffect, useRef } from '../../lib/react.js';
-import { DC, ST, TY, TODAY, isDocType } from '../../config/constants.js';
+import { DC, ST, TY, TODAY, can, isDocType } from '../../config/constants.js';
 import { db } from '../../lib/db.js';
 import { fmt } from '../../utils/format.js';
 import { plain } from '../../utils/markdown.js';
 import { Ic, DatumMark } from '../../components/Icon.js';
 import { Avatar, Pill } from '../../components/Badge.js';
-import { Select } from '../../components/Select.js';
-import { NEWS_CATEGORIES, SEED_NEWS_POSTS } from '../../data/newsPosts.js';
+import { ActionMenuButton, Select } from '../../components/Select.js';
+import { BENTO_STAT_PHOTO, BENTO_WIDE_PHOTO, NEWS_CATEGORIES } from '../../data/newsPosts.js';
+import {
+  cleanCaptionMarker,
+  extractQuoteBlockData,
+  groupSequentialBlocks,
+  isQuestionHeadingNode,
+  isWebflowQuoteGraphic,
+  parseListFeatureItems,
+  parseNewsMarkdownBlocks,
+  resolveMediaUrl,
+} from '../../utils/newsMarkdown.js';
 
-const STORAGE_POSTS_KEY = 'kb2-news-posts-v2';
 const STORAGE_META_KEY = 'kb2-news-meta-v1';
 const PAGE_SIZE = 9;
 const REACTION_EMOJIS = ['🔥', '👏', '💡', '❤️'];
 
 const CAT_BY_ID = new Map(NEWS_CATEGORIES.map((c) => [c.id, c]));
 
-const BENTO_STAT_PHOTO =
-  'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6aea0c2220759e2d23282937_1900Broadway.jpg';
-const BENTO_WIDE_PHOTO =
-  'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6ab23b06b375f7dd6e146ffe_exterior_-_front_sunset.1600x0%20(1).webp';
-
-function findCleanBackdrop(post) {
+function findCleanBackdrop(post, imgs = {}) {
   const htmlStr = String((post && post.bodyHtml) || '');
-  const imgs = [
+  const figImgs = [
     ...htmlStr.matchAll(
       /<figure[^>]*>[\s\S]*?<img[^>]+src="([^"]+)"[^>]*>(?:<figcaption>([\s\S]*?)<\/figcaption>)?/gi
     ),
   ];
-  const slideHit = imgs.find((m) => /slide-/i.test(m[2] || '') && !/Screenshot/i.test(m[1] || ''));
+  const slideHit = figImgs.find((m) => /slide-/i.test(m[2] || '') && !/Screenshot/i.test(m[1] || ''));
   if (slideHit && slideHit[1]) return { src: slideHit[1], isCleanPhoto: true };
 
-  const cleanHit = imgs.find((m) => {
+  const cleanHit = figImgs.find((m) => {
     const src = m[1] || '';
     const cap = m[2] || '';
     return (
@@ -42,12 +46,12 @@ function findCleanBackdrop(post) {
   });
   if (cleanHit && cleanHit[1]) return { src: cleanHit[1], isCleanPhoto: true };
 
-  return { src: (post && post.cover) || '', isCleanPhoto: false };
+  return { src: resolveMediaUrl((post && post.cover) || '', imgs), isCleanPhoto: false };
 }
 
-function resolveHeroBackdrop(post) {
-  const hit = findCleanBackdrop(post);
-  return hit.src || (post && post.cover) || BENTO_WIDE_PHOTO;
+function resolveHeroBackdrop(post, imgs = {}) {
+  const hit = findCleanBackdrop(post, imgs);
+  return hit.src || resolveMediaUrl((post && post.cover) || '', imgs) || BENTO_WIDE_PHOTO;
 }
 
 function parseReadMinutes(readTime) {
@@ -61,53 +65,6 @@ function getPageNumbers(current, total) {
   if (current >= total - 3) return [1, '…', total - 4, total - 3, total - 2, total - 1, total];
   return [1, '…', current - 1, current, current + 1, '…', total];
 }
-
-const QUICK_UPDATE_SEEDS = [
-  {
-    id: 'news-update-naming-137',
-    kind: 'update',
-    category: 'technical',
-    title: '13-Slot Wall & Soffit Naming Standard (#137) is now live in Naming Studio',
-    summary:
-      'All C10_INTERIOR partition types and soffit drops must use the unified 13-slot naming pattern. Validate or generate compliant Revit type names directly in Wall Naming Studio.',
-    codeSnippet: 'C1010_I-GWB_2L-362S16OC-2L_1HR_STC50',
-    cover: BENTO_STAT_PHOTO,
-    accentColor: '#8e5cf7',
-    readTime: 'Standard #137',
-    date: TODAY,
-    author: 'Andrii Lytvynov',
-    dept: 'VDC',
-    project: 'C10_INTERIOR',
-    featured: false,
-    pinned: true,
-    linkedDocIds: [137, 100],
-    tags: ['VDC', 'Naming', 'C10_INTERIOR'],
-    bodyHtml:
-      '<p>All <strong>C10_INTERIOR</strong> partition types and soffit drops should follow the unified 13-slot naming standard before CL-RFI export.</p><p>Use <strong>Naming Studio</strong> from the workspace sidebar or Datum AI quick actions to validate existing Revit type names or assemble new ones with zero typos.</p>',
-  },
-  {
-    id: 'news-update-planit-knows',
-    kind: 'update',
-    category: 'company',
-    title: 'Planit Knows stories have moved natively into Datum Newsfeed',
-    summary:
-      'All company stories, Behind the Project case studies, automation updates, and People & Inside interviews are now searchable inside Datum and linked directly to our standards.',
-    codeSnippet: '',
-    cover: BENTO_WIDE_PHOTO,
-    accentColor: '#30d158',
-    readTime: '1 min',
-    date: TODAY,
-    author: 'Maxim',
-    dept: 'VDC',
-    project: 'General',
-    featured: false,
-    pinned: false,
-    linkedDocIds: [100, 102],
-    tags: ['Newsfeed', 'Datum'],
-    bodyHtml:
-      '<p>We retired external Webflow CMS hosting and brought all <strong>Planit Knows</strong> editorial stories directly into Datum.</p><p>You can now filter by rubric, search with Datum AI, link articles to standards, post quick team updates, and save insights straight to your Second Brain notes or tasks.</p>',
-  },
-];
 
 function extractDocCover(doc, imgs = {}) {
   if (!doc) return '';
@@ -152,142 +109,22 @@ function getDocDiffInfo(doc) {
   };
 }
 
-function cleanCaptionText(raw) {
-  return String(raw || '')
-    .replace(/\[(single|slide-[^\]]+|comment-[^\]]+|video)\]/gi, '')
-    .replace(/\u200d|\u00a0/g, ' ')
-    .replace(/^\s*\|\s*/, '')
-    .trim();
-}
-
-function parseQuoteBlock(bqEl, pendingPhoto) {
-  const rawHtml = bqEl.innerHTML || '';
-  const text = (bqEl.textContent || '').replace(/\u200d|\u00a0/g, ' ').trim();
-  const isAccent = /\[comment-accent\]/i.test(text);
-  const isPhotoMarker = /\[comment-photo[^\]]*\]/i.test(text);
-  const isBasicMarker = /\[comment-basic\]/i.test(text);
-
-  let workingHtml = rawHtml
-    .replace(/\[(comment-(?:accent|basic|photo[^\]]*))\]\s*/gi, '')
-    .replace(/\u200d|\u00a0/g, ' ')
-    .trim();
-
-  let authorName = '';
-  let authorRole = '';
-
-  const splitNameRole = (sig) => {
-    const cleanSig = String(sig || '').replace(/\s+/g, ' ').trim();
-    const commaIdx = cleanSig.indexOf(',');
-    if (commaIdx > 0 && commaIdx < cleanSig.length - 1) {
-      return [cleanSig.slice(0, commaIdx).trim(), cleanSig.slice(commaIdx + 1).trim()];
-    }
-    return [cleanSig, ''];
-  };
-
-  const pipeMatch = workingHtml.match(/^\s*([^<\n|]{2,60})\|\s*([^<\n]{2,60})(?:<br\s*\/?>|\n)+([\s\S]+)$/i);
-  if (pipeMatch && (isAccent || isPhotoMarker || isBasicMarker)) {
-    authorName = pipeMatch[1].replace(/<[^>]+>/g, '').trim();
-    authorRole = pipeMatch[2].replace(/<[^>]+>/g, '').trim();
-    workingHtml = pipeMatch[3].trim();
-  }
-
-  // Handle "• Author Name •" even when Webflow split <em>/<strong> tags across the bullets
-  if (!authorName) {
-    const lastBrIdx = Math.max(workingHtml.lastIndexOf('<br>'), workingHtml.lastIndexOf('<br/>'), workingHtml.lastIndexOf('<br />'));
-    if (lastBrIdx >= 0) {
-      const tailRaw = workingHtml.slice(lastBrIdx).replace(/<br\s*\/?>/gi, '');
-      const tailPlain = tailRaw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
-      const bm = tailPlain.match(/^•\s*([^•]{2,72}?)\s*•$/);
-      if (bm) {
-        [authorName, authorRole] = splitNameRole(bm[1]);
-        workingHtml = workingHtml.slice(0, lastBrIdx).trim();
-      }
-    }
-  }
-
-  if (!authorName) {
-    const subAttr = workingHtml.match(/([\s\S]*?)<sub>([\s\S]+?)<\/sub>(?:<\/(?:strong|em|b|i)>|\s)*$/i);
-    if (subAttr) {
-      workingHtml = subAttr[1].replace(/(?:<\/(?:strong|em|b|i)>|<br\s*\/?>|\s)+$/gi, '').trim();
-      [authorName, authorRole] = splitNameRole(subAttr[2].replace(/<[^>]+>/g, ''));
-    }
-  }
-
-  if (!authorName) {
-    const tailStrong = workingHtml.match(
-      /^([\s\S]*?)(?:<\/?(?:em|i|strong|b)>\s*)*(?:<br\s*\/?>\s*)+(?:<\/?(?:em|i|strong|b)>\s*)*<(?:strong|b)[^>]*>(?:\s*<(?:em|i)[^>]*>)*\s*([^<]{2,64}?)\s*(?:<\/(?:em|i)>\s*)*<\/(?:strong|b)>(?:\s|<\/(?:em|i|p)>)*$/i
-    );
-    if (tailStrong) {
-      const candidate = tailStrong[2].replace(/\s+/g, ' ').trim();
-      if (candidate && candidate.split(/\s+/).length <= 6 && !/[.!?)]$/.test(candidate)) {
-        [authorName, authorRole] = splitNameRole(candidate);
-        workingHtml = tailStrong[1].trim();
-      }
-    }
-  }
-
-  if (!authorName) {
-    const dashAttr = workingHtml.match(
-      /^([\s\S]*?)(?:<br\s*\/?>\s*)+(?:<(?:strong|em|b|i)[^>]*>)*\s*[-–—]\s*([^<\n-]{2,48}?)\s*[-–—]\s*(?:<\/(?:strong|em|b|i)>|\s)*$/i
-    );
-    if (dashAttr) {
-      workingHtml = dashAttr[1].trim();
-      [authorName, authorRole] = splitNameRole(dashAttr[2]);
-    }
-  }
-
-  workingHtml = workingHtml
-    .replace(/^(?:<\/?(?:em|i)>|<br\s*\/?>|\s)+/gi, '')
-    .replace(/(?:<\/?(?:em|i)>|<br\s*\/?>|\s)+$/gi, '');
-
-  let paragraphs = [];
-  if (/<p[\s>]/i.test(workingHtml)) {
-    const tmpDoc = typeof DOMParser !== 'undefined' ? new DOMParser().parseFromString(workingHtml, 'text/html') : null;
-    if (tmpDoc) {
-      paragraphs = Array.from(tmpDoc.body.children)
-        .map((el) => sanitizeNodeForProse(el).trim())
-        .filter(Boolean);
-    }
-  }
-  if (!paragraphs.length) {
-    paragraphs = workingHtml
-      .split(/(?:<br\s*\/?>\s*){2,}/i)
-      .map((chunk) =>
-        chunk
-          .replace(/^(?:<\/?(?:em|i)>|<br\s*\/?>|\s)+/gi, '')
-          .replace(/(?:<\/?(?:em|i)>|<br\s*\/?>|\s)+$/gi, '')
-          .trim()
-      )
-      .filter(Boolean)
-      .map((chunk) => {
-        // Strip unmatched stray leading/trailing inline <em> if balanced wrap was cut across <br><br>
-        const cleaned = chunk.replace(/<\/?em>/gi, (tag, off, str) => {
-          const opens = (str.match(/<em[^>]*>/gi) || []).length;
-          const closes = (str.match(/<\/em>/gi) || []).length;
-          return opens === closes ? tag : '';
-        });
-        return `<p>${cleaned}</p>`;
-      });
-  }
-
-  const cleanBodyHtml = paragraphs.join('');
-  const plainText = cleanBodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const isPlaylistCard = /Spotify|Apple Music|YouTube Music/i.test(text);
-
-  return {
-    type: 'quote',
-    variant: isAccent ? 'accent' : pendingPhoto ? 'photo' : isPlaylistCard ? 'callout' : 'basic',
-    photoSrc: pendingPhoto || '',
-    authorName,
-    authorRole,
-    paragraphs,
-    plainLength: plainText.length,
-    bodyHtml: cleanBodyHtml,
-  };
-}
-
-function sanitizeNodeForProse(node) {
+function serializeAnswerPara(node) {
+  const innerTxt = (node.textContent || '').replace(/\u200d|\u00a0/g, ' ').trim();
+  if (!innerTxt && !node.querySelector('img, iframe, a')) return '';
+  const trimmedChildNodes = Array.from(node.childNodes).filter(
+    (n) => !(n.nodeType === 3 && !n.textContent.replace(/\u200d|\u00a0/g, '').trim())
+  );
   const clone = node.cloneNode(true);
+  if (
+    trimmedChildNodes.length === 1 &&
+    trimmedChildNodes[0].nodeType === 1 &&
+    /^(em|i)$/i.test(trimmedChildNodes[0].tagName) &&
+    !(innerTxt.length < 60 && /^[-–—]/.test(innerTxt))
+  ) {
+    const onlyEm = Array.from(clone.children).find((c) => /^(em|i)$/i.test(c.tagName));
+    if (onlyEm) clone.innerHTML = onlyEm.innerHTML;
+  }
   clone.querySelectorAll &&
     clone.querySelectorAll('a').forEach((a) => {
       const href = a.getAttribute('href') || '';
@@ -299,98 +136,35 @@ function sanitizeNodeForProse(node) {
   return clone.outerHTML || '';
 }
 
-function parseListFeatureBlock(ulNode) {
-  if (!ulNode || ulNode.querySelector('ul, ol')) return null;
-  const lis = Array.from(ulNode.children).filter((el) => el.tagName && el.tagName.toLowerCase() === 'li');
-  if (lis.length < 2 || lis.length > 8) return null;
-
-  const items = lis.map((li) => {
-    const clone = li.cloneNode(true);
-    clone.querySelectorAll &&
-      clone.querySelectorAll('a').forEach((a) => {
-        const href = a.getAttribute('href') || '';
-        if (/^https?:/i.test(href) || /^mailto:/i.test(href)) {
-          a.setAttribute('target', '_blank');
-          a.setAttribute('rel', 'noopener noreferrer');
-        }
-      });
-
-    let title = '';
-    const firstEl = clone.firstElementChild;
-    const onlyWhitespaceBefore =
-      firstEl &&
-      (!firstEl.previousSibling ||
-        (firstEl.previousSibling.nodeType === 3 && !firstEl.previousSibling.textContent.trim()));
-    if (
-      firstEl &&
-      onlyWhitespaceBefore &&
-      /^(strong|b)$/i.test(firstEl.tagName)
-    ) {
-      title = (firstEl.textContent || '').replace(/\u200d|\u00a0/g, ' ').replace(/[:\s]+$/, '').trim();
-      firstEl.remove();
-    }
-
-    let bodyHtml = (clone.innerHTML || '')
-      .replace(/\u200d|\u00a0/g, ' ')
-      .replace(/^\s*(?:[:—–-]+\s*)+/, '')
-      .replace(/;\s*$/, '')
-      .trim();
-
-    return { title, bodyHtml };
-  });
-
-  const titledCount = items.filter((it) => Boolean(it.title)).length;
-  const maxPlainLen = Math.max(...items.map((it) => `${it.title} ${it.bodyHtml}`.replace(/<[^>]+>/g, '').length));
-  if (titledCount >= 2 || (lis.length <= 6 && maxPlainLen <= 190)) {
-    return { type: 'featureList', items };
+export function parseArticleBlocks(htmlStr = '', opts = {}) {
+  const mdBody = String((opts && opts.bodyMarkdown) || '').trim();
+  const imgs = (opts && opts.imgs) || {};
+  if (mdBody) {
+    return parseNewsMarkdownBlocks(mdBody, imgs);
   }
-  return null;
-}
-
-export function parseArticleBlocks(htmlStr = '') {
   const raw = String(htmlStr || '').trim();
   if (!raw) return [];
   if (!/<[a-z][\s\S]*>/i.test(raw)) {
-    const parts = raw
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter(Boolean);
-    return parts.map((p) => {
-      if (p.startsWith('>')) {
-        const cleaned = p.replace(/^>\s*/gm, '');
-        const paras = cleaned.split(/\n+/).filter(Boolean).map((x) => `<p>${x}</p>`);
-        return {
-          type: 'quote',
-          variant: 'accent',
-          photoSrc: '',
-          authorName: '',
-          authorRole: '',
-          paragraphs: paras,
-          plainLength: cleaned.length,
-          bodyHtml: paras.join(''),
-        };
-      }
-      return { type: 'html', html: `<p>${p.replace(/\n/g, '<br>')}</p>` };
-    });
+    return parseNewsMarkdownBlocks(raw, imgs);
   }
   if (typeof DOMParser === 'undefined') {
     return [{ type: 'html', html: raw }];
   }
 
   const doc = new DOMParser().parseFromString(raw, 'text/html');
-  const blocks = [];
+  const rawBlocks = [];
   let htmlBuf = [];
   let pendingCommentPhoto = '';
 
-  const flushHtml = () => {
+  const flushProse = () => {
     const joined = htmlBuf.join('').trim();
     htmlBuf = [];
-    if (joined) blocks.push({ type: 'html', html: joined });
+    if (joined) rawBlocks.push({ type: 'prose', html: joined });
   };
 
   const flushPendingPhotoIfUnused = () => {
     if (pendingCommentPhoto) {
-      blocks.push({ type: 'image', src: pendingCommentPhoto, caption: '' });
+      rawBlocks.push({ type: 'image', src: pendingCommentPhoto, caption: '' });
       pendingCommentPhoto = '';
     }
   };
@@ -412,9 +186,9 @@ export function parseArticleBlocks(htmlStr = '') {
     if (tag === 'figure') {
       const iframe = node.querySelector('iframe');
       if (iframe && iframe.getAttribute('src')) {
-        flushHtml();
+        flushProse();
         flushPendingPhotoIfUnused();
-        blocks.push({
+        rawBlocks.push({
           type: 'video',
           embedUrl: iframe.getAttribute('src'),
           title: iframe.getAttribute('title') || 'Video',
@@ -425,11 +199,13 @@ export function parseArticleBlocks(htmlStr = '') {
       const img = node.querySelector('img');
       if (img && img.getAttribute('src')) {
         const src = img.getAttribute('src');
+        if (isWebflowQuoteGraphic(src)) continue;
+
         const capEl = node.querySelector('figcaption');
         const capText = capEl ? (capEl.textContent || '').trim() : '';
 
         if (/\[comment-photo[^\]]*\]/i.test(capText)) {
-          flushHtml();
+          flushProse();
           flushPendingPhotoIfUnused();
           pendingCommentPhoto = src;
           continue;
@@ -437,15 +213,15 @@ export function parseArticleBlocks(htmlStr = '') {
 
         const slideMatch = capText.match(/\[(slide-[^\]]+)\]/i);
         if (slideMatch) {
-          flushHtml();
+          flushProse();
           flushPendingPhotoIfUnused();
           const groupKey = slideMatch[1].toLowerCase();
-          const caption = cleanCaptionText(capText);
-          const prev = blocks[blocks.length - 1];
+          const caption = cleanCaptionMarker(capText);
+          const prev = rawBlocks[rawBlocks.length - 1];
           if (prev && prev.type === 'carousel' && prev.group === groupKey) {
             prev.slides.push({ src, caption });
           } else {
-            blocks.push({
+            rawBlocks.push({
               type: 'carousel',
               group: groupKey,
               slides: [{ src, caption }],
@@ -455,122 +231,111 @@ export function parseArticleBlocks(htmlStr = '') {
         }
 
         if (/\[video\]/i.test(capText) || node.getAttribute('data-video-url')) {
-          flushHtml();
+          flushProse();
           flushPendingPhotoIfUnused();
           const capLink = capEl && capEl.querySelector('a');
           const urlFromText = (capText.match(/https?:\/\/\S+/) || [])[0] || '';
           const videoUrl = node.getAttribute('data-video-url') || (capLink && capLink.getAttribute('href')) || urlFromText;
-          let caption = cleanCaptionText(capText);
+          let caption = cleanCaptionMarker(capText);
           if (videoUrl) caption = caption.replace(videoUrl, '').replace(/^\s*\|\s*/, '').trim();
-          blocks.push({ type: 'videoLink', url: videoUrl, poster: src, caption });
+          rawBlocks.push({ type: 'videoLink', url: videoUrl, poster: src, caption });
           continue;
         }
 
-        flushHtml();
+        flushProse();
         flushPendingPhotoIfUnused();
-        blocks.push({
+        rawBlocks.push({
           type: 'image',
           src,
-          caption: cleanCaptionText(capText),
+          caption: cleanCaptionMarker(capText),
         });
         continue;
       }
     }
 
     if (tag === 'blockquote') {
-      flushHtml();
-      const qBlock = parseQuoteBlock(node, pendingCommentPhoto);
+      flushProse();
+      const qBlock = extractQuoteBlockData(node, pendingCommentPhoto);
       pendingCommentPhoto = '';
-      blocks.push(qBlock);
+      rawBlocks.push(qBlock);
       continue;
     }
 
     if (tag === 'ul') {
-      const feat = parseListFeatureBlock(node);
+      const feat = parseListFeatureItems(node);
       if (feat) {
-        flushHtml();
+        flushProse();
         flushPendingPhotoIfUnused();
-        blocks.push(feat);
+        rawBlocks.push(feat);
         continue;
       }
     }
 
-    if (tag === 'h2' || tag === 'h3' || tag === 'h4' || tag === 'h5') {
-      const txt = (node.textContent || '').replace(/\u200d|\u00a0/g, ' ').trim();
-      const clone = node.cloneNode(true);
-      if (tag === 'h4' || tag === 'h5') {
-        if (/\?\s*$/.test(txt)) {
-          clone.className = (clone.className ? clone.className + ' ' : '') + 'nf-qa-question';
+    const headInfo = isQuestionHeadingNode(node);
+    if (headInfo) {
+      flushProse();
+      flushPendingPhotoIfUnused();
+      if (headInfo.isQuestion) {
+        const paras = [];
+        let j = i + 1;
+        while (j < children.length) {
+          const nxt = children[j];
+          if (nxt.nodeType === 3) {
+            const nt = nxt.nodeValue.replace(/\u200d|\u00a0/g, ' ').trim();
+            if (nt) paras.push(`<p>${nt}</p>`);
+            j++;
+            continue;
+          }
+          if (nxt.nodeType !== 1) {
+            j++;
+            continue;
+          }
+          const nTag = nxt.tagName.toLowerCase();
+          if (nTag !== 'p' || isQuestionHeadingNode(nxt)) break;
+          const pHtml = serializeAnswerPara(nxt);
+          if (pHtml) paras.push(pHtml);
+          j++;
+        }
+        if (paras.length) {
+          const bodyHtml = paras.join('');
+          rawBlocks.push({
+            type: 'qa',
+            question: headInfo.text,
+            paragraphs: paras,
+            plainLength: bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().length,
+            bodyHtml,
+          });
+          i = j - 1;
+          continue;
         }
       }
-      flushPendingPhotoIfUnused();
-      htmlBuf.push(sanitizeNodeForProse(clone));
+      rawBlocks.push({
+        type: 'heading',
+        level: headInfo.level,
+        text: headInfo.text,
+        html: headInfo.text,
+        isQuestion: false,
+      });
       continue;
     }
 
     if (tag === 'p') {
-      const innerTxt = (node.textContent || '').replace(/\u200d|\u00a0/g, ' ').trim();
-      if (!innerTxt && !node.querySelector('img, iframe, a')) {
-        continue;
-      }
-
-      // Convert standalone bold prompt paragraphs ("⭐ What will be part of his new role?...") into crisp subheadings
-      const trimmedChildNodes = Array.from(node.childNodes).filter(
-        (n) => !(n.nodeType === 3 && !n.textContent.replace(/\u200d|\u00a0/g, '').trim())
-      );
-      if (
-        trimmedChildNodes.length === 1 &&
-        trimmedChildNodes[0].nodeType === 1 &&
-        /^(strong|b)$/i.test(trimmedChildNodes[0].tagName) &&
-        !node.querySelector('a') &&
-        innerTxt.length <= 130 &&
-        !/[.!]$/.test(innerTxt)
-      ) {
+      const pHtml = serializeAnswerPara(node);
+      if (pHtml) {
         flushPendingPhotoIfUnused();
-        htmlBuf.push(`<h3 class="nf-sec-subhead${/\?\s*$/.test(innerTxt) ? ' nf-qa-question' : ''}">${innerTxt}</h3>`);
-        continue;
+        htmlBuf.push(pHtml);
       }
-
-      // Unwrap full-paragraph italic answers ("<em>...</em>") into readable upright roman text
-      if (
-        trimmedChildNodes.length === 1 &&
-        trimmedChildNodes[0].nodeType === 1 &&
-        /^(em|i)$/i.test(trimmedChildNodes[0].tagName) &&
-        !(innerTxt.length < 60 && /^[-–—]/.test(innerTxt))
-      ) {
-        flushPendingPhotoIfUnused();
-        const innerClone = node.cloneNode(true);
-        const onlyEm = Array.from(innerClone.children).find((c) => /^(em|i)$/i.test(c.tagName));
-        if (onlyEm) {
-          innerClone.innerHTML = onlyEm.innerHTML;
-        }
-        htmlBuf.push(sanitizeNodeForProse(innerClone));
-        continue;
-      }
+      continue;
     }
 
     flushPendingPhotoIfUnused();
-    htmlBuf.push(sanitizeNodeForProse(node));
+    htmlBuf.push(node.outerHTML || '');
   }
 
   flushPendingPhotoIfUnused();
-  flushHtml();
+  flushProse();
 
-  // Group consecutive quote blocks (2+) into a 2-column endorsement Bento grid
-  const grouped = [];
-  for (let i = 0; i < blocks.length; i++) {
-    if (blocks[i].type === 'quote') {
-      const run = [blocks[i]];
-      while (i + 1 < blocks.length && blocks[i + 1].type === 'quote') {
-        run.push(blocks[++i]);
-      }
-      if (run.length >= 2) grouped.push({ type: 'quoteGroup', quotes: run });
-      else grouped.push(run[0]);
-    } else {
-      grouped.push(blocks[i]);
-    }
-  }
-  return grouped;
+  return groupSequentialBlocks(rawBlocks);
 }
 
 function ArticleCarousel({ slides = [] }) {
@@ -662,12 +427,64 @@ function QuoteCard({ q, usersByName }) {
   </article>`;
 }
 
-function ArticleBlocksView({ htmlStr, imgs = {}, usersByName }) {
-  const blocks = useMemo(() => parseArticleBlocks(htmlStr), [htmlStr]);
+function QaCard({ qa }) {
+  const [expanded, setExpanded] = useState(false);
+  const paras = Array.isArray(qa.paragraphs) && qa.paragraphs.length ? qa.paragraphs : [qa.bodyHtml || ''];
+  const isLong = paras.length > 2 || (qa.plainLength || 0) > 520;
+  const shownHtml = isLong && !expanded ? paras.slice(0, 2).join('') : qa.bodyHtml || paras.join('');
+
+  return html`<article className="nf-qa-card">
+    <div className="nf-qa-head">
+      <span className="nf-qa-badge">${qa.index ? `Q${qa.index}` : 'Q'}</span>
+      <h4 className="nf-qa-title">${qa.question}</h4>
+    </div>
+
+    <div
+      className=${'nf-qa-body' + (isLong && !expanded && paras.length <= 2 ? ' is-clamped' : '')}
+      dangerouslySetInnerHTML=${{ __html: shownHtml }}
+    />
+
+    ${isLong &&
+    html`<button
+      type="button"
+      className="nf-quote-more"
+      aria-expanded=${expanded}
+      onClick=${() => setExpanded((v) => !v)}
+    >
+      ${expanded ? 'Show less ▴' : 'Read full answer ▾'}
+    </button>`}
+  </article>`;
+}
+
+export function ArticleBlocksView({ htmlStr = '', bodyMarkdown = '', imgs = {}, usersByName }) {
+  const blocks = useMemo(
+    () => parseArticleBlocks(htmlStr, { bodyMarkdown, imgs }),
+    [htmlStr, bodyMarkdown, imgs]
+  );
   return html`<div className="nf-article-blocks">
     ${blocks.map((blk, bIdx) => {
       if (blk.type === 'carousel') {
         return html`<${ArticleCarousel} key=${`car-${bIdx}`} slides=${blk.slides} />`;
+      }
+      if (blk.type === 'qa') {
+        return html`<${QaCard} key=${`qa-${bIdx}`} qa=${blk} />`;
+      }
+      if (blk.type === 'section') {
+        return html`<section key=${`sec-${bIdx}`} className="nf-section-card">
+          ${blk.heading &&
+          html`<div className="nf-section-head">
+            ${blk.index > 0 && html`<span className="nf-section-num">${String(blk.index).padStart(2, '0')}</span>`}
+            <h3 className="nf-section-title">${blk.heading}</h3>
+          </div>`}
+          <div className="nf-section-body" dangerouslySetInnerHTML=${{ __html: blk.bodyHtml }} />
+        </section>`;
+      }
+      if (blk.type === 'callout') {
+        const title = blk.variant === 'tip' ? 'Tip' : blk.variant === 'warn' ? 'Warning' : 'Note';
+        return html`<div key=${`cal-${bIdx}`} className=${'nf-callout-card is-' + (blk.variant || 'note')}>
+          <b>${title}</b>
+          <div dangerouslySetInnerHTML=${{ __html: blk.bodyHtml }} />
+        </div>`;
       }
       if (blk.type === 'featureList') {
         return html`<div key=${`fl-${bIdx}`} className="nf-feature-grid">
@@ -717,7 +534,7 @@ function ArticleBlocksView({ htmlStr, imgs = {}, usersByName }) {
         </a>`;
       }
       if (blk.type === 'image') {
-        const resolved = blk.src.startsWith('img:') ? imgs[blk.src.slice(4)] || '' : blk.src;
+        const resolved = resolveMediaUrl(blk.src, imgs);
         if (!resolved) return null;
         return html`<figure key=${`img-${bIdx}`} className="nf-figure">
           <img src=${resolved} alt=${blk.caption || 'Article image'} loading="lazy" />
@@ -754,15 +571,32 @@ function ArticleReaderModal({
 }) {
   const [draftComment, setDraftComment] = useState('');
   const [confirmDel, setConfirmDel] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [showStickyTitle, setShowStickyTitle] = useState(false);
   const [scrollPct, setScrollPct] = useState(0);
   const scrollRef = useRef(null);
+  const moreRef = useRef(null);
 
   useEffect(() => {
     setConfirmDel(false);
+    setMoreOpen(false);
+    setShowStickyTitle(false);
     setDraftComment('');
     setScrollPct(0);
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
   }, [post?.id]);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const onDocDown = (e) => {
+      if (moreRef.current && !moreRef.current.contains(e.target)) {
+        setMoreOpen(false);
+        setConfirmDel(false);
+      }
+    };
+    document.addEventListener('mousedown', onDocDown);
+    return () => document.removeEventListener('mousedown', onDocDown);
+  }, [moreOpen]);
 
   useEffect(() => {
     if (!post) return undefined;
@@ -770,12 +604,17 @@ function ArticleReaderModal({
       if (e.key === 'Escape') {
         e.stopPropagation();
         e.preventDefault();
-        onClose && onClose();
+        if (moreOpen) {
+          setMoreOpen(false);
+          setConfirmDel(false);
+        } else {
+          onClose && onClose();
+        }
       }
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [post?.id, onClose]);
+  }, [post?.id, moreOpen, onClose]);
 
   const linkedDocs = useMemo(() => {
     if (!post || !Array.isArray(post.linkedDocIds)) return [];
@@ -792,9 +631,11 @@ function ArticleReaderModal({
   if (!post || typeof document === 'undefined') return null;
   const cat = CAT_BY_ID.get(post.category) || NEWS_CATEGORIES[3];
   const authorObj = usersByName.get(post.author) || null;
+  const hasMoreActions = Boolean((!isGuest && (onSaveToNote || onSaveToTask)) || (canEdit && (onEditPost || onDeletePost)));
 
   const handleReaderScroll = (e) => {
     const el = e.currentTarget;
+    setShowStickyTitle(el.scrollTop > 120);
     const max = el.scrollHeight - el.clientHeight;
     if (max <= 0) {
       setScrollPct(0);
@@ -826,8 +667,7 @@ function ArticleReaderModal({
               <${Ic} n="chev" s=${15} />
               <span>Back</span>
             </button>
-            <span className="nf-cat-pill" style=${{ '--cc': cat.color }}>${cat.label}</span>
-            ${post.readTime && html`<span className="nf-topbar-rt nf-hide-xs">${post.readTime} read</span>`}
+            <span className=${'nf-topbar-title' + (showStickyTitle ? ' is-visible' : '')}>${post.title}</span>
           </div>
 
           <div className="nf-topbar-acts">
@@ -841,54 +681,96 @@ function ArticleReaderModal({
               <${Ic} n="star" s=${13} f=${isSaved} />
               <span>${isSaved ? 'Saved' : 'Save'}</span>
             </button>`}
-            ${!isGuest &&
-            onSaveToNote &&
-            html`<button type="button" className="nf-topbar-btn nf-hide-xs" onClick=${() => onSaveToNote(post)}>
-              + Note
-            </button>`}
-            ${!isGuest &&
-            onSaveToTask &&
-            html`<button type="button" className="nf-topbar-btn nf-hide-xs" onClick=${() => onSaveToTask(post)}>
-              + Task
-            </button>`}
-            ${canEdit &&
-            onEditPost &&
-            html`<button
-              type="button"
-              className="nf-topbar-ico"
-              aria-label="Edit post"
-              title="Edit post"
-              onClick=${() => onEditPost(post)}
-            >
-              <${Ic} n="pencil" s=${14} />
-            </button>`}
-            ${canEdit &&
-            onDeletePost &&
-            html`<button
-              type="button"
-              className=${confirmDel ? 'nf-topbar-btn is-danger' : 'nf-topbar-ico'}
-              aria-label="Delete post"
-              title="Delete post"
-              onClick=${() => {
-                if (confirmDel) {
-                  onDeletePost(post.id);
-                  onClose && onClose();
-                } else {
-                  setConfirmDel(true);
-                }
-              }}
-            >
-              ${confirmDel ? html`<span>Confirm</span>` : html`<${Ic} n="trash" s=${14} />`}
-            </button>`}
-            <button
-              type="button"
-              className="nf-topbar-ico"
-              aria-label="Close article"
-              title="Close (Esc)"
-              onClick=${onClose}
-            >
-              <${Ic} n="x" s=${14} />
-            </button>
+            ${hasMoreActions &&
+            html`<div className="nf-more-wrap" ref=${moreRef}>
+              <button
+                type="button"
+                className="nf-topbar-ico"
+                aria-label="More actions"
+                title="More actions"
+                aria-expanded=${moreOpen}
+                aria-haspopup="menu"
+                onClick=${() => {
+                  setMoreOpen((v) => !v);
+                  setConfirmDel(false);
+                }}
+              >
+                <${Ic} n="more" s=${15} />
+              </button>
+              ${moreOpen &&
+              html`<div className="nf-more-pop" role="menu">
+                ${!isGuest &&
+                onSaveToNote &&
+                html`<button
+                  type="button"
+                  role="menuitem"
+                  className="nf-more-item"
+                  onClick=${() => {
+                    setMoreOpen(false);
+                    setConfirmDel(false);
+                    onSaveToNote(post);
+                  }}
+                >
+                  <${Ic} n="note" s=${14} />
+                  <span>Add to Notes</span>
+                </button>`}
+                ${!isGuest &&
+                onSaveToTask &&
+                html`<button
+                  type="button"
+                  role="menuitem"
+                  className="nf-more-item"
+                  onClick=${() => {
+                    setMoreOpen(false);
+                    setConfirmDel(false);
+                    onSaveToTask(post);
+                  }}
+                >
+                  <${Ic} n="check" s=${14} />
+                  <span>Create Task</span>
+                </button>`}
+                ${!isGuest &&
+                (onSaveToNote || onSaveToTask) &&
+                canEdit &&
+                (onEditPost || onDeletePost) &&
+                html`<div className="nf-more-sep" role="separator" />`}
+                ${canEdit &&
+                onEditPost &&
+                html`<button
+                  type="button"
+                  role="menuitem"
+                  className="nf-more-item"
+                  onClick=${() => {
+                    setMoreOpen(false);
+                    setConfirmDel(false);
+                    onEditPost(post);
+                  }}
+                >
+                  <${Ic} n="pencil" s=${14} />
+                  <span>Edit post</span>
+                </button>`}
+                ${canEdit &&
+                onDeletePost &&
+                html`<button
+                  type="button"
+                  role="menuitem"
+                  className=${'nf-more-item ' + (confirmDel ? 'is-confirm' : 'is-danger')}
+                  onClick=${() => {
+                    if (confirmDel) {
+                      setMoreOpen(false);
+                      setConfirmDel(false);
+                      onDeletePost(post.id);
+                      onClose && onClose();
+                    } else {
+                      setConfirmDel(true);
+                    }
+                  }}
+                >
+                  <${Ic} n="trash" s=${14} />
+                  <span>${confirmDel ? 'Confirm delete' : 'Delete post'}</span>
+                </button>`}
+              </div>`}
+            </div>`}
           </div>
 
           <div className="nf-reader-progress" aria-hidden="true">
@@ -901,22 +783,27 @@ function ArticleReaderModal({
             <header className="nf-reader-head">
               <div className="nf-reader-eyebrow">
                 <span className="nf-cat-pill" style=${{ '--cc': cat.color }}>${cat.label}</span>
+                ${post.status === 'Draft' && html`<span className="pill" style=${{ '--c': '#ff9f0a' }}>Draft</span>`}
                 <span>${post.date ? fmt(post.date) : ''}${post.readTime ? ` • ${post.readTime} read` : ''}</span>
               </div>
-              <h1>${post.title}</h1>
+              <h1>${post.title || 'Untitled post'}</h1>
               ${post.summary && html`<p className="nf-reader-lead">${post.summary}</p>`}
               <div className="nf-reader-byline">
                 <${Avatar} user=${authorObj} name=${post.author || 'Planit Team'} size="sm" />
                 <span><strong>${post.author || 'Planit Team'}</strong></span>
                 <span>·</span>
-                <span>${post.dept || 'Planit'}${post.project && post.project !== 'General' ? ` · ${post.project}` : ''}</span>
+                <span>${post.dept || 'VDC'}${post.project && post.project !== 'General' ? ` · ${post.project}` : ''}</span>
               </div>
             </header>
 
-            ${post.cover &&
-            html`<figure className="nf-reader-cover-frame">
-              <img src=${post.cover} alt=${post.title} />
-            </figure>`}
+            ${(() => {
+              const postCover = resolveMediaUrl(post.cover, imgs);
+              return postCover
+                ? html`<figure className="nf-reader-cover-frame">
+                    <img src=${postCover} alt=${post.title} />
+                  </figure>`
+                : null;
+            })()}
 
             <div className="nf-reader-measure">
               ${post.codeSnippet &&
@@ -924,7 +811,12 @@ function ArticleReaderModal({
                 <code>${post.codeSnippet}</code>
               </div>`}
 
-              <${ArticleBlocksView} htmlStr=${post.bodyHtml} imgs=${imgs} usersByName=${usersByName} />
+              <${ArticleBlocksView}
+                htmlStr=${post.bodyHtml || ''}
+                bodyMarkdown=${post.body || ''}
+                imgs=${imgs}
+                usersByName=${usersByName}
+              />
 
               ${linkedDocs.length > 0 &&
               html`<section className="nf-connected-sec" aria-label="Connected Standards in Datum">
@@ -1026,277 +918,29 @@ function ArticleReaderModal({
               html`<section className="nf-related-sec">
                 <div className="nf-sec-lbl">More in ${cat.label}</div>
                 <div className="nf-related-grid">
-                  ${relatedPosts.map(
-                    (rp) => html`<button
+                  ${relatedPosts.map((rp) => {
+                    const rpCover = resolveMediaUrl(rp.cover, imgs);
+                    return html`<button
                       key=${rp.id}
                       type="button"
                       className="nf-rel-card"
                       onClick=${() => onSelectPost && onSelectPost(rp)}
                     >
-                      ${rp.cover
-                        ? html`<img src=${rp.cover} alt=${rp.title} loading="lazy" />`
+                      ${rpCover
+                        ? html`<img src=${rpCover} alt=${rp.title} loading="lazy" />`
                         : html`<div className="nf-rel-fallback" style=${{ '--cc': cat.color }}><${DatumMark} s=${18} /></div>`}
                       <div className="nf-rel-info">
                         <b>${rp.title}</b>
                         <small>${rp.date ? fmt(rp.date) : ''} · ${rp.readTime || '2 min'}</small>
                       </div>
-                    </button>`
-                  )}
+                    </button>`;
+                  })}
                 </div>
               </section>`}
             </div>
           </div>
         </div>
       </article>
-    </div>`,
-    document.body
-  );
-}
-
-function NewsComposerModal({
-  open,
-  initialPost = null,
-  docs = [],
-  projects = [],
-  onClose,
-  onSave,
-}) {
-  const [kind, setKind] = useState('article');
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('technical');
-  const [summary, setSummary] = useState('');
-  const [cover, setCover] = useState('');
-  const [readTime, setReadTime] = useState('2 min');
-  const [project, setProject] = useState('General');
-  const [linkedDocId, setLinkedDocId] = useState('');
-  const [codeSnippet, setCodeSnippet] = useState('');
-  const [bodyText, setBodyText] = useState('');
-  const [featured, setFeatured] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    if (initialPost) {
-      setKind(initialPost.kind || 'article');
-      setTitle(initialPost.title || '');
-      setCategory(initialPost.category || 'technical');
-      setSummary(initialPost.summary || '');
-      setCover(initialPost.cover || '');
-      setReadTime(initialPost.readTime || '2 min');
-      setProject(initialPost.project || 'General');
-      setLinkedDocId(initialPost.linkedDocIds && initialPost.linkedDocIds[0] ? String(initialPost.linkedDocIds[0]) : '');
-      setCodeSnippet(initialPost.codeSnippet || '');
-      setBodyText(plain(initialPost.bodyHtml || ''));
-      setFeatured(Boolean(initialPost.featured));
-    } else {
-      setKind('article');
-      setTitle('');
-      setCategory('technical');
-      setSummary('');
-      setCover('');
-      setReadTime('2 min');
-      setProject('General');
-      setLinkedDocId('');
-      setCodeSnippet('');
-      setBodyText('');
-      setFeatured(false);
-    }
-  }, [open, initialPost]);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKey = (e) => {
-      if (e.key === 'Escape') {
-        if (document.querySelector('.asel-menu')) return;
-        e.stopPropagation();
-        e.preventDefault();
-        onClose && onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [open, onClose]);
-
-  if (!open || typeof document === 'undefined') return null;
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const cleanTitle = title.trim();
-    if (!cleanTitle) return;
-    const paragraphs = bodyText
-      .split(/\n{2,}/)
-      .map((p) => p.trim())
-      .filter(Boolean)
-      .map((p) =>
-        p.startsWith('>')
-          ? `<blockquote>${p.replace(/^>\s*/gm, '').replace(/\n/g, '<br>')}</blockquote>`
-          : `<p>${p.replace(/\n/g, '<br>')}</p>`
-      )
-      .join('');
-
-    onSave &&
-      onSave({
-        ...(initialPost || {}),
-        id: (initialPost && initialPost.id) || `news-custom-${Date.now().toString(36)}`,
-        kind,
-        title: cleanTitle,
-        category,
-        summary: summary.trim() || bodyText.trim().slice(0, 140),
-        cover: cover.trim(),
-        readTime: kind === 'update' ? 'Quick update' : readTime.trim() || '2 min',
-        project: project || 'General',
-        codeSnippet: codeSnippet.trim(),
-        featured,
-        linkedDocIds: linkedDocId ? [Number(linkedDocId)] : [],
-        date: (initialPost && initialPost.date) || TODAY,
-        bodyHtml: paragraphs || `<p>${summary.trim() || cleanTitle}</p>`,
-      });
-    onClose && onClose();
-  };
-
-  return createPortal(
-    html`<div
-      className="qc-ov"
-      role="dialog"
-      aria-modal="true"
-      aria-label=${initialPost ? 'Edit Newsfeed post' : 'Create Newsfeed post'}
-      onClick=${(e) => {
-        if (e.target === e.currentTarget) onClose && onClose();
-      }}
-    >
-      <form className="qc-sheet nf-comp-sheet" onSubmit=${handleSubmit}>
-        <div className="qc-sh">
-          <button type="button" className="qc-sh-cancel" onClick=${onClose}>Cancel</button>
-          <b>${initialPost ? 'Edit Post' : 'New Post'}</b>
-          <button type="submit" className="btn sm p qc-sh-save" disabled=${!title.trim()}>
-            ${initialPost ? 'Save' : 'Publish'}
-          </button>
-        </div>
-
-        <div className="seg" role="tablist" aria-label="Post type">
-          <button
-            type="button"
-            className=${kind === 'article' ? 'on' : ''}
-            onClick=${() => setKind('article')}
-          >
-            Article / Story
-          </button>
-          <button
-            type="button"
-            className=${kind === 'update' ? 'on' : ''}
-            onClick=${() => setKind('update')}
-          >
-            Quick Team Update
-          </button>
-        </div>
-
-        <div className="qc-cell">
-          <input
-            type="text"
-            placeholder="Headline…"
-            value=${title}
-            onChange=${(e) => setTitle(e.target.value)}
-            required
-          />
-          <textarea
-            rows="2"
-            placeholder="Short summary for the Newsfeed card…"
-            value=${summary}
-            onChange=${(e) => setSummary(e.target.value)}
-          />
-        </div>
-
-        <div className="qc-cell">
-          <div className="qc-row">
-            <span className="qc-row-lbl">Category</span>
-            <${Select}
-              variant="inline"
-              ariaLabel="News category"
-              value=${category}
-              options=${NEWS_CATEGORIES.map((c) => [c.id, c.label])}
-              onChange=${setCategory}
-            />
-          </div>
-          <div className="qc-row">
-            <span className="qc-row-lbl">Connected standard</span>
-            <${Select}
-              variant="inline"
-              ariaLabel="Connected Datum standard"
-              placeholder="None"
-              value=${linkedDocId}
-              options=${[['', 'None'], ...docs.filter((d) => d && d.title).slice(0, 40).map((d) => [String(d.id), `#${d.id} · ${d.title.slice(0, 38)}`])]}
-              minMenuWidth=${240}
-              onChange=${setLinkedDocId}
-            />
-          </div>
-          <div className="qc-row">
-            <span className="qc-row-lbl">Project tag</span>
-            <${Select}
-              variant="inline"
-              ariaLabel="Project tag"
-              value=${project}
-              options=${[
-                ['General', 'General'],
-                ['C10_INTERIOR', 'C10_INTERIOR'],
-                ...projects.filter((p) => p !== 'General' && p !== 'C10_INTERIOR').map((p) => [p, p]),
-              ]}
-              onChange=${setProject}
-            />
-          </div>
-          ${kind === 'article' &&
-          html`<div className="qc-row">
-            <span className="qc-row-lbl">Cover image URL</span>
-            <input
-              type="url"
-              placeholder="https://… (optional)"
-              value=${cover}
-              onChange=${(e) => setCover(e.target.value)}
-              style=${{ textAlign: 'right', flex: 1, padding: '4px 0' }}
-            />
-          </div>`}
-          ${kind === 'article' &&
-          html`<div className="qc-row">
-            <span className="qc-row-lbl">Read time</span>
-            <input
-              type="text"
-              placeholder="3 min"
-              value=${readTime}
-              onChange=${(e) => setReadTime(e.target.value)}
-              style=${{ textAlign: 'right', width: 90, padding: '4px 0' }}
-            />
-          </div>`}
-          <div className="qc-row">
-            <span className="qc-row-lbl">Pin as Featured</span>
-            <button
-              type="button"
-              className=${'kspace-mini-btn' + (featured ? ' on' : '')}
-              onClick=${() => setFeatured((v) => !v)}
-            >
-              ${featured ? 'Featured' : 'Standard'}
-            </button>
-          </div>
-        </div>
-
-        ${kind === 'update' &&
-        html`<div className="qc-cell">
-          <input
-            type="text"
-            placeholder="Code / naming pattern / parameter snippet (optional)…"
-            value=${codeSnippet}
-            onChange=${(e) => setCodeSnippet(e.target.value)}
-            style=${{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 12.5 }}
-          />
-        </div>`}
-
-        <div className="qc-cell">
-          <textarea
-            rows="6"
-            placeholder="Write your article paragraphs (prefix lines with > for quote cards)…"
-            value=${bodyText}
-            onChange=${(e) => setBodyText(e.target.value)}
-            style=${{ minHeight: 130 }}
-          />
-        </div>
-      </form>
     </div>`,
     document.body
   );
@@ -1312,6 +956,8 @@ export function NewsfeedView({
   isGuest = false,
   effectiveLayer = 'all',
   projectFilter = 'all',
+  projects = [],
+  onProjectFilterChange,
   externalQuery = '',
   activities = [],
   requiredIds = [],
@@ -1325,6 +971,9 @@ export function NewsfeedView({
   onSaveToNote,
   onSaveToTask,
   onOpenBrainSheet,
+  onCreateNewsPost,
+  onEditNewsPost,
+  onDeleteNewsPost,
   onSelectViewMode,
   flash,
 }) {
@@ -1332,16 +981,13 @@ export function NewsfeedView({
   const [heroIdx, setHeroIdx] = useState(0);
   const [authorFilter, setAuthorFilter] = useState('');
   const [sortBy, setSortBy] = useState('newest'); // 'newest' | 'featured' | 'readtime'
+  const [feedQuery, setFeedQuery] = useState('');
   const [page, setPage] = useState(1);
   const [readingPostId, setReadingPostId] = useState(null);
-  const [composerState, setComposerState] = useState(null);
   const [expandedDiffIds, setExpandedDiffIds] = useState(() => new Set());
   const [copiedCodeId, setCopiedCodeId] = useState(null);
   const gridTopRef = useRef(null);
 
-  const [postOverrides, setPostOverrides] = useState(() =>
-    db.load(STORAGE_POSTS_KEY, { custom: [], deletedIds: [] }) || { custom: [], deletedIds: [] }
-  );
   const [metaState, setMetaState] = useState(() =>
     db.load(STORAGE_META_KEY, { reactions: {}, savedIds: [], comments: {} }) || {
       reactions: {},
@@ -1351,34 +997,38 @@ export function NewsfeedView({
   );
 
   useEffect(() => {
-    db.save(STORAGE_POSTS_KEY, postOverrides);
-  }, [postOverrides]);
-
-  useEffect(() => {
     db.save(STORAGE_META_KEY, metaState);
   }, [metaState]);
 
   useEffect(() => {
     setPage(1);
-  }, [catTab, authorFilter, sortBy, effectiveLayer, projectFilter, externalQuery]);
+  }, [catTab, authorFilter, sortBy, effectiveLayer, projectFilter, externalQuery, feedQuery]);
 
   const docById = useMemo(() => new Map((docs || []).map((d) => [Number(d.id), d])), [docs]);
   const usersByName = useMemo(() => new Map((users || []).map((u) => [u.name, u])), [users]);
 
   const allNewsPosts = useMemo(() => {
-    const deleted = new Set(postOverrides.deletedIds || []);
-    const customMap = new Map((postOverrides.custom || []).map((p) => [p.id, p]));
-    const base = [...QUICK_UPDATE_SEEDS, ...SEED_NEWS_POSTS]
-      .filter((p) => !deleted.has(p.id))
-      .map((p) => (customMap.has(p.id) ? customMap.get(p.id) : p));
-    const extras = (postOverrides.custom || []).filter(
-      (p) => !deleted.has(p.id) && ![...QUICK_UPDATE_SEEDS, ...SEED_NEWS_POSTS].some((b) => b.id === p.id)
-    );
-    return [...extras, ...base].sort((a, b) => {
-      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-      return String(b.date || '').localeCompare(String(a.date || ''));
-    });
-  }, [postOverrides]);
+    return (docs || [])
+      .filter((d) => d && d.type === 'news' && !(isGuest && d.status !== 'Approved'))
+      .map((d) => ({
+        ...d,
+        category: d.feedCategory || d.category || 'company',
+        kind: d.feedKind || d.kind || 'article',
+        summary: d.desc !== undefined ? d.desc : d.summary || '',
+        date: d.upd || d.date || TODAY,
+        dept: d.disc || d.dept || 'VDC',
+        linkedDocIds: Array.isArray(d.linkedDocIds)
+          ? d.linkedDocIds
+          : Array.isArray(d.links)
+          ? d.links.map((l) => Number(Array.isArray(l) ? l[0] : l.to)).filter(Number.isFinite)
+          : [],
+        status: d.status === 'Approved' ? 'Published' : d.status || 'Draft',
+      }))
+      .sort((a, b) => {
+        if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+        return String(b.date || '').localeCompare(String(a.date || ''));
+      });
+  }, [docs, isGuest]);
 
   // Live Datum KB Pulse entries (Approved Standards, Scripts & Tools, Starter Kits, Team Activities)
   const kbPulseEntries = useMemo(() => {
@@ -1446,7 +1096,14 @@ export function NewsfeedView({
     return items.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   }, [docs, imgs, scriptLinks, activities, docById, userName]);
 
-  const savedSet = useMemo(() => new Set(metaState.savedIds || []), [metaState.savedIds]);
+  const favSet = useMemo(() => new Set((favs || []).map((x) => Number(x))), [favs]);
+  const legacySavedSet = useMemo(() => new Set(metaState.savedIds || []), [metaState.savedIds]);
+  const isPostSaved = (postOrId) => {
+    const obj = typeof postOrId === 'object' && postOrId !== null ? postOrId : allNewsPosts.find((x) => x.id === postOrId);
+    const idVal = obj ? obj.id : postOrId;
+    if (favSet.has(Number(idVal)) || legacySavedSet.has(idVal)) return true;
+    return Boolean(obj && obj.newsSeedKey && legacySavedSet.has(obj.newsSeedKey));
+  };
 
   const getReactionState = (post) => {
     const entry = (metaState.reactions && metaState.reactions[post.id]) || null;
@@ -1478,11 +1135,15 @@ export function NewsfeedView({
   };
 
   const toggleSavePost = (postId) => {
-    setMetaState((prev) => {
-      const cur = Array.isArray(prev.savedIds) ? prev.savedIds : [];
-      const next = cur.includes(postId) ? cur.filter((x) => x !== postId) : [postId, ...cur];
-      return { ...prev, savedIds: next };
-    });
+    if (onToggleFav && Number.isFinite(Number(postId))) {
+      onToggleFav(Number(postId));
+    } else {
+      setMetaState((prev) => {
+        const cur = Array.isArray(prev.savedIds) ? prev.savedIds : [];
+        const next = cur.includes(postId) ? cur.filter((x) => x !== postId) : [postId, ...cur];
+        return { ...prev, savedIds: next };
+      });
+    }
   };
 
   const addPostComment = (postId, text) => {
@@ -1497,39 +1158,7 @@ export function NewsfeedView({
     });
   };
 
-  const handleSaveCustomPost = (postObj) => {
-    const fullPost = {
-      ...postObj,
-      author: postObj.author || userName || 'Team',
-      dept: postObj.dept || 'VDC',
-    };
-    setPostOverrides((prev) => {
-      const rest = (prev.custom || []).filter((x) => x.id !== fullPost.id);
-      return {
-        ...prev,
-        custom: [fullPost, ...rest],
-        deletedIds: (prev.deletedIds || []).filter((id) => id !== fullPost.id),
-      };
-    });
-    flash && flash(postObj.id ? `Updated “${fullPost.title}”` : `Published “${fullPost.title}” to Newsfeed`);
-  };
-
-  const handleDeletePost = (postId) => {
-    setPostOverrides((prev) => ({
-      ...prev,
-      custom: (prev.custom || []).filter((x) => x.id !== postId),
-      deletedIds: [...new Set([...(prev.deletedIds || []), postId])],
-    }));
-    flash && flash('Post removed from Newsfeed');
-  };
-
-  const activeProjects = useMemo(() => {
-    const s = new Set(['C10_INTERIOR']);
-    allNewsPosts.forEach((p) => p.project && p.project !== 'General' && s.add(p.project));
-    return [...s].sort();
-  }, [allNewsPosts]);
-
-  const qTrim = String(externalQuery || '').trim();
+  const qTrim = String(feedQuery || externalQuery || '').trim();
   const qLow = qTrim.toLowerCase();
   const activeProjLow = projectFilter && projectFilter !== 'all' ? projectFilter.trim().toLowerCase() : '';
   const userLow = String(userName || '').trim().toLowerCase();
@@ -1538,7 +1167,7 @@ export function NewsfeedView({
     if (authorFilter && String(obj.author || '') !== authorFilter) return false;
     if (effectiveLayer === 'mine') {
       const isMineAuthor = userLow && String(obj.author || '').toLowerCase() === userLow;
-      const isSaved = obj.id && savedSet.has(obj.id);
+      const isSaved = obj.id && isPostSaved(obj);
       if (!isMineAuthor && !isSaved) return false;
     }
     if (activeProjLow) {
@@ -1546,7 +1175,7 @@ export function NewsfeedView({
       if (!hayProj.includes(activeProjLow)) return false;
     }
     if (qLow) {
-      const hayAll = `${obj.title || ''} ${obj.summary || ''} ${obj.author || ''} ${obj.category || ''} ${obj.disc || ''} ${(obj.tags || []).join(' ')} ${plain(obj.bodyHtml || '').slice(0, 2000)}`.toLowerCase();
+      const hayAll = `${obj.title || ''} ${obj.summary || ''} ${obj.author || ''} ${obj.category || ''} ${obj.disc || ''} ${(obj.tags || []).join(' ')} ${plain(obj.body || obj.bodyHtml || '').slice(0, 2000)}`.toLowerCase();
       if (!hayAll.includes(qLow)) return false;
     }
     return true;
@@ -1556,12 +1185,12 @@ export function NewsfeedView({
     return allNewsPosts
       .filter((p) => {
         if (catTab === 'pulse') return false;
-        if (catTab === 'saved') return savedSet.has(p.id);
+        if (catTab === 'saved') return isPostSaved(p);
         if (catTab !== 'all' && p.category !== catTab) return false;
         return true;
       })
       .filter(matchesText);
-  }, [allNewsPosts, catTab, savedSet, authorFilter, effectiveLayer, userLow, activeProjLow, qLow]);
+  }, [allNewsPosts, catTab, favSet, legacySavedSet, authorFilter, effectiveLayer, userLow, activeProjLow, qLow]);
 
   const filteredPulse = useMemo(() => {
     const quickUpdates = allNewsPosts
@@ -1591,10 +1220,12 @@ export function NewsfeedView({
 
   // Top 4 Hero Slides using clean, un-texted wide photography (Horizone Blog pattern)
   const featuredStories = useMemo(() => {
-    const pool = allNewsPosts.filter((p) => p.kind !== 'update' && (p.cover || findCleanBackdrop(p).isCleanPhoto));
+    const pool = allNewsPosts.filter(
+      (p) => p.status !== 'Draft' && p.kind !== 'update' && (p.cover || findCleanBackdrop(p, imgs).isCleanPhoto)
+    );
     const sorted = [...pool].sort((a, b) => {
-      const aClean = findCleanBackdrop(a).isCleanPhoto ? 1 : 0;
-      const bClean = findCleanBackdrop(b).isCleanPhoto ? 1 : 0;
+      const aClean = findCleanBackdrop(a, imgs).isCleanPhoto ? 1 : 0;
+      const bClean = findCleanBackdrop(b, imgs).isCleanPhoto ? 1 : 0;
       if (aClean !== bClean) return bClean - aClean;
       const aProj = a.category === 'projects' && a.featured ? 1 : 0;
       const bProj = b.category === 'projects' && b.featured ? 1 : 0;
@@ -1603,7 +1234,7 @@ export function NewsfeedView({
       return String(b.date || '').localeCompare(String(a.date || ''));
     });
     return sorted.slice(0, 4);
-  }, [allNewsPosts]);
+  }, [allNewsPosts, imgs]);
 
   const safeHeroIdx = featuredStories.length ? heroIdx % featuredStories.length : 0;
   const activeHeroPost = featuredStories[safeHeroIdx] || null;
@@ -1641,7 +1272,7 @@ export function NewsfeedView({
     [readingPostId, allNewsPosts]
   );
 
-  const canCreateOrEdit = role !== 'Guest' && !isGuest;
+  const canCreateOrEdit = !isGuest && can.createDraft(role);
 
   const goToPage = (nextPage) => {
     const clamped = Math.max(1, Math.min(nextPage, totalPages));
@@ -1710,8 +1341,9 @@ export function NewsfeedView({
 
   const renderStoryCard = (p) => {
     const cat = CAT_BY_ID.get(p.category) || NEWS_CATEGORIES[3];
-    const isSaved = savedSet.has(p.id);
+    const isSaved = isPostSaved(p);
     const authorUser = usersByName.get(p.author);
+    const coverSrc = resolveMediaUrl(p.cover, imgs);
     return html`<article
       key=${p.id}
       className="nf-story-card"
@@ -1724,8 +1356,8 @@ export function NewsfeedView({
       onKeyDown=${(e) => e.key === 'Enter' && setReadingPostId(p.id)}
     >
       <div className="nf-story-media" style=${{ '--cc': p.accentColor || cat.color }}>
-        ${p.cover
-          ? html`<img src=${p.cover} alt=${p.title} loading="lazy" />`
+        ${coverSrc
+          ? html`<img src=${coverSrc} alt=${p.title} loading="lazy" />`
           : html`<div className="nf-fallback-cover" style=${{ '--cc': p.accentColor || cat.color }}>
               <${DatumMark} s=${26} />
               <span>${cat.label}</span>
@@ -1750,6 +1382,7 @@ export function NewsfeedView({
 
       <div className="nf-story-body">
         <div className="nf-story-meta">
+          ${p.status === 'Draft' && html`<span className="pill" style=${{ '--c': '#ff9f0a' }}>Draft</span>`}
           <span>${fmt(p.date)}</span>
           ${p.readTime &&
           html`<${Fragment}>
@@ -1757,7 +1390,7 @@ export function NewsfeedView({
             <span>${p.readTime} read</span>
           </${Fragment}>`}
         </div>
-        <h3>${p.title}</h3>
+        <h3>${p.title || 'Untitled post'}</h3>
         <p>${p.summary}</p>
         <div className="nf-story-foot">
           <button
@@ -1798,15 +1431,84 @@ export function NewsfeedView({
       ? `${gridStories.length} published ${gridStories.length === 1 ? 'story' : 'stories'} by ${authorFilter} · Click again to reset.`
       : 'Behind-the-scenes project case studies, BIM engineering workflows, and team stories from across Planit.';
 
-  return html`<div className="nf-shell">
+  return html`<div className="nf-shell datum-page">
+    <header className="datum-page-head">
+      <div className="datum-page-head-l">
+        <h1 className="datum-page-title">Newsfeed</h1>
+        <p className="datum-page-sub">${gridSubtitle}</p>
+      </div>
+
+      <div className="datum-page-acts">
+        <${ActionMenuButton}
+          ariaLabel="Feed options"
+          title="Sort, Project & Filter options"
+          active=${sortBy !== 'newest' || (projectFilter && projectFilter !== 'all') || Boolean(authorFilter)}
+          sections=${[
+            catTab !== 'pulse' && {
+              title: 'Sort',
+              items: [
+                ['newest', 'Newest'],
+                ['featured', 'Featured'],
+                ['readtime', 'Read time'],
+              ].map(([k, lbl]) => ({
+                key: 'sort-' + k,
+                label: lbl,
+                checked: sortBy === k,
+                onClick: () => setSortBy(k),
+              })),
+            },
+            !isGuest &&
+              projects.length > 0 &&
+              onProjectFilterChange && {
+                title: 'Project',
+                items: [
+                  {
+                    key: 'proj-all',
+                    label: 'All projects',
+                    checked: !projectFilter || projectFilter === 'all',
+                    onClick: () => onProjectFilterChange('all'),
+                  },
+                  ...projects.map((pr) => ({
+                    key: 'proj-' + pr,
+                    label: pr,
+                    checked: projectFilter === pr,
+                    onClick: () => onProjectFilterChange(projectFilter === pr ? 'all' : pr),
+                  })),
+                ],
+              },
+            authorFilter && {
+              title: 'Active filter',
+              items: [
+                {
+                  key: 'clr-author',
+                  label: `Clear author (${authorFilter})`,
+                  icon: 'x',
+                  onClick: () => setAuthorFilter(''),
+                },
+              ],
+            },
+          ].filter(Boolean)}
+        />
+        ${canCreateOrEdit &&
+        html`<button
+          type="button"
+          className="btn sm p nf-new-btn"
+          onClick=${() => onCreateNewsPost && onCreateNewsPost()}
+        >
+          <${Ic} n="plus" s=${14} />
+          <span>New Post</span>
+        </button>`}
+      </div>
+    </header>
+
     ${showHeroBanner &&
     activeHeroPost &&
     (() => {
       const p = activeHeroPost;
       const cat = CAT_BY_ID.get(p.category) || NEWS_CATEGORIES[0];
       const authorUser = usersByName.get(p.author);
-      const isSaved = savedSet.has(p.id);
-      const backdropSrc = resolveHeroBackdrop(p);
+      const isSaved = isPostSaved(p);
+      const backdropSrc = resolveHeroBackdrop(p, imgs);
       return html`<section
         className="nf-hero-banner"
         aria-label="Featured editorial story"
@@ -1907,78 +1609,46 @@ export function NewsfeedView({
       </section>`;
     })()}
 
-    <header ref=${gridTopRef} className="nf-blog-head">
-      <div className="nf-blog-head-left">
-        <h2>${gridHeading}</h2>
-        <p className="nf-blog-sub">${gridSubtitle}</p>
+    <div ref=${gridTopRef} className="datum-toolbar">
+      <div className="datum-toolbar-l">
+        <div className="seg nf-seg" role="tablist" aria-label="Newsfeed categories">
+          ${[
+            ['all', 'All'],
+            ['projects', 'Projects'],
+            ['technical', 'Tech & Tools'],
+            ['personalities', 'People & Inside'],
+            ['company', 'Company'],
+            ['pulse', 'KB Pulse'],
+            ...(!isGuest ? [['saved', 'Saved']] : []),
+          ].map(
+            ([k, lbl]) => html`<button
+              key=${k}
+              type="button"
+              role="tab"
+              aria-selected=${catTab === k}
+              className=${catTab === k ? 'on' : ''}
+              onClick=${() => setCatTab(k)}
+            >
+              ${lbl}
+            </button>`
+          )}
+        </div>
       </div>
 
-      ${authorFilter &&
-      html`<div className="nf-head-acts">
-        <button
-          type="button"
-          className="nf-filter-tag"
-          onClick=${() => setAuthorFilter('')}
-          title="Clear author filter"
-        >
-          <span>${authorFilter}</span>
-          <${Ic} n="x" s=${11} />
-        </button>
-      </div>`}
-    </header>
-
-    <div className="nf-toolbar">
-      <div className="nf-tabs" role="tablist" aria-label="Newsfeed categories">
-        ${[
-          ['all', 'All'],
-          ['projects', 'Projects'],
-          ['technical', 'Tech & Tools'],
-          ['personalities', 'People & Inside'],
-          ['company', 'Company'],
-          ['pulse', 'KB Pulse'],
-          ...(!isGuest ? [['saved', 'Saved']] : []),
-        ].map(
-          ([k, lbl]) => html`<button
-            key=${k}
-            type="button"
-            role="tab"
-            aria-selected=${catTab === k}
-            className=${'nf-tab' + (catTab === k ? ' on' : '')}
-            onClick=${() => setCatTab(k)}
-          >
-            ${lbl}
-          </button>`
-        )}
-      </div>
-
-      <div className="nf-sort-bar">
-        ${catTab !== 'pulse' &&
-        html`<div className="nf-sort-wrap">
-          <span className="nf-sort-lbl">Sort by:</span>
-          <${Select}
-            variant="sort"
-            className="nf-sort-asel"
-            ariaLabel="Sort stories"
-            value=${sortBy}
-            options=${[
-              ['newest', 'Newest'],
-              ['featured', 'Featured'],
-              ['readtime', 'Read time'],
-            ]}
-            minMenuWidth=${140}
-            onChange=${(v) => setSortBy(v || 'newest')}
+      <div className="datum-toolbar-r">
+        <div className="pl-search">
+          <${Ic} n="search" s=${14} />
+          <input
+            type="search"
+            placeholder="Search stories…"
+            value=${feedQuery}
+            onChange=${(e) => setFeedQuery(e.target.value)}
           />
-        </div>`}
-
-        ${canCreateOrEdit &&
-        html`<button
-          type="button"
-          className="btn sm p nf-new-btn"
-          onClick=${() => setComposerState({ post: null })}
-        >
-          <${Ic} n="plus" s=${14} />
-          <span>New Post</span>
-        </button>`}
+          ${feedQuery &&
+          html`<button type="button" className="pl-search-clr" aria-label="Clear search" onClick=${() => setFeedQuery('')}>
+            <${Ic} n="x" s=${11} />
+          </button>`}
+        </div>
       </div>
     </div>
 
@@ -2026,7 +1696,7 @@ export function NewsfeedView({
                             </button>`
                           )}
                         </div>
-                        ${p.id === 'news-update-naming-137' &&
+                        ${(p.newsSeedKey === 'news-update-naming-137' || p.id === 'news-update-naming-137') &&
                         onOpenNamingStudio &&
                         html`<button type="button" className="btn sm p" onClick=${() => onOpenNamingStudio('')}>
                           Naming Studio ↗
@@ -2178,7 +1848,7 @@ export function NewsfeedView({
                     Show all
                   </button>`}
                   ${canCreateOrEdit &&
-                  html`<button type="button" className="btn p" onClick=${() => setComposerState({ post: null })}>
+                  html`<button type="button" className="btn p" onClick=${() => onCreateNewsPost && onCreateNewsPost()}>
                     <${Ic} n="plus" s=${14} /> New Post
                   </button>`}
                 </div>
@@ -2231,8 +1901,8 @@ export function NewsfeedView({
                   type="button"
                   className="nf-bento-cta"
                   onClick=${() => {
-                    if (canCreateOrEdit) {
-                      setComposerState({ post: null });
+                    if (canCreateOrEdit && onCreateNewsPost) {
+                      onCreateNewsPost();
                     } else if (gridTopRef.current && gridTopRef.current.scrollIntoView) {
                       gridTopRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }
@@ -2292,13 +1962,11 @@ export function NewsfeedView({
       usersByName=${usersByName}
       imgs=${imgs}
       reactionState=${readingPost ? getReactionState(readingPost) : undefined}
-      isSaved=${readingPost ? savedSet.has(readingPost.id) : false}
+      isSaved=${readingPost ? isPostSaved(readingPost) : false}
       comments=${readingPost ? (metaState.comments && metaState.comments[readingPost.id]) || [] : []}
       isGuest=${isGuest}
       canEdit=${Boolean(
-        readingPost &&
-          !isGuest &&
-          (role === 'SuperAdmin' || role === 'Admin' || readingPost.author === userName || String(readingPost.id).startsWith('news-custom-'))
+        readingPost && !isGuest && can.edit(role, readingPost, null, userName)
       )}
       onToggleReact=${toggleReact}
       onToggleSave=${toggleSavePost}
@@ -2309,20 +1977,11 @@ export function NewsfeedView({
       onSaveToTask=${savePostToTask}
       onEditPost=${(p) => {
         setReadingPostId(null);
-        setComposerState({ post: p });
+        onEditNewsPost && onEditNewsPost(p);
       }}
-      onDeletePost=${handleDeletePost}
+      onDeletePost=${(id) => onDeleteNewsPost && onDeleteNewsPost(id)}
       onSelectPost=${(rp) => setReadingPostId(rp.id)}
       onClose=${() => setReadingPostId(null)}
-    />
-
-    <${NewsComposerModal}
-      open=${Boolean(composerState)}
-      initialPost=${composerState ? composerState.post : null}
-      docs=${docs}
-      projects=${activeProjects}
-      onClose=${() => setComposerState(null)}
-      onSave=${handleSaveCustomPost}
     />
   </div>`;
 }

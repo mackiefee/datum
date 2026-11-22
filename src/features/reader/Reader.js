@@ -8,7 +8,11 @@ import { esc, plain, md, ewTx, ewMd } from '../../utils/markdown.js';
 import { shrink, docxImport } from '../../utils/docx.js';
 import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
+import { ActionMenuButton, Select } from '../../components/Select.js';
 import { db } from '../../lib/db.js';
+import { NEWS_CATEGORIES } from '../../data/newsPosts.js';
+import { NEWS_TPL, estimateReadTime, extractLinkedDocIds, htmlToNewsMarkdown, resolveMediaUrl } from '../../utils/newsMarkdown.js';
+import { ArticleBlocksView } from '../feed/NewsfeedView.js';
 import { EW_TBL, EW_SL, EW_CL, TURN, BLOCK_LABELS, TEXT_COLORS, HL_COLORS, AI_ACTIONS, BlockGlyph } from '../editor/editorConfig.js';
 import { LocalImpactGraph } from '../graph/LocalImpactGraph.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
@@ -26,20 +30,25 @@ function clampMenuPos(x, y, width, estHeight) {
 
 export function Reader(p) {
   const { r, res, imgs, tree, userName } = p;
+  const isNews = r.type === 'news';
   const isGuest = normRole(p.role) === 'Guest';
-  const cat = byId(r.node, tree);
+  const cat = isNews ? null : byId(r.node, tree);
   const canEditItem = Boolean(can.edit(p.role, r, cat, userName));
   const [readLock, setReadLock] = useState(false);
   const isEditing = canEditItem && !readLock;
   const canPublishCat = can.status(p.role, cat, userName);
+  const initialBodyText = useMemo(
+    () => r.body || (isNews && r.bodyHtml ? htmlToNewsMarkdown(r.bodyHtml) : ''),
+    [r.id, isNews, r.body, r.bodyHtml]
+  );
 
   // Guest redaction for internal attachments
   const bodyToRender = useMemo(() => {
-    if (!isGuest) return r.body || '';
-    return (r.body || '').replace(/!\[([^\]]*)\]\(img:(\w+)\)/g, (full, caption, id) =>
+    if (!isGuest) return initialBodyText;
+    return initialBodyText.replace(/!\[([^\]]*)\]\(img:(\w+)\)/g, (full, caption, id) =>
       (r.publicAttachments || []).includes(id) ? full : `> [!note] Internal attachment omitted (${caption || id})`
     );
-  }, [r.body, isGuest, r.publicAttachments]);
+  }, [initialBodyText, isGuest, r.publicAttachments]);
 
   const m = useMemo(() => md(bodyToRender, imgs, (p.chk && p.chk[r.id]) || []), [bodyToRender, imgs, p.chk, r.id]);
 
@@ -50,9 +59,11 @@ export function Reader(p) {
   const [newTag, setNewTag] = useState('');
   const [addingTag, setAddingTag] = useState(false);
   const [sourceMode, setSourceMode] = useState(false);
-  const [sourceText, setSourceText] = useState(r.body || '');
-  const [emp, setEmp] = useState(!(r.body || '').trim());
+  const [sourceText, setSourceText] = useState(initialBodyText);
+  const [emp, setEmp] = useState(!initialBodyText.trim());
   const [liveToc, setLiveToc] = useState(m.toc);
+  const [coverUrlBar, setCoverUrlBar] = useState(false);
+  const [coverDraft, setCoverDraft] = useState('');
 
   // Editor floating UI states (all portaled to document.body)
   const [fb, setFb] = useState(null);
@@ -129,10 +140,11 @@ export function Reader(p) {
   const tocK = useRef('');
   const fi = useRef(null);
   const dx = useRef(null);
+  const covRef = useRef(null);
   const loc = useRef({});
   const clickLockRef = useRef(0);
   const lastRecBucketRef = useRef({ key: '' });
-  const lastBodyRef = useRef(r.body || '');
+  const lastBodyRef = useRef(initialBodyText);
   const autoSaveTimerRef = useRef(null);
   const activeFieldRef = useRef(null);
   const rRef = useRef(r);
@@ -152,15 +164,17 @@ export function Reader(p) {
     setTitleVal(r.title || '');
     setDescVal(r.desc || '');
     setUrlVal(r.url || '');
-    setSourceText(r.body || '');
+    setSourceText(initialBodyText);
     setSourceMode(false);
     setReadLock(false);
+    setCoverUrlBar(false);
+    setCoverDraft('');
     closeMenus();
     setFb(null);
     setSelCount(0);
     setSyncState('Saved');
-    lastBodyRef.current = r.body || '';
-    if (canEditItem && !(r.title || '').trim() && !(r.body || '').trim()) {
+    lastBodyRef.current = initialBodyText;
+    if (canEditItem && !(r.title || '').trim() && !initialBodyText.trim()) {
       setTimeout(() => titleRef.current && titleRef.current.focus(), 40);
     }
   }, [r.id]);
@@ -177,6 +191,7 @@ export function Reader(p) {
 
   const blockTypeOf = (el) => {
     if (!el) return 'p';
+    if (el.hasAttribute && el.hasAttribute('data-blk')) return el.getAttribute('data-blk');
     const tag = el.tagName;
     if (tag === 'H1') return 'h1';
     if (tag === 'H2') return 'h2';
@@ -227,6 +242,15 @@ export function Reader(p) {
       const dv = dt.querySelector('.tgl-b');
       if (sm) sm.contentEditable = 'true';
       if (dv) dv.contentEditable = 'true';
+    });
+    d.querySelectorAll('.ed-cards, .ed-qcard, .ed-qa').forEach((blk) => {
+      blk.contentEditable = 'false';
+      blk.querySelectorAll('.ed-card-dot, .ed-card-rm, .ed-card-add, .ed-q-mark, .ed-qa-badge').forEach((ch) => {
+        ch.contentEditable = 'false';
+      });
+      blk.querySelectorAll('.ed-card-t, .ed-card-d, .ed-q-author, .ed-q-role, .ed-q-body, .ed-qa-q, .ed-qa-a').forEach((ed) => {
+        ed.contentEditable = 'true';
+      });
     });
     d.querySelectorAll('td,th').forEach((c) => {
       if (!c.textContent) c.textContent = '\u200b';
@@ -282,17 +306,28 @@ export function Reader(p) {
       const s = getSelection();
       s.removeAllRanges();
       s.addRange(rg);
-      root.current && root.current.focus();
+      const ceHost = e.closest ? e.closest('[contenteditable="true"]') : null;
+      (ceHost || root.current) && (ceHost || root.current).focus();
     } catch (err) {}
   };
 
   const commitInlinePatch = (patch, options = {}) => {
     if (!p.onInlineUpdate || !rRef.current) return;
-    if (patch.body !== undefined) {
-      lastBodyRef.current = patch.body;
-      setSourceText(patch.body);
+    const enriched =
+      isNews && patch.body !== undefined
+        ? {
+            ...patch,
+            bodyFormat: 'markdown',
+            bodyHtml: '',
+            readTime: rRef.current.feedKind === 'update' ? 'Quick update' : estimateReadTime(patch.body),
+            linkedDocIds: extractLinkedDocIds(patch.body),
+          }
+        : patch;
+    if (enriched.body !== undefined) {
+      lastBodyRef.current = enriched.body;
+      setSourceText(enriched.body);
     }
-    p.onInlineUpdate(rRef.current.id, patch, options);
+    p.onInlineUpdate(rRef.current.id, enriched, options);
   };
 
   const scheduleAutoSave = (nextBody) => {
@@ -308,11 +343,16 @@ export function Reader(p) {
     const rEl = root.current;
     if (!rEl) return;
     const last = rEl.lastElementChild;
-    if (!last || /^(FIGURE|TABLE|HR|PRE|BLOCKQUOTE|DETAILS)$/.test(last.tagName) || last.classList.contains('tw')) {
+    if (
+      !last ||
+      /^(FIGURE|TABLE|HR|PRE|BLOCKQUOTE|DETAILS)$/.test(last.tagName) ||
+      last.classList.contains('tw') ||
+      (last.hasAttribute && last.hasAttribute('data-blk'))
+    ) {
       rEl.insertAdjacentHTML('beforeend', '<p><br></p>');
     }
     refreshTocFromDom(rEl);
-    setEmp(!rEl.textContent.trim() && !rEl.querySelector('img,table,hr,details'));
+    setEmp(!rEl.textContent.trim() && !rEl.querySelector('img,table,hr,details,[data-blk]'));
     const nextMd = ewMd(rEl, { ...imgs, ...loc.current });
     if (nextMd !== lastBodyRef.current) {
       lastBodyRef.current = nextMd;
@@ -326,7 +366,7 @@ export function Reader(p) {
     if (!rEl) return;
     rEl.innerHTML = toDom(s).innerHTML;
     refreshTocFromDom(rEl);
-    setEmp(!rEl.textContent.trim() && !rEl.querySelector('img,table,hr,details'));
+    setEmp(!rEl.textContent.trim() && !rEl.querySelector('img,table,hr,details,[data-blk]'));
   };
 
   useEffect(() => {
@@ -334,17 +374,17 @@ export function Reader(p) {
     try {
       document.execCommand('defaultParagraphSeparator', false, 'p');
     } catch (e) {}
-    loadDom(rRef.current.body || '');
+    loadDom(initialBodyText);
   }, [r.id, isEditing, sourceMode]);
 
   useEffect(() => {
     if (!isEditing || sourceMode) return;
-    if ((r.body || '') !== lastBodyRef.current && root.current) {
-      lastBodyRef.current = r.body || '';
-      setSourceText(r.body || '');
-      loadDom(r.body || '');
+    if (initialBodyText !== lastBodyRef.current && root.current) {
+      lastBodyRef.current = initialBodyText;
+      setSourceText(initialBodyText);
+      loadDom(initialBodyText);
     }
-  }, [r.body, isEditing, sourceMode]);
+  }, [initialBodyText, isEditing, sourceMode]);
 
   useEffect(() => {
     return () => clearTimeout(autoSaveTimerRef.current);
@@ -929,6 +969,9 @@ export function Reader(p) {
     return false;
   };
 
+  const buildEmptyCardHtml = () =>
+    '<div class="ed-card"><span class="ed-card-dot" contenteditable="false"></span><div class="ed-card-body"><div class="ed-card-t" data-ph="Card title" contenteditable="true"></div><div class="ed-card-d" data-ph="Description…" contenteditable="true"></div></div><button type="button" class="ed-card-rm" contenteditable="false" aria-label="Remove card">×</button></div>';
+
   const A = {
     p: () => fmtBlock('p'),
     h1: () => fmtBlock('h1'),
@@ -943,10 +986,42 @@ export function Reader(p) {
     note: () => call('note'),
     tip: () => call('tip'),
     warn: () => call('warn'),
+    cards: () =>
+      put(
+        `<div class="ed-cards" data-blk="cards" contenteditable="false"><div class="ed-cards-grid">${buildEmptyCardHtml()}${buildEmptyCardHtml()}</div><button type="button" class="ed-card-add" contenteditable="false">+ Add card</button></div><p><br></p>`,
+        '.ed-card-t'
+      ),
+    qcard: () =>
+      put(
+        '<div class="ed-qcard" data-blk="qcard" contenteditable="false"><div class="ed-q-head"><div class="ed-q-meta"><div class="ed-q-author" data-ph="Author name" contenteditable="true"></div><div class="ed-q-role" data-ph="Role or team" contenteditable="true"></div></div><span class="ed-q-mark" contenteditable="false">“</span></div><div class="ed-q-body" data-ph="Write quote or highlight…" contenteditable="true"></div></div><p><br></p>',
+        '.ed-q-author'
+      ),
+    qa: () =>
+      put(
+        '<div class="ed-qa" data-blk="qa" contenteditable="false"><div class="ed-qa-head"><span class="ed-qa-badge" contenteditable="false">Q</span><div class="ed-qa-q" data-ph="Write interview question…" contenteditable="true"></div></div><div class="ed-qa-a" data-ph="Write answer…" contenteditable="true"></div></div><p><br></p>',
+        '.ed-qa-q'
+      ),
     code: codeB,
     tbl: () => put(EW_TBL, 'th'),
     img: () => fi.current && fi.current.click(),
     hr: () => put('<hr>'),
+  };
+
+  const handleCoverUpload = async (file) => {
+    if (!file || !/^image\//.test(file.type)) return;
+    const u = await shrink(file);
+    if (!u) return;
+    const id = 'i' + Math.random().toString(36).slice(2, 8);
+    loc.current[id] = u;
+    p.setImgs && p.setImgs((o) => ({ ...o, [id]: u }));
+    commitInlinePatch({ cover: 'img:' + id });
+    p.flash && p.flash('Cover image updated');
+    db.uploadImage(id, u).then((remoteUrl) => {
+      if (remoteUrl && remoteUrl !== u) {
+        loc.current[id] = remoteUrl;
+        p.setImgs && p.setImgs((o) => ({ ...o, [id]: remoteUrl }));
+      }
+    });
   };
 
   const addImgs = async (fs) => {
@@ -1501,7 +1576,7 @@ export function Reader(p) {
         return;
       }
     }
-    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a' && root.current) {
+    if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'a' && root.current && !up('[data-blk]')) {
       const b = blockOf();
       const s = getSelection();
       const curSelected = s && !s.isCollapsed ? s.toString().replace(/\u200b/g, '').trim() : '';
@@ -1509,6 +1584,18 @@ export function Reader(p) {
       if (!blkText || curSelected === blkText) {
         e.preventDefault();
         applySelRange([...root.current.children]);
+        return;
+      }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const edHeader = up('.ed-card-t, .ed-q-author, .ed-q-role, .ed-qa-q');
+      if (edHeader) {
+        e.preventDefault();
+        const host = edHeader.closest('.ed-card, .ed-qcard, .ed-qa');
+        if (edHeader.classList.contains('ed-card-t')) caret(host && host.querySelector('.ed-card-d'));
+        else if (edHeader.classList.contains('ed-q-author')) caret(host && host.querySelector('.ed-q-role'));
+        else if (edHeader.classList.contains('ed-q-role')) caret(host && host.querySelector('.ed-q-body'));
+        else if (edHeader.classList.contains('ed-qa-q')) caret(host && host.querySelector('.ed-qa-a'));
         return;
       }
     }
@@ -1639,6 +1726,37 @@ export function Reader(p) {
 
   const onCanvasClick = (e) => {
     const tEl = e.target;
+    const addBtn = tEl.closest && tEl.closest('.ed-card-add');
+    if (addBtn) {
+      e.preventDefault();
+      const cardsBlk = addBtn.closest('.ed-cards');
+      const grid = cardsBlk && cardsBlk.querySelector('.ed-cards-grid');
+      if (grid) {
+        const tp = document.createElement('template');
+        tp.innerHTML = buildEmptyCardHtml();
+        const card = tp.content.firstElementChild;
+        grid.appendChild(card);
+        sync();
+        caret(card.querySelector('.ed-card-t'));
+      }
+      return;
+    }
+    const rmBtn = tEl.closest && tEl.closest('.ed-card-rm');
+    if (rmBtn) {
+      e.preventDefault();
+      const card = rmBtn.closest('.ed-card');
+      const cardsBlk = rmBtn.closest('.ed-cards');
+      const grid = cardsBlk && cardsBlk.querySelector('.ed-cards-grid');
+      if (grid && card) {
+        if (grid.querySelectorAll('.ed-card').length > 1) {
+          card.remove();
+          sync();
+        } else if (cardsBlk) {
+          rm(cardsBlk);
+        }
+      }
+      return;
+    }
     const wikiEl = tEl.closest && tEl.closest('a.datum-wiki-lk');
     if (wikiEl) {
       e.preventDefault();
@@ -1696,8 +1814,8 @@ export function Reader(p) {
   }, [r.id, Math.round(pg * 10)]);
 
   const reviewDays = (cat && cat.reviewDays) || 90;
-  const ageDays = days(r.verified || r.upd);
-  const isStale = ageDays > reviewDays;
+  const ageDays = isNews ? 0 : days(r.verified || r.upd);
+  const isStale = !isNews && ageDays > reviewDays;
   const min = Math.max(1, Math.round(plain(r.body || '').split(' ').length / 170));
 
   const breadcrumb =
@@ -1709,6 +1827,7 @@ export function Reader(p) {
 
   const hasImpact = useMemo(() => {
     if ((r.links || []).some(([toId]) => toId !== r.id && res.some((x) => x.id === toId))) return true;
+    if (isNews) return false;
     return res.some(
       (x) =>
         x.id !== r.id &&
@@ -1716,7 +1835,7 @@ export function Reader(p) {
           x.node === r.node ||
           (x.tags || []).some((t) => (r.tags || []).includes(t)))
     );
-  }, [r, res]);
+  }, [isNews, r, res]);
 
   const activeHeadingList = isEditing && !sourceMode ? liveToc : m.toc;
   const tocItems = useMemo(
@@ -1832,10 +1951,12 @@ export function Reader(p) {
     commitInlinePatch(patch);
   };
 
+  const tplMap = isNews ? NEWS_TPL : TPL;
+
   const applyTemplate = (tplKey) => {
-    if (!tplKey || !TPL[tplKey]) return;
+    if (!tplKey || tplMap[tplKey] === undefined) return;
     if (lastBodyRef.current.trim() && !confirm(`Replace current body with the “${tplKey}” template?`)) return;
-    const tplBody = TPL[tplKey];
+    const tplBody = tplMap[tplKey];
     loadDom(tplBody);
     commitInlinePatch({ body: tplBody });
     p.flash && p.flash(`Applied “${tplKey}” template`);
@@ -1920,14 +2041,14 @@ export function Reader(p) {
     </div>`;
 
   const dupMatch = useMemo(() => {
-    if (!canEditItem || titleVal.trim().length <= 5) return null;
+    if (isNews || !canEditItem || titleVal.trim().length <= 5) return null;
     return (res || []).find(
       (x) =>
         x.id !== r.id &&
         ((urlVal.trim() && x.url && x.url.trim().toLowerCase() === urlVal.trim().toLowerCase()) ||
           x.title.trim().toLowerCase() === titleVal.trim().toLowerCase())
     );
-  }, [res, r.id, titleVal, urlVal, canEditItem]);
+  }, [isNews, res, r.id, titleVal, urlVal, canEditItem]);
 
   const backlinks = useMemo(() => {
     const idStr = String(r.id);
@@ -1978,8 +2099,13 @@ export function Reader(p) {
     return [...docs, ...noteMentions, ...resourceMentions];
   }, [res, r.id, r.title, p.privNotes, p.privResources]);
 
+  const usersByName = useMemo(() => new Map((p.users || []).map((u) => [u.name, u])), [p.users]);
+  const newsCatObj = isNews
+    ? NEWS_CATEGORIES.find((c) => c.id === (r.feedCategory || 'technical')) || NEWS_CATEGORIES[1]
+    : null;
+  const resolvedCover = resolveMediaUrl(r.cover, { ...imgs, ...loc.current });
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
-  const tplKeys = Object.keys(TPL);
+  const tplKeys = Object.keys(tplMap).filter((tk) => tk !== 'Blank article' && tk !== 'Blank story');
 
   return html`<article className="rd">
     ${portalRoot &&
@@ -1996,11 +2122,18 @@ export function Reader(p) {
           <button type="button" className="rd-back" onClick=${p.back}>
             <${Ic} n="chev" s=${14} /><span>Back</span>
           </button>
-          <span className="rd-crumb" title=${breadcrumb}>
-            <span className="rd-crumb-dot" style=${{ background: DC[r.disc] || 'var(--blue)' }}></span>
-            <b>${breadcrumb}</b>
+          <span className="rd-crumb" title=${isNews ? `Newsfeed · ${(newsCatObj && newsCatObj.label) || 'Post'}` : breadcrumb}>
+            <span
+              className="rd-crumb-dot"
+              style=${{ background: isNews ? (newsCatObj && newsCatObj.color) || '#0a84ff' : DC[r.disc] || 'var(--blue)' }}
+            ></span>
+            <b>${isNews ? 'Newsfeed' : breadcrumb}</b>
             <span className="rd-crumb-sep">·</span>
-            <span>${TY[r.type] || 'Document'}</span>
+            <span>
+              ${isNews
+                ? `${(newsCatObj && newsCatObj.label) || 'Tech & Tools'}${r.feedKind === 'update' ? ' · Quick Update' : ''}`
+                : TY[r.type] || 'Document'}
+            </span>
           </span>
         </div>
 
@@ -2024,10 +2157,21 @@ export function Reader(p) {
             }}>Read</button>
           </div>`}
 
-          ${r.url &&
-          html`<a className="btn sm p" href=${r.url} target="_blank" rel="noopener noreferrer">
-            <${Ic} n="openx" s=${13} /> Open
-          </a>`}
+          ${!canEditItem &&
+          (r.url
+            ? html`<a className="btn sm p" href=${r.url} target="_blank" rel="noopener noreferrer">
+                <${Ic} n="openx" s=${13} /> Open
+              </a>`
+            : html`<button
+                type="button"
+                className=${'btn sm rd-ai-btn' + (readerChatOpen ? ' on' : '')}
+                onClick=${() => setReaderChatOpen((v) => !v)}
+                title="Ask Datum AI about this page"
+                aria-expanded=${readerChatOpen}
+              >
+                <${Ic} n="spark" s=${13} />
+                <span>Ask AI</span>
+              </button>`)}
 
           ${canEditItem &&
           canPublishCat &&
@@ -2047,70 +2191,166 @@ export function Reader(p) {
           html`<button
             type="button"
             className="btn sm p"
-            disabled=${!titleVal.trim() || descVal.trim().length < 5}
+            disabled=${!titleVal.trim() || (!isNews && descVal.trim().length < 5)}
             onClick=${() => updateMetaField({ status: 'Review' })}
           >
             Submit
           </button>`}
 
-          <button
-            type="button"
-            className=${'btn sm rd-ai-btn' + (readerChatOpen ? ' on' : '')}
-            onClick=${() => setReaderChatOpen((v) => !v)}
-            title="Ask Datum AI about this standard or the whole library"
-            aria-expanded=${readerChatOpen}
-          >
-            <${Ic} n="spark" s=${13} />
-            <span>Ask AI</span>
-          </button>
-
-          ${!isGuest &&
-          p.onAddNoteForDoc &&
-          html`<button
-            type="button"
-            className="btn sm rd-task-btn"
-            onClick=${() => p.onAddNoteForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null)}
-            title=${curSec ? `Clip § ${curSec.t} to Private Note` : 'Clip document to Private Note'}
-          >
-            <${Ic} n="note" s=${13} />
-            <span>+ Note</span>
-          </button>`}
-
-          ${!isGuest &&
-          p.onAddTaskForDoc &&
-          html`<button
-            type="button"
-            className="btn sm rd-task-btn"
-            onClick=${() => p.onAddTaskForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null)}
-            title=${curSec ? `Create task linked to § ${curSec.t}` : 'Create personal task linked to this document'}
-          >
-            <${Ic} n="check" s=${13} />
-            <span>+ Task</span>
-          </button>`}
-
-          ${!isGuest &&
-          html`<button
-            type="button"
-            className=${'rd-icon-btn' + (p.fav ? ' on' : '')}
-            title=${p.fav ? 'Remove bookmark' : 'Bookmark'}
-            aria-label="Bookmark"
-            onClick=${() => p.tf(r.id)}
-          >
-            <${Ic} n="star" s=${15} f=${p.fav} />
-          </button>`}
-
-          ${!isGuest &&
-          html`<button
-            type="button"
-            className="rd-icon-btn rd-insp-btn"
-            title="Inspector & page settings"
-            aria-label="Inspector & page settings"
-            onClick=${() => p.info(r.id)}
-          >
-            <${Ic} n="sliders" s=${15} />
-          </button>`}
+          <${ActionMenuButton}
+            ariaLabel="Page actions"
+            title="Tools, Cover, Inspector & Actions"
+            active=${Boolean(readerChatOpen || p.fav)}
+            sections=${[
+              {
+                title: 'Tools',
+                items: [
+                  (canEditItem || r.url) && {
+                    key: 'ask-ai',
+                    label: 'Ask AI',
+                    icon: 'spark',
+                    checked: readerChatOpen,
+                    onClick: () => setReaderChatOpen((v) => !v),
+                  },
+                  !isGuest &&
+                    p.onAddNoteForDoc && {
+                      key: 'add-note',
+                      label: 'Add to Notes',
+                      icon: 'note',
+                      onClick: () => p.onAddNoteForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null),
+                    },
+                  !isGuest &&
+                    p.onAddTaskForDoc && {
+                      key: 'create-task',
+                      label: 'Create Task',
+                      icon: 'check',
+                      onClick: () => p.onAddTaskForDoc(r, curSec ? { id: curSec.id, title: curSec.t } : null),
+                    },
+                  canEditItem &&
+                    r.url && {
+                      key: 'open-url',
+                      label: 'Open External Link',
+                      icon: 'openx',
+                      onClick: () => window.open(r.url, '_blank', 'noopener,noreferrer'),
+                    },
+                ],
+              },
+              {
+                title: isNews ? 'Post' : 'Document',
+                items: [
+                  !isGuest &&
+                    p.tf && {
+                      key: 'bookmark',
+                      label: p.fav ? 'Remove Bookmark' : 'Bookmark',
+                      icon: 'star',
+                      checked: p.fav,
+                      onClick: () => p.tf(r.id),
+                    },
+                  !isGuest &&
+                    p.info && {
+                      key: 'inspector',
+                      label: 'Inspector & Properties…',
+                      icon: 'sliders',
+                      onClick: () => p.info(r.id),
+                    },
+                  isEditing && {
+                    key: 'cover-upload',
+                    label: resolvedCover ? 'Change Cover Image…' : 'Add Cover Image…',
+                    icon: 'media',
+                    onClick: () => covRef.current && covRef.current.click(),
+                  },
+                  isEditing && {
+                    key: 'cover-url',
+                    label: 'Set Cover URL…',
+                    icon: 'link',
+                    onClick: () => {
+                      setCoverDraft(r.cover && !String(r.cover).startsWith('img:') ? r.cover : '');
+                      setCoverUrlBar((v) => !v);
+                    },
+                  },
+                  isEditing &&
+                    resolvedCover && {
+                      key: 'cover-remove',
+                      label: 'Remove Cover',
+                      icon: 'x',
+                      onClick: () => commitInlinePatch({ cover: '' }),
+                    },
+                ],
+              },
+              canEditItem &&
+                p.onDelete && {
+                  items: [
+                    {
+                      key: 'delete-item',
+                      label: isNews ? 'Delete Post' : 'Delete Document',
+                      confirmLabel: 'Confirm Delete',
+                      icon: 'trash',
+                      danger: true,
+                      onClick: () => p.onDelete(r.id),
+                    },
+                  ],
+                },
+            ].filter(Boolean)}
+          />
         </div>
       </div>
+
+      ${(resolvedCover || isEditing) &&
+      html`<div className="rd-cover-wrap">
+        ${resolvedCover
+          ? html`<div className="rd-cover-frame">
+              <img src=${resolvedCover} alt=${titleVal || 'Cover'} />
+              ${isEditing &&
+              html`<div className="rd-cover-acts">
+                <button type="button" onClick=${() => covRef.current && covRef.current.click()}>Change</button>
+                <button type="button" className="dng" onClick=${() => commitInlinePatch({ cover: '' })}>Remove</button>
+              </div>`}
+            </div>`
+          : isEditing &&
+            html`<div className="rd-cover-empty">
+              <button type="button" className="rd-cover-chip" onClick=${() => covRef.current && covRef.current.click()}>
+                <${Ic} n="media" s=${13} />
+                <span>Add cover</span>
+              </button>
+            </div>`}
+
+        ${coverUrlBar &&
+        isEditing &&
+        html`<div className="rd-cover-url-bar">
+          <input
+            type="url"
+            placeholder="https://… cover image URL"
+            value=${coverDraft}
+            onChange=${(e) => setCoverDraft(e.target.value)}
+            onKeyDown=${(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const u = coverDraft.trim();
+                if (u) {
+                  commitInlinePatch({ cover: u });
+                  setCoverUrlBar(false);
+                }
+              } else if (e.key === 'Escape') {
+                setCoverUrlBar(false);
+              }
+            }}
+          />
+          <button
+            type="button"
+            className="btn sm p"
+            onClick=${() => {
+              const u = coverDraft.trim();
+              if (u) {
+                commitInlinePatch({ cover: u });
+                setCoverUrlBar(false);
+              }
+            }}
+          >
+            Apply
+          </button>
+          <button type="button" className="btn sm" onClick=${() => setCoverUrlBar(false)}>Cancel</button>
+        </div>`}
+      </div>`}
 
       ${isEditing
         ? html`<div className="rd-title-wrap">
@@ -2118,7 +2358,7 @@ export function Reader(p) {
               <textarea
                 className="rd-title-input"
                 rows="1"
-                placeholder="Untitled standard…"
+                placeholder=${isNews ? 'Untitled post…' : 'Untitled standard…'}
                 value=${titleVal}
                 ref=${(el) => {
                   titleRef.current = el;
@@ -2147,7 +2387,7 @@ export function Reader(p) {
               />
             </h1>
           </div>`
-        : html`<h1>${r.title || 'Untitled standard'}</h1>`}
+        : html`<h1>${r.title || (isNews ? 'Untitled post' : 'Untitled standard')}</h1>`}
 
       ${isEditing
         ? html`<div className="rd-desc-wrap">
@@ -2155,7 +2395,7 @@ export function Reader(p) {
               <textarea
                 className="rd-desc-input"
                 rows="1"
-                placeholder="Add a concise summary…"
+                placeholder=${isNews ? 'Short summary for the Newsfeed card…' : 'Add a concise summary…'}
                 value=${descVal}
                 ref=${(el) => {
                   if (el) {
@@ -2183,7 +2423,7 @@ export function Reader(p) {
               />
             </p>
           </div>`
-        : r.desc && html`<p className="lead">${r.desc}</p>`}
+        : descVal && html`<p className="lead">${descVal}</p>`}
 
       ${dupMatch &&
       html`<div className="box" style=${{ marginTop: 10 }}>
@@ -2193,16 +2433,26 @@ export function Reader(p) {
       <div className="row rd-meta">
         <${Pill} s=${r.status} />
         ${r.vis && r.vis !== 'Internal' && html`<${VisPill} v=${r.vis} />`}
+        <button
+          type="button"
+          className="rd-meta-props"
+          onClick=${() => p.info && p.info(r.id)}
+          title="Open Inspector to change Type or properties"
+        >
+          ${TY[r.type] || 'Document'}${isNews && newsCatObj ? ` · ${newsCatObj.label}` : ''}
+        </button>
         <span className="rd-meta-disc"><i className="dd" style=${{ background: DC[r.disc] }}></i> ${r.disc || 'VDC'}</span>
         <span>·</span>
         <span>${r.author}</span>
         <span>·</span>
         <span>Updated ${fmt(r.upd)}</span>
+        ${isNews && html`<${Fragment}><span>·</span><span>${r.readTime || estimateReadTime(initialBodyText)} read</span></${Fragment}>`}
         ${isStale && html`<${Fragment}><span>·</span><span className="stale">Review (${ageDays}d)</span></${Fragment}>`}
-        ${p.req.includes(r.id) && html`<span className="pill" style=${{ '--c': '#ff3b30' }}>Required</span>`}
+        ${p.req && p.req.includes(r.id) && html`<span className="pill" style=${{ '--c': '#ff3b30' }}>Required</span>`}
       </div>
 
-      ${r.status === 'Archived' &&
+      ${!isNews &&
+      r.status === 'Archived' &&
       html`<div className="box" style=${{ marginTop: 14 }}>
         <b>Archived Content</b>This item is archived and kept only for historical reference.
       </div>`}
@@ -2261,6 +2511,15 @@ export function Reader(p) {
                         const tx = e.clipboardData.getData('text/plain');
                         if (!tx) return;
                         const u = tx.trim();
+                        if (/^https?:\/\/\S+\.(?:png|jpe?g|webp|gif|svg)(?:\?\S*)?$/i.test(u)) {
+                          put(
+                            '<figure contenteditable="false"><img src="' +
+                              esc(u) +
+                              '" alt="" loading="lazy" decoding="async"><figcaption contenteditable="true"></figcaption></figure><p><br></p>',
+                            'figcaption'
+                          );
+                          return;
+                        }
                         if (/^https?:\/\/\S+$/.test(u)) {
                           const s = getSelection();
                           if (s.rangeCount && !s.isCollapsed) document.execCommand('createLink', false, u);
@@ -2309,6 +2568,15 @@ export function Reader(p) {
                     </div>`}
                   </${Fragment}>`}
             </div>`
+          : isNews
+          ? html`<div className="nf-reader-measure">
+              <${ArticleBlocksView}
+                htmlStr=${r.bodyHtml || ''}
+                bodyMarkdown=${sourceText || r.body || ''}
+                imgs=${{ ...imgs, ...loc.current }}
+                usersByName=${usersByName}
+              />
+            </div>`
           : m.h
           ? html`<div
               className="prose"
@@ -2330,10 +2598,12 @@ export function Reader(p) {
             ></div>`
           : html`<div className="empty"><b>Document is empty</b><span>Ask an author or Category Owner to populate content.</span></div>`}
 
-        ${!isGuest &&
+        ${!isNews &&
+        !isGuest &&
+        p.req &&
         p.req.includes(r.id) &&
         html`<div className="ackb">
-          ${p.acks[r.id]
+          ${p.acks && p.acks[r.id]
             ? html`<span className="okk"><${Ic} n="check" s=${18} /> Read & confirmed ${fmt(p.acks[r.id])}</span>`
             : html`<${Fragment}>
                 <span>This document is marked as mandatory reading.</span>
@@ -2405,7 +2675,7 @@ export function Reader(p) {
           </div>
         </details>`}
 
-        <${LocalImpactGraph} item=${r} res=${res} collapsedByDefault=${true} onRead=${p.go} onInfo=${p.info} />
+        ${(!isNews || hasImpact) && html`<${LocalImpactGraph} item=${r} res=${res} collapsedByDefault=${true} onRead=${p.go} onInfo=${p.info} />`}
       </div>
 
       ${!readerChatOpen &&
@@ -2545,6 +2815,16 @@ export function Reader(p) {
         hidden
         onChange=${(e) => {
           addImgs([...e.target.files]);
+          e.target.value = '';
+        }}
+      />
+      <input
+        ref=${covRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange=${(e) => {
+          e.target.files && e.target.files[0] && handleCoverUpload(e.target.files[0]);
           e.target.value = '';
         }}
       />
@@ -2822,7 +3102,8 @@ export function Reader(p) {
             </button>`
           )}
           ${bm.mode === 'all' &&
-          html`<div className="ew-mdiv"></div>
+          html`<${Fragment}>
+            <div className="ew-mdiv"></div>
             <button
               type="button"
               onClick=${() => {
@@ -2864,7 +3145,8 @@ export function Reader(p) {
             >
               <span className="ew-ico"><${BlockGlyph} type="del" size=${14} /></span>
               <span className="ew-lbl">Delete block</span>
-            </button>`}
+            </button>
+          </${Fragment}>`}
         </div>
       </div>`,
       portalRoot

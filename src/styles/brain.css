@@ -1552,8 +1552,39 @@
 .pl-share-meta b { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pl-share-meta span { font-size: 11.5px; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Canonical Design Unification: Surface Cards & Page Width */
+.pl-wrap {
+  max-width: var(--page-w, 1480px);
+}
+.pl-wrap.is-wide {
+  max-width: var(--page-w, 1480px);
+}
+.pl-wrap.is-embedded.is-scripts {
+  max-width: var(--page-w, 1480px);
+}
+.pl-card {
+  background: var(--card-bg, #fff);
+  border-radius: var(--r-card, 18px);
+}
+.pl-quick {
+  background: var(--card-bg, #fff);
+  border-radius: 14px;
+}
+:root[data-theme="dark"] .pl-card,
+:root[data-theme="dark"] .pl-quick {
+  background: var(--card-bg, #161618);
+  border-color: var(--line);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pl-card,
+  :root:not([data-theme="light"]) .pl-quick {
+    background: var(--card-bg, #161618);
+    border-color: var(--line);
+  }
+}
+
 @media (max-width: 768px) {
-  .pl-wrap { padding: 0 0 88px; gap: 10px; }
+  .pl-wrap { padding: 0 0 48px; gap: 10px; }
   .pl-desk-only { display: none !important; }
   .pl-ico-btn.pl-mob-only { display: inline-grid !important; }
   .pl-fab.pl-mob-only { display: grid !important; }

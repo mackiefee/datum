@@ -7,7 +7,7 @@ import { plain, md } from '../../utils/markdown.js';
 import { Ic } from '../../components/Icon.js';
 import { Pill, VisPill } from '../../components/Badge.js';
 import { ChatMessages } from '../../components/ChatMessages.js';
-import { Select } from '../../components/Select.js';
+import { ActionMenuButton, Select } from '../../components/Select.js';
 import { isDoneStatus, DEFAULT_PLANNER_STATUSES } from '../../utils/planner.js';
 import { SecondBrainView, ResourceShareModal, ScriptLinkRow } from '../brain/SecondBrainView.js';
 import { NewsfeedView } from '../feed/NewsfeedView.js';
@@ -56,6 +56,7 @@ export function KnowledgeSpaceView({
   setF,
   toolbarRight = null,
   spaceLeftNav = null,
+  centerNav = null,
   spaceActions = null,
   onClearCategory = null,
   onImportDocx = null,
@@ -119,6 +120,9 @@ export function KnowledgeSpaceView({
   onOpenBrainSheet = null,
   onSaveTeamResource = null,
   onDeleteTeamItem = null,
+  onCreateNewsPost = null,
+  onEditNewsPost = null,
+  onDeleteNewsPost = null,
   onAck = null,
   imgs = {},
   flash = null,
@@ -126,6 +130,7 @@ export function KnowledgeSpaceView({
   const [drawerBrainRef, setDrawerBrainRef] = useState(null);
   const [drawerCopiedId, setDrawerCopiedId] = useState(null);
   const [scriptKindFilter, setScriptKindFilter] = useState('all'); // 'all' | 'scripts' | 'links' | 'templates' | 'pinned'
+  const [scriptsQuery, setScriptsQuery] = useState('');
   const [copiedScriptId, setCopiedScriptId] = useState(null);
   const [expandedScriptId, setExpandedScriptId] = useState(null);
   const [scriptShareTarget, setScriptShareTarget] = useState(null);
@@ -501,7 +506,7 @@ export function KnowledgeSpaceView({
   const visibleScriptLinks = useMemo(() => {
     const activeProj = projectFilter && projectFilter !== 'all' ? projectFilter.trim().toLowerCase() : '';
     const projTokens = activeProj ? activeProj.split(/[^a-z0-9]+/).filter((w) => w.length >= 3) : [];
-    const qLow = spaceQuery.trim().toLowerCase();
+    const qLow = (scriptsQuery || spaceQuery).trim().toLowerCase();
     const qTokens = qLow ? tokenizeUnique(qLow) : [];
 
     return unifiedScriptLinks.filter((entry) => {
@@ -535,7 +540,7 @@ export function KnowledgeSpaceView({
       }
       return true;
     });
-  }, [unifiedScriptLinks, projectFilter, scriptKindFilter, spaceQuery]);
+  }, [unifiedScriptLinks, projectFilter, scriptKindFilter, spaceQuery, scriptsQuery]);
 
   const hasMediaScripts = useMemo(
     () => unifiedScriptLinks.some((e) => e.kind === 'media'),
@@ -1977,6 +1982,9 @@ export function KnowledgeSpaceView({
         <div className="kspace-title-row">
           ${spaceLeftNav || html`<h1>${pageTitle}</h1>`}
           ${!isHeroMode &&
+          !isTasksView &&
+          !isScriptsView &&
+          !isFeedView &&
           !isGuest &&
           onBrainLayerChange &&
           html`<${Select}
@@ -1996,6 +2004,9 @@ export function KnowledgeSpaceView({
             }}
           />`}
           ${!isHeroMode &&
+          !isTasksView &&
+          !isScriptsView &&
+          !isFeedView &&
           !isGuest &&
           onProjectFilterChange &&
           brainProjects.length > 0 &&
@@ -2014,6 +2025,9 @@ export function KnowledgeSpaceView({
             }}
           />`}
           ${!isHeroMode &&
+          !isTasksView &&
+          !isScriptsView &&
+          !isFeedView &&
           curCat &&
           html`<span className="kspace-cat-pill" style=${{ '--cc': curCat.color || '#0a84ff' }}>
             <i></i>
@@ -2030,6 +2044,9 @@ export function KnowledgeSpaceView({
             </button>`}
           </span>`}
           ${!isHeroMode &&
+          !isTasksView &&
+          !isScriptsView &&
+          !isFeedView &&
           activeDisc &&
           html`<span className="kspace-cat-pill" style=${{ '--cc': DC[activeDisc] || '#0a84ff' }}>
             <i></i>
@@ -2056,6 +2073,8 @@ export function KnowledgeSpaceView({
           >${`${count}/${allCount || items.length}`}</span>`}
         </div>
       </div>
+
+      ${!isHeroMode && centerNav && html`<div className="kspace-nav-center">${centerNav}</div>`}
 
       ${((!isHeroMode && toolbarRight) || spaceActions) &&
       html`<div className="kspace-controls">
@@ -2106,9 +2125,10 @@ export function KnowledgeSpaceView({
         </div>`
       : isScriptsView
       ? html`<div key="kspace-scripts-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
-          <div className="pl-wrap is-embedded is-scripts">
-            <div className="pl-head">
-              <div className="pl-head-l">
+          <div className="pl-wrap datum-page is-embedded is-scripts">
+            <header className="datum-page-head">
+              <div className="datum-page-head-l">
+                <h1 className="datum-page-title">Scripts & Links</h1>
                 <div className="pl-stats">
                   <span>
                     ${visibleScriptLinks.length} ${visibleScriptLinks.length === 1 ? 'item' : 'items'} · ${effectiveLayer === 'team' ? 'Team' : effectiveLayer === 'mine' ? 'Mine' : 'All'}
@@ -2120,40 +2140,58 @@ export function KnowledgeSpaceView({
                 </div>
               </div>
 
-              <div className="pl-head-r pl-sl-head-r">
-                <div className="seg" role="tablist" aria-label="Scripts and Links filter" style=${{ marginTop: 0 }}>
-                  ${[
-                    ['all', 'All'],
-                    ['scripts', 'Scripts'],
-                    ['links', 'Links'],
-                    ['templates', 'Templates'],
-                    ...(hasMediaScripts ? [['media', 'Media']] : []),
-                    ['pinned', 'Pinned'],
-                  ].map(
-                    ([fk, flbl]) => html`<button
-                      key=${'skf-' + fk}
-                      type="button"
-                      role="tab"
-                      aria-selected=${scriptKindFilter === fk}
-                      className=${scriptKindFilter === fk ? 'on' : ''}
-                      onClick=${() => setScriptKindFilter(fk)}
-                    >
-                      ${flbl}
-                    </button>`
-                  )}
-                </div>
-
-                ${onOpenNamingStudio &&
-                html`<button
-                  type="button"
-                  className="btn sm"
-                  style=${{ flex: 'none' }}
-                  onClick=${() => onOpenNamingStudio('')}
-                  title="Open interactive 13-slot Naming Studio (#137)"
-                >
-                  <${Ic} n="sliders" s=${13} />
-                  <span>Naming Studio</span>
-                </button>`}
+              <div className="datum-page-acts">
+                <${ActionMenuButton}
+                  ariaLabel="Scripts options"
+                  title="Layer, Project & Tools"
+                  active=${effectiveLayer !== 'all' || (projectFilter && projectFilter !== 'all')}
+                  sections=${[
+                    !isGuest &&
+                      onBrainLayerChange && {
+                        title: 'Layer',
+                        items: [
+                          ['all', 'All'],
+                          ['mine', 'Mine'],
+                          ['team', 'Team'],
+                        ].map(([lk, lbl]) => ({
+                          key: 'layer-' + lk,
+                          label: lbl,
+                          checked: effectiveLayer === lk,
+                          onClick: () => onBrainLayerChange(lk),
+                        })),
+                      },
+                    !isGuest &&
+                      onProjectFilterChange &&
+                      brainProjects.length > 0 && {
+                        title: 'Project',
+                        items: [
+                          {
+                            key: 'sproj-all',
+                            label: 'All projects',
+                            checked: !projectFilter || projectFilter === 'all',
+                            onClick: () => onProjectFilterChange('all'),
+                          },
+                          ...brainProjects.map((pr) => ({
+                            key: 'sproj-' + pr,
+                            label: pr,
+                            checked: projectFilter === pr,
+                            onClick: () => onProjectFilterChange(projectFilter === pr ? 'all' : pr),
+                          })),
+                        ],
+                      },
+                    onOpenNamingStudio && {
+                      title: 'Tools',
+                      items: [
+                        {
+                          key: 'naming-studio',
+                          label: 'Naming Studio',
+                          icon: 'sliders',
+                          onClick: () => onOpenNamingStudio(''),
+                        },
+                      ],
+                    },
+                  ].filter(Boolean)}
+                />
 
                 ${!isGuest &&
                 onOpenBrainSheet &&
@@ -2178,6 +2216,48 @@ export function KnowledgeSpaceView({
                   <${Ic} n="plus" s=${14} />
                   <span>New</span>
                 </button>`}
+              </div>
+            </header>
+
+            <div className="datum-toolbar">
+              <div className="datum-toolbar-l pl-sl-head-r">
+                <div className="seg" role="tablist" aria-label="Scripts and Links filter" style=${{ marginTop: 0 }}>
+                  ${[
+                    ['all', 'All'],
+                    ['scripts', 'Scripts'],
+                    ['links', 'Links'],
+                    ['templates', 'Templates'],
+                    ...(hasMediaScripts ? [['media', 'Media']] : []),
+                    ['pinned', 'Pinned'],
+                  ].map(
+                    ([fk, flbl]) => html`<button
+                      key=${'skf-' + fk}
+                      type="button"
+                      role="tab"
+                      aria-selected=${scriptKindFilter === fk}
+                      className=${scriptKindFilter === fk ? 'on' : ''}
+                      onClick=${() => setScriptKindFilter(fk)}
+                    >
+                      ${flbl}
+                    </button>`
+                  )}
+                </div>
+              </div>
+
+              <div className="datum-toolbar-r">
+                <div className="pl-search">
+                  <${Ic} n="search" s=${14} />
+                  <input
+                    type="search"
+                    placeholder="Filter scripts & links…"
+                    value=${scriptsQuery}
+                    onChange=${(e) => setScriptsQuery(e.target.value)}
+                  />
+                  ${scriptsQuery &&
+                  html`<button type="button" className="pl-search-clr" aria-label="Clear filter" onClick=${() => setScriptsQuery('')}>
+                    <${Ic} n="x" s=${11} />
+                  </button>`}
+                </div>
               </div>
             </div>
 
@@ -2310,6 +2390,8 @@ export function KnowledgeSpaceView({
             isGuest=${isGuest}
             effectiveLayer=${effectiveLayer}
             projectFilter=${projectFilter || 'all'}
+            projects=${brainProjects}
+            onProjectFilterChange=${onProjectFilterChange}
             externalQuery=${spaceQuery}
             activities=${activities}
             requiredIds=${requiredIds}
@@ -2323,6 +2405,9 @@ export function KnowledgeSpaceView({
             onSaveToNote=${onSaveToNote}
             onSaveToTask=${onSaveToTask}
             onOpenBrainSheet=${onOpenBrainSheet}
+            onCreateNewsPost=${onCreateNewsPost}
+            onEditNewsPost=${onEditNewsPost}
+            onDeleteNewsPost=${onDeleteNewsPost}
             onSelectViewMode=${onSelectViewMode}
             flash=${flash}
           />
@@ -2523,18 +2608,22 @@ export function KnowledgeSpaceView({
 
     <div className="kspace-vignette" aria-hidden="true"></div>
 
-    ${cmdOpen &&
-    html`<div
-      className="kspace-cmd-ov"
-      onClick=${() => onSetCmdOpen && onSetCmdOpen(false)}
-      aria-hidden="true"
-    ></div>`}
+    ${!isTasksView &&
+    !isScriptsView &&
+    !isFeedView &&
+    html`<${Fragment}>
+      ${cmdOpen &&
+      html`<div
+        className="kspace-cmd-ov"
+        onClick=${() => onSetCmdOpen && onSetCmdOpen(false)}
+        aria-hidden="true"
+      ></div>`}
 
-    <div
-      ref=${dockWrapRef}
-      className=${'kspace-dock' + (isHeroMode ? ' is-hero' : '')}
-      onPointerDown=${(e) => e.stopPropagation()}
-    >
+      <div
+        ref=${dockWrapRef}
+        className=${'kspace-dock' + (isHeroMode ? ' is-hero' : '')}
+        onPointerDown=${(e) => e.stopPropagation()}
+      >
       ${cmdOpen &&
       html`<div className="kspace-cmd-pop" role="dialog" aria-label="Unified Command & Instant Search">
         <div className="kspace-cmd-head">
@@ -3613,6 +3702,7 @@ export function KnowledgeSpaceView({
         )}
       </div>`}
     </div>
+    </${Fragment}>`}
 
     ${drawerBrainObj &&
     html`<${Fragment}>

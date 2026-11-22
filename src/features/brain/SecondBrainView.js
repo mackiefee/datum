@@ -655,8 +655,12 @@ export function SecondBrainView({
   const searchInpRef = useRef(null);
 
   useEffect(() => {
-    if (embedded && externalQuery !== undefined) setQuery(externalQuery);
-  }, [embedded, externalQuery]);
+    if (externalQuery) setQuery(externalQuery);
+  }, [externalQuery]);
+
+  useEffect(() => {
+    if (embedded && filterTab === 'resources') setFilterTab('tasks');
+  }, [embedded, filterTab]);
 
   useEffect(() => {
     if (externalProject !== null && externalProject !== undefined) {
@@ -1263,7 +1267,7 @@ export function SecondBrainView({
         ].filter(([k, , cnt]) => cnt > 0 || smartBucket === k)
       : [];
 
-  const hasSecondaryChips = filterTab === 'tasks' || smartChips.length > 0 || (!embedded && activeProjects.length > 1);
+  const showSubChips = filterTab === 'tasks';
   const createMode = filterTab === 'notes' ? 'note' : filterTab === 'resources' ? 'resource' : 'task';
   const createLabel =
     filterTab === 'notes' ? 'New Note' : filterTab === 'resources' ? 'New Script / Link' : 'New Task';
@@ -1290,53 +1294,49 @@ export function SecondBrainView({
 
   const portalRoot = typeof document !== 'undefined' ? document.body : null;
 
-  return html`<div className=${'pl-wrap' + (filterTab === 'tasks' && layout === 'board' ? ' is-wide' : '') + (embedded ? ' is-embedded' : '')}>
-    <div className="pl-head">
-      <div className="pl-head-l">
-        <div className="pl-stats">
-          <span>
-            ${filterTab === 'focus'
-              ? `${focusUrgentTasks.length} priority · ${pinnedFocusItems.length} pinned`
-              : filterTab === 'notes'
-              ? `${visibleNotes.length} ${visibleNotes.length === 1 ? 'note' : 'notes'}`
-              : filterTab === 'resources'
-              ? `${visibleResources.length} ${visibleResources.length === 1 ? 'item' : 'items'}`
-              : `${projStats.doneCount}/${projStats.total} done${projStats.overdueCount ? ` · ${projStats.overdueCount} late` : ''}`}
-          </span>
-          <i
-            className=${'pl-sync-dot' + (syncState === 'saving' ? ' busy' : syncState === 'error' ? ' err' : '')}
-            title=${ownerName
-              ? `${ownerName} · ${syncState === 'saving' ? 'Syncing…' : syncState === 'error' ? 'Local cache' : 'Synced to Supabase'}`
-              : 'Synced to Supabase'}
-          />
+  const brainTabs = embedded
+    ? [
+        ['tasks', 'Tasks'],
+        ['focus', 'Focus'],
+        ['notes', 'Notes'],
+      ]
+    : [
+        ['tasks', 'Tasks'],
+        ['focus', 'Focus'],
+        ['notes', 'Notes'],
+        ['resources', 'Scripts & Links'],
+      ];
+
+  return html`<div className=${'pl-wrap datum-page' + (filterTab === 'tasks' && layout === 'board' ? ' is-wide' : '') + (embedded ? ' is-embedded' : '')}>
+    <header className="datum-page-head">
+      <div className="datum-page-head-l">
+        <h1 className="datum-page-title">Tasks & Notes</h1>
+        <div className="pl-head-l" style=${{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingLeft: 0 }}>
+          <div className="pl-stats">
+            <span>
+              ${filterTab === 'focus'
+                ? `${focusUrgentTasks.length} priority · ${pinnedFocusItems.length} pinned`
+                : filterTab === 'notes'
+                ? `${visibleNotes.length} ${visibleNotes.length === 1 ? 'note' : 'notes'}`
+                : filterTab === 'resources'
+                ? `${visibleResources.length} ${visibleResources.length === 1 ? 'item' : 'items'}`
+                : `${projStats.doneCount}/${projStats.total} done${projStats.overdueCount ? ` · ${projStats.overdueCount} late` : ''}`}
+            </span>
+            <i
+              className=${'pl-sync-dot' + (syncState === 'saving' ? ' busy' : syncState === 'error' ? ' err' : '')}
+              title=${ownerName
+                ? `${ownerName} · ${syncState === 'saving' ? 'Syncing…' : syncState === 'error' ? 'Local cache' : 'Synced to Supabase'}`
+                : 'Synced to Supabase'}
+            />
+          </div>
+          ${filterTab === 'tasks' &&
+          html`<div className="pl-pbar" aria-hidden="true">
+            <i style=${{ width: `${projStats.pct}%` }} />
+          </div>`}
         </div>
-        ${filterTab === 'tasks' &&
-        html`<div className="pl-pbar" aria-hidden="true">
-          <i style=${{ width: `${projStats.pct}%` }} />
-        </div>`}
       </div>
 
-      <div className="pl-head-r">
-        <div className="seg" role="tablist" aria-label="Second Brain sections" style=${{ marginTop: 0 }}>
-          ${[
-            ['tasks', 'Tasks'],
-            ['focus', 'Focus'],
-            ['notes', 'Notes'],
-            ['resources', 'Scripts & Links'],
-          ].map(
-            ([k, lbl]) => html`<button
-              key=${k}
-              type="button"
-              role="tab"
-              aria-selected=${filterTab === k}
-              className=${filterTab === k ? 'on' : ''}
-              onClick=${() => setFilterTab(k)}
-            >
-              ${lbl}
-            </button>`
-          )}
-        </div>
-
+      <div className="datum-page-acts">
         ${filterTab === 'tasks' &&
         html`<div className="seg" role="group" aria-label="Task layout" style=${{ marginTop: 0 }}>
           <button type="button" className=${layout === 'list' ? 'on' : ''} onClick=${() => setLayout('list')}>
@@ -1347,24 +1347,10 @@ export function SecondBrainView({
           </button>
         </div>`}
 
-        ${!embedded &&
-        html`<button
-          type="button"
-          className=${'pl-ico-btn pl-mob-only' + (mobSearchOpen || query ? ' on' : '')}
-          title="Search"
-          aria-label="Toggle search"
-          onClick=${() => {
-            setMobSearchOpen((v) => !v);
-            setTimeout(() => searchInpRef.current && searchInpRef.current.focus(), 40);
-          }}
-        >
-          <${Ic} n="search" s=${15} />
-        </button>`}
-
         <button
           ref=${moreBtnRef}
           type="button"
-          className=${'pl-ico-btn' + (morePos || sortMode !== 1 || hideOldDone ? ' on' : '')}
+          className=${'pl-ico-btn' + (morePos || sortMode !== 1 || hideOldDone || projFilter !== 'all' ? ' on' : '')}
           title="Sort, Statuses, Projects & Options"
           aria-label="Planner options"
           aria-expanded=${Boolean(morePos)}
@@ -1387,89 +1373,78 @@ export function SecondBrainView({
           <span>${createLabel}</span>
         </button>
       </div>
+    </header>
+
+    <div className=${'datum-toolbar pl-filterbar' + (mobSearchOpen || query ? ' mob-search-on' : '')}>
+      <div className="datum-toolbar-l">
+        <div className="seg" role="tablist" aria-label="Tasks & Notes sections">
+          ${brainTabs.map(
+            ([k, lbl]) => html`<button
+              key=${k}
+              type="button"
+              role="tab"
+              aria-selected=${filterTab === k}
+              className=${filterTab === k ? 'on' : ''}
+              onClick=${() => setFilterTab(k)}
+            >
+              ${lbl}
+            </button>`
+          )}
+        </div>
+      </div>
+
+      <div className="datum-toolbar-r">
+        <div className="pl-search">
+          <${Ic} n="search" s=${14} />
+          <input
+            ref=${searchInpRef}
+            type="search"
+            placeholder=${filterTab === 'notes'
+              ? 'Search notes…'
+              : filterTab === 'resources'
+              ? 'Search resources…'
+              : filterTab === 'focus'
+              ? 'Filter focus items…'
+              : 'Search tasks… (/)'}
+            value=${query}
+            onChange=${(e) => setQuery(e.target.value)}
+          />
+          ${query &&
+          html`<button type="button" className="pl-search-clr" aria-label="Clear search" onClick=${() => setQuery('')}>
+            <${Ic} n="x" s=${11} />
+          </button>`}
+        </div>
+      </div>
     </div>
 
-    ${((!embedded && (tasks.length > 0 || notes.length > 0 || resources.length > 0 || mobSearchOpen || query)) || hasSecondaryChips) &&
-    html`<div className=${'pl-filterbar' + (mobSearchOpen || query ? ' mob-search-on' : '')}>
-      ${!embedded &&
-      html`<div className="pl-search">
-        <${Ic} n="search" s=${14} />
-        <input
-          ref=${searchInpRef}
-          type="search"
-          placeholder=${filterTab === 'notes'
-            ? 'Search private notes…'
-            : filterTab === 'resources'
-            ? 'Search links, snippets, tools…'
-            : filterTab === 'focus'
-            ? 'Filter focus & pinned items…'
-            : 'Search tasks… (/)'}
-          value=${query}
-          onChange=${(e) => setQuery(e.target.value)}
-        />
-        ${query &&
-        html`<button type="button" className="pl-search-clr" aria-label="Clear search" onClick=${() => setQuery('')}>
-          <${Ic} n="x" s=${11} />
-        </button>`}
-      </div>`}
-
-      ${hasSecondaryChips &&
-      html`<div className="pl-chips-row">
-        ${filterTab === 'tasks' &&
-        html`<${Fragment}>
-          ${[
-            ['all', 'All'],
-            ['active', 'Active'],
-            ['done', 'Done'],
-          ].map(
-            ([stK, stLbl]) => html`<button
-              key=${'ts-' + stK}
-              type="button"
-              className=${'pl-chip is-sub' + (taskState === stK ? ' on' : '')}
-              onClick=${() => setTaskState(stK)}
-            >
-              ${stLbl}
-            </button>`
-          )}
-          ${(smartChips.length > 0 || (!embedded && activeProjects.length > 1)) && html`<i className="pl-chip-sep" aria-hidden="true" />`}
-        </${Fragment}>`}
-
-        ${smartChips.map(
-          ([k, lbl, cnt]) => html`<button
-            key=${'sm-' + k}
-            type="button"
-            className=${'pl-chip' + (k === 'over' ? ' od' : '') + (smartBucket === k ? ' on' : '')}
-            onClick=${() => setSmartBucket((prev) => (prev === k ? '' : k))}
-          >
-            <span>${lbl}</span>
-            <b>${cnt}</b>
-          </button>`
-        )}
-
-        ${smartChips.length > 0 && !embedded && activeProjects.length > 1 && html`<i className="pl-chip-sep" aria-hidden="true" />`}
-
-        ${!embedded &&
-        activeProjects.length > 1 &&
-        html`<${Fragment}>
-          <button
-            type="button"
-            className=${'pl-chip' + (projFilter === 'all' ? ' on' : '')}
-            onClick=${() => selectProjFilter('all')}
-          >
-            All projects
-          </button>
-          ${activeProjects.map(
-            (pr) => html`<button
-              key=${'pr-' + pr}
-              type="button"
-              className=${'pl-chip' + (projFilter === pr ? ' on' : '')}
-              onClick=${() => selectProjFilter(projFilter === pr ? 'all' : pr)}
-            >
-              ${pr}
-            </button>`
-          )}
-        </${Fragment}>`}
-      </div>`}
+    ${showSubChips &&
+    html`<div className="pl-chips-row">
+      ${[
+        ['all', 'All'],
+        ['active', 'Active'],
+        ['done', 'Done'],
+      ].map(
+        ([stK, stLbl]) => html`<button
+          key=${'ts-' + stK}
+          type="button"
+          className=${'pl-chip is-sub' + (taskState === stK ? ' on' : '')}
+          onClick=${() => setTaskState(stK)}
+        >
+          ${stLbl}
+        </button>`
+      )}
+      ${smartChips.length > 0 && html`<i className="pl-chip-sep" aria-hidden="true" />`}
+      ${smartChips.map(
+        ([k, lbl, cnt]) => html`<button
+          key=${'sm-' + k}
+          type="button"
+          className=${'pl-chip' + (k === 'over' ? ' od' : '') + (smartBucket === k ? ' on' : '')}
+          onClick=${() => setSmartBucket((prev) => (prev === k ? '' : k))}
+        >
+          <span>${lbl}</span>
+          <b>${cnt}</b>
+        </button>`
+      )}
     </div>`}
 
     ${filterTab === 'tasks'
@@ -2071,6 +2046,37 @@ export function SecondBrainView({
           <span className="asel-ck"><${Ic} n="folder" s=${13} /></span>
           <span className="asel-tx"><span>Manage Projects…</span></span>
         </button>`}
+
+        ${activeProjects.length > 0 &&
+        html`<${Fragment}>
+          <div className="pl-menu-div" />
+          <div className="asel-hdr">Project</div>
+          <button
+            type="button"
+            className=${'asel-opt' + (projFilter === 'all' ? ' on' : '')}
+            onClick=${() => {
+              selectProjFilter('all');
+              setMorePos(null);
+            }}
+          >
+            <span className="asel-ck">${projFilter === 'all' ? html`<${Ic} n="check" s=${13} />` : null}</span>
+            <span className="asel-tx"><span>All projects</span></span>
+          </button>
+          ${activeProjects.map(
+            (pr) => html`<button
+              key=${'mproj-' + pr}
+              type="button"
+              className=${'asel-opt' + (projFilter === pr ? ' on' : '')}
+              onClick=${() => {
+                selectProjFilter(projFilter === pr ? 'all' : pr);
+                setMorePos(null);
+              }}
+            >
+              <span className="asel-ck">${projFilter === pr ? html`<${Ic} n="check" s=${13} />` : null}</span>
+              <span className="asel-tx"><span>${pr}</span></span>
+            </button>`
+          )}
+        </${Fragment}>`}
       </div>`,
       portalRoot
     )}

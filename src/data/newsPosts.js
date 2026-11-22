@@ -1,5 +1,11 @@
 // Migrated Planit Knows editorial stories & native Datum Newsfeed categories
 // Source: Planit knows - Blog Posts CSV (cleaned for native Datum rendering)
+import { getTodayIso } from '../config/constants.js';
+
+export const BENTO_STAT_PHOTO =
+  'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6aea0c2220759e2d23282937_1900Broadway.jpg';
+export const BENTO_WIDE_PHOTO =
+  'https://cdn.prod.website-files.com/686d0fd099ee65617e107e24/6ab23b06b375f7dd6e146ffe_exterior_-_front_sunset.1600x0%20(1).webp';
 
 export const NEWS_CATEGORIES = [
   { id: 'projects', label: 'Projects', color: '#0a84ff' },
@@ -1838,4 +1844,51 @@ export const SEED_NEWS_POSTS = [
     ],
     "bodyHtml": "<p>On September 12, the BUILDIT Ukraine team is celebrating its 10th birthday!<br></p><p>Over these years, nearly 10,000 people have registered, learned, and received their certificates from buildit.lab. Of those, <strong>190 people joined Planit after completing the buildit.lab courses, and 130 of them are still a part of our team!</strong></p><p>BUILDIT Ukraine is the result of the hard work of dozens of industry specialists who continue to share their experience and knowledge, create new educational courses and videos, write articles, conduct research, and transform the industry and its perception. We are immensely grateful to every student, specialist, partner, university, and company for these 10 years of relentless work.</p><p>With faith in victory and peaceful times, there is a shared hope for many more joint events, new educational materials, and continued efforts to unite an entire generation of modern professionals.</p><p>Visit the<a href=\"https://www.buildit.org.ua/\" target=\"_blank\"> BUILDIT Ukraine </a>website to learn more about their journey. 💛</p><figure style=\"padding-bottom:56.206088992974244%\" data-rt-type=\"video\" data-rt-align=\"fullwidth\" data-rt-max-width=\"\" data-rt-max-height=\"56.206088992974244%\" data-rt-dimensions=\"854:480\" data-page-url=\"https://youtu.be/pI5HqKGOgJQ\"><div><iframe src=\"https://www.youtube.com/embed/pI5HqKGOgJQ\" title=\"BUILDIT Ukraine: 10 years!\" scrolling=\"no\" frameborder=\"0\" allowfullscreen=\"true\"></iframe></div></figure>"
   }
+];
+
+export const QUICK_UPDATE_SEEDS = [
+  {
+    id: 'news-update-naming-137',
+    kind: 'update',
+    category: 'technical',
+    title: '13-Slot Wall & Soffit Naming Standard (#137) is now live in Naming Studio',
+    summary:
+      'All C10_INTERIOR partition types and soffit drops must use the unified 13-slot naming pattern. Validate or generate compliant Revit type names directly in Wall Naming Studio.',
+    codeSnippet: 'C1010_I-GWB_2L-362S16OC-2L_1HR_STC50',
+    cover: BENTO_STAT_PHOTO,
+    accentColor: '#8e5cf7',
+    readTime: 'Standard #137',
+    date: getTodayIso(),
+    author: 'Andrii Lytvynov',
+    dept: 'VDC',
+    project: 'C10_INTERIOR',
+    featured: false,
+    pinned: true,
+    linkedDocIds: [137, 100],
+    tags: ['VDC', 'Naming', 'C10_INTERIOR'],
+    bodyHtml:
+      '<p>All <strong>C10_INTERIOR</strong> partition types and soffit drops should follow the unified 13-slot naming standard before CL-RFI export.</p><p>Use <strong>Naming Studio</strong> from the workspace sidebar or Datum AI quick actions to validate existing Revit type names or assemble new ones with zero typos.</p>',
+  },
+  {
+    id: 'news-update-planit-knows',
+    kind: 'update',
+    category: 'company',
+    title: 'Planit Knows stories have moved natively into Datum Newsfeed',
+    summary:
+      'All company stories, Behind the Project case studies, automation updates, and People & Inside interviews are now searchable inside Datum and linked directly to our standards.',
+    codeSnippet: '',
+    cover: BENTO_WIDE_PHOTO,
+    accentColor: '#30d158',
+    readTime: '1 min',
+    date: getTodayIso(),
+    author: 'Maxim',
+    dept: 'VDC',
+    project: 'General',
+    featured: false,
+    pinned: false,
+    linkedDocIds: [100, 102],
+    tags: ['Newsfeed', 'Datum'],
+    bodyHtml:
+      '<p>We retired external Webflow CMS hosting and brought all <strong>Planit Knows</strong> editorial stories directly into Datum.</p><p>You can now filter by rubric, search with Datum AI, link articles to standards, post quick team updates, and save insights straight to your Second Brain notes or tasks.</p>',
+  },
 ];

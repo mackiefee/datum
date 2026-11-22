@@ -4,6 +4,8 @@ import { ROLES, normRole } from '../config/constants.js';
 import { Ic } from './Icon.js';
 import { Avatar } from './Badge.js';
 
+const isNodeTarget = (t) => typeof Node !== "undefined" && t instanceof Node;
+
 function normalizeOption(opt) {
   if (Array.isArray(opt)) {
     return {
@@ -114,8 +116,8 @@ export function Select(p) {
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      if (btnRef.current && btnRef.current.contains(e.target)) return;
-      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && btnRef.current && btnRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && menuRef.current && menuRef.current.contains(e.target)) return;
       setOpen(false);
     };
     const onKey = (e) => {
@@ -126,7 +128,7 @@ export function Select(p) {
       }
     };
     const onScrollOrResize = (e) => {
-      if (menuRef.current && e.target && menuRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && menuRef.current && menuRef.current.contains(e.target)) return;
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
         setPos(computeMenuPos(r, minMenuWidth));
@@ -243,8 +245,8 @@ function usePopover({ minWidth = 220, maxWidth = 340, maxHeight = 420, preferUp 
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      if (btnRef.current && btnRef.current.contains(e.target)) return;
-      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && btnRef.current && btnRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && menuRef.current && menuRef.current.contains(e.target)) return;
       setOpen(false);
     };
     const onKey = (e) => {
@@ -255,7 +257,7 @@ function usePopover({ minWidth = 220, maxWidth = 340, maxHeight = 420, preferUp 
       }
     };
     const onScrollOrResize = (e) => {
-      if (menuRef.current && e.target && menuRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && menuRef.current && menuRef.current.contains(e.target)) return;
       if (btnRef.current) {
         const r = btnRef.current.getBoundingClientRect();
         setPos(computeMenuPos(r, minWidth, preferUp, maxWidth, maxHeight));
@@ -446,6 +448,7 @@ export function ViewModeSwitch({
   showTasks = false,
   onSelectMode,
   className = "",
+  variant = "segmented",
 }) {
   const { open, setOpen, pos, btnRef, menuRef, toggle } = usePopover({
     minWidth: 200,
@@ -461,21 +464,23 @@ export function ViewModeSwitch({
   ];
   const current = modes.find((m) => m[0] === viewMode) || modes[0];
   const hasActiveStageMode = Boolean(stageOpen && viewMode && modes.some((m) => m[0] === viewMode));
-  const btnIcon = hasActiveStageMode ? current[1] : "globe";
-  const shortLabel = !hasActiveStageMode
+  const hasActiveSection = Boolean(viewMode && modes.some((m) => m[0] === viewMode));
+  const btnIcon = hasActiveSection ? current[1] : "globe";
+  const shortLabel = !hasActiveSection
     ? "Views"
     : current[0] === "scripts"
     ? "Scripts"
     : current[0] === "feed"
     ? "Feed"
     : current[2];
+  const segLabel = (k, lbl) => (k === "feed" ? "Feed" : k === "scripts" ? "Scripts" : lbl);
 
-  return html`<${Fragment}>
+  const dropdownNode = html`<${Fragment}>
     <button
       ref=${btnRef}
       type="button"
-      className=${"asel kspace-mode-btn" + (open ? " open" : "") + (className ? " " + className : "")}
-      aria-label=${hasActiveStageMode ? `View: ${current[2]}. Switch view` : "Switch view"}
+      className=${"asel kspace-mode-btn" + (variant === "segmented" ? " app-view-dd" : "") + (open ? " open" : "") + (className ? " " + className : "")}
+      aria-label=${hasActiveStageMode || hasActiveSection ? `View: ${current[2]}. Switch view` : "Switch view"}
       aria-haspopup="menu"
       aria-expanded=${open}
       onClick=${toggle}
@@ -496,7 +501,7 @@ export function ViewModeSwitch({
         style=${menuStyleFromPos(pos)}
       >
         ${modes.map(([k, ico, lbl, cnt]) => {
-          const isOn = Boolean(stageOpen && viewMode === k);
+          const isOn = Boolean(viewMode === k);
           return html`<button
             key=${k}
             type="button"
@@ -516,6 +521,29 @@ export function ViewModeSwitch({
       </div>`,
       document.body
     )}
+  <//>`;
+
+  if (variant === "dropdown") return dropdownNode;
+
+  return html`<${Fragment}>
+    <div className=${"app-view-seg" + (className ? " " + className : "")} role="tablist" aria-label="Primary workspace views">
+      ${modes.map(([k, ico, lbl]) => {
+        const isOn = Boolean(viewMode === k);
+        return html`<button
+          key=${k}
+          type="button"
+          role="tab"
+          aria-selected=${isOn}
+          className=${isOn ? "on" : ""}
+          title=${lbl}
+          onClick=${() => onSelectMode && onSelectMode(k)}
+        >
+          <${Ic} n=${ico} s=${13} />
+          <span>${segLabel(k, lbl)}</span>
+        </button>`;
+      })}
+    </div>
+    ${dropdownNode}
   <//>`;
 }
 
@@ -638,8 +666,8 @@ export function UserSwitcher({
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
-      if (btnRef.current && btnRef.current.contains(e.target)) return;
-      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && btnRef.current && btnRef.current.contains(e.target)) return;
+      if (isNodeTarget(e.target) && menuRef.current && menuRef.current.contains(e.target)) return;
       setOpen(false);
     };
     const onKey = (e) => {
@@ -755,4 +783,105 @@ export function UserSwitcher({
     </button>
     ${menuEl}
   </div>`;
+}
+
+/**
+ * Shared Circular (•••) Overflow & Filter Action Menu Button
+ */
+export function ActionMenuButton({
+  sections = [],
+  active = false,
+  ariaLabel = "More actions",
+  title = "More actions",
+  className = "",
+  minWidth = 220,
+  disabled = false,
+}) {
+  const { open, setOpen, pos, btnRef, menuRef, toggle } = usePopover({
+    minWidth,
+    maxWidth: 270,
+    maxHeight: 420,
+    disabled,
+  });
+  const [confirmKey, setConfirmKey] = useState(null);
+
+  useEffect(() => {
+    if (!open && confirmKey) setConfirmKey(null);
+  }, [open, confirmKey]);
+
+  const cleanSections = (Array.isArray(sections) ? sections : [])
+    .map((sec) => ({
+      title: sec && sec.title ? String(sec.title) : "",
+      items: Array.isArray(sec?.items) ? sec.items.filter(Boolean) : [],
+    }))
+    .filter((sec) => sec.items.length > 0);
+
+  if (!cleanSections.length) return null;
+
+  return html`<${Fragment}>
+    <button
+      ref=${btnRef}
+      type="button"
+      className=${"pl-ico-btn" + (open || active ? " on" : "") + (className ? " " + className : "")}
+      title=${title}
+      aria-label=${ariaLabel}
+      aria-haspopup="menu"
+      aria-expanded=${open}
+      disabled=${disabled}
+      onClick=${toggle}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <circle cx="5" cy="12" r="2" />
+        <circle cx="12" cy="12" r="2" />
+        <circle cx="19" cy="12" r="2" />
+      </svg>
+    </button>
+    ${open &&
+    pos &&
+    typeof document !== "undefined" &&
+    createPortal(
+      html`<div
+        ref=${menuRef}
+        className="asel-menu pl-more-menu"
+        role="menu"
+        aria-label=${ariaLabel}
+        style=${menuStyleFromPos(pos)}
+      >
+        ${cleanSections.map((sec, sIdx) => html`<${Fragment} key=${sec.title || `sec-${sIdx}`}>
+          ${sIdx > 0 && html`<div className="pl-menu-div" role="separator" />`}
+          ${sec.title && html`<div className="asel-hdr">${sec.title}</div>`}
+          ${sec.items.map((item) => {
+            const isArmed = Boolean(item.confirmLabel && confirmKey === item.key);
+            const cls =
+              "asel-opt" +
+              (item.checked ? " on" : "") +
+              (item.danger || isArmed ? " danger" : "");
+            const lbl = isArmed ? item.confirmLabel : item.label;
+            const ico = item.checked ? "check" : item.icon || null;
+            return html`<button
+              key=${item.key}
+              type="button"
+              role="menuitem"
+              disabled=${Boolean(item.disabled)}
+              className=${cls}
+              onClick=${() => {
+                if (item.disabled) return;
+                if (item.confirmLabel && !isArmed) {
+                  setConfirmKey(item.key);
+                  return;
+                }
+                setOpen(false);
+                setConfirmKey(null);
+                item.onClick && item.onClick();
+              }}
+            >
+              <span className="asel-ck">${ico ? html`<${Ic} n=${ico} s=${13} />` : null}</span>
+              <span className="asel-tx"><span>${lbl}</span></span>
+            </button>`;
+          })}
+        <//>`)}
+      </div>`,
+      document.body
+    )}
+  <//>`;
 }

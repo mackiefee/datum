@@ -1,7 +1,9 @@
-import { html, useState, useEffect } from '../lib/react.js';
+import { html, Fragment, useState, useEffect } from '../lib/react.js';
 import { ST, TY, DC, VIS, STG, DISC, RD, ROLES, TODAY, can, normRole } from '../config/constants.js';
 import { buildFlat, byId } from '../data/spaces.js';
 import { TPL } from '../data/templates.js';
+import { NEWS_CATEGORIES } from '../data/newsPosts.js';
+import { NEWS_TPL, estimateReadTime } from '../utils/newsMarkdown.js';
 import { fmt } from '../utils/format.js';
 import { edgeClient } from '../lib/edgeClient.js';
 import { Ic } from './Icon.js';
@@ -31,7 +33,9 @@ function SwitchRow({ label, hint, checked, onToggle, disabled }) {
 }
 
 export function Drawer(p) {
-  const { r, res, role, tree, userName, users = [], shares = [] } = p;
+  const { r, res, role, tree, userName, users = [], shares = [], newsProjects = ['General', 'C10_INTERIOR'] } = p;
+  const isNews = r.type === 'news';
+  const tplMap = isNews ? NEWS_TPL : TPL;
   const [tab, setTab] = useState(p.initialTab || "o");
   const [cm, setCm] = useState("");
   const [sm, setSm] = useState(null);
@@ -169,7 +173,7 @@ export function Drawer(p) {
           <span className="insp-dot" style=${{ background: DC[r.disc] || "var(--blue)" }}></span>
           <span>${TY[r.type] || "Document"} Inspector</span>
         </div>
-        <h2 className="insp-title">${r.title || "Untitled standard"}</h2>
+        <h2 className="insp-title">${r.title || (isNews ? "Untitled post" : "Untitled standard")}</h2>
         <div className="insp-sub">
           <${Pill} s=${r.status} />
           ${r.vis && r.vis !== "Internal" && html`<${VisPill} v=${r.vis} />`}
@@ -253,12 +257,86 @@ export function Drawer(p) {
                         displayLabel=${TY[r.type] || "Document"}
                         value=${r.type || "doc"}
                         options=${Object.entries(TY)}
-                        onChange=${(val) => commitMeta({ type: val })}
+                        onChange=${(val) => {
+                          if (val === "news") {
+                            commitMeta({
+                              type: "news",
+                              feedCategory: r.feedCategory || "technical",
+                              feedKind: r.feedKind || "article",
+                              project: r.project || "General",
+                              readTime: r.readTime || estimateReadTime(r.body || r.bodyHtml || ""),
+                            });
+                          } else {
+                            commitMeta({ type: val });
+                          }
+                        }}
                         minMenuWidth=${165}
                       />`
                     : html`<span className="insp-val-txt">${TY[r.type] || "Document"}</span>`}
                 </div>
               </div>
+
+              ${isNews &&
+              html`<${Fragment}>
+                <div className="insp-row">
+                  <span className="insp-k">Feed Channel</span>
+                  <div className="insp-v">
+                    ${canEditItem && p.onInlineUpdate
+                      ? html`<${Select}
+                          variant="meta"
+                          ariaLabel="Feed Channel"
+                          color=${((NEWS_CATEGORIES.find((c) => c.id === (r.feedCategory || "technical")) || NEWS_CATEGORIES[1]) || {}).color || "var(--blue)"}
+                          value=${r.feedCategory || "technical"}
+                          options=${NEWS_CATEGORIES.map((c) => [c.id, c.label, false, c.color])}
+                          onChange=${(val) => commitMeta({ feedCategory: val })}
+                          minMenuWidth=${190}
+                        />`
+                      : html`<span className="insp-val-txt">${(NEWS_CATEGORIES.find((c) => c.id === r.feedCategory) || {}).label || "Tech & Tools"}</span>`}
+                  </div>
+                </div>
+
+                <div className="insp-row">
+                  <span className="insp-k">Format</span>
+                  <div className="insp-v">
+                    ${canEditItem && p.onInlineUpdate
+                      ? html`<${Select}
+                          variant="inline"
+                          ariaLabel="Format"
+                          displayLabel=${r.feedKind === "update" ? "Quick Update" : "Article / Story"}
+                          value=${r.feedKind || "article"}
+                          options=${[
+                            ["article", "Article / Story"],
+                            ["update", "Quick Update"],
+                          ]}
+                          onChange=${(val) =>
+                            commitMeta({
+                              feedKind: val,
+                              readTime: val === "update" ? "Quick update" : estimateReadTime(r.body || r.bodyHtml || ""),
+                            })
+                          }
+                          minMenuWidth=${175}
+                        />`
+                      : html`<span className="insp-val-txt">${r.feedKind === "update" ? "Quick Update" : "Article / Story"}</span>`}
+                  </div>
+                </div>
+
+                <div className="insp-row">
+                  <span className="insp-k">Project</span>
+                  <div className="insp-v">
+                    ${canEditItem && p.onInlineUpdate
+                      ? html`<${Select}
+                          variant="inline"
+                          ariaLabel="Project"
+                          displayLabel=${r.project || "General"}
+                          value=${r.project || "General"}
+                          options=${newsProjects.map((pr) => [pr, pr])}
+                          onChange=${(val) => commitMeta({ project: val })}
+                          minMenuWidth=${180}
+                        />`
+                      : html`<span className="insp-val-txt">${r.project || "General"}</span>`}
+                  </div>
+                </div>
+              </${Fragment}>`}
 
               <div className="insp-row">
                 <span className="insp-k">Discipline</span>
@@ -278,7 +356,8 @@ export function Drawer(p) {
                 </div>
               </div>
 
-              <div className="insp-row">
+              ${!isNews &&
+              html`<div className="insp-row">
                 <span className="insp-k">Stage</span>
                 <div className="insp-v">
                   ${canEditItem && p.onInlineUpdate
@@ -293,9 +372,9 @@ export function Drawer(p) {
                       />`
                     : html`<span className="insp-val-txt">${r.stage || STG[0]}</span>`}
                 </div>
-              </div>
+              </div>`}
 
-              ${(canEditItem || r.url) &&
+              ${((!isNews && canEditItem) || r.url) &&
               html`<div className="insp-row">
                 <span className="insp-k">Target URL</span>
                 <div className="insp-v insp-v-grow">
@@ -424,6 +503,16 @@ export function Drawer(p) {
                 onToggle=${() => p.tf && p.tf(r.id)}
               />`}
 
+              ${isNews &&
+              p.onInlineUpdate &&
+              html`<${SwitchRow}
+                label="Featured in Hero"
+                hint="Highlight in Newsfeed top banner"
+                checked=${Boolean(r.featured)}
+                disabled=${!canEditItem}
+                onToggle=${() => commitMeta({ featured: !r.featured })}
+              />`}
+
               ${can.createDraft(role) &&
               p.onTogglePin &&
               html`<${SwitchRow}
@@ -528,7 +617,7 @@ export function Drawer(p) {
               canEditItem &&
               tplOpen &&
               html`<div className="insp-tpl-list">
-                ${Object.keys(TPL).map(
+                ${Object.keys(tplMap).map(
                   (tk) => html`<button
                     key=${tk}
                     type="button"
