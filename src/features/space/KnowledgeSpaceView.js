@@ -171,6 +171,7 @@ export function KnowledgeSpaceView({
   const [spaceFilterMode, setSpaceFilterMode] = useState('all'); // 'all' | 'bookmarks'
   const [showAllAfterAi, setShowAllAfterAi] = useState(false);
   const [desktopChatOpen, setDesktopChatOpen] = useState(false);
+  const [chatTall, setChatTall] = useState(false);
   const [desktopHistoryOpen, setDesktopHistoryOpen] = useState(false);
   const [mobBrowseOpen, setMobBrowseOpen] = useState(false);
   const [mobMenuOpen, setMobMenuOpen] = useState(false);
@@ -2748,10 +2749,10 @@ export function KnowledgeSpaceView({
       ${!isMobile &&
       desktopChatOpen &&
       activeChat &&
-      html`<div className="kspace-chat-panel" role="region" aria-label="Datum AI Chat">
+      html`<div className=${'kspace-chat-panel' + (chatTall ? ' is-tall' : '')} role="region" aria-label="Datum AI Chat">
         <div className="kspace-ai-head">
           <span className="kspace-ai-badge">
-            <${Ic} n="spark" s=${13} /> Datum AI
+            <${Ic} n="spark" s=${12} /> Datum AI
           </span>
           <span className="kspace-ai-q">${activeChat.title || 'Conversation'}</span>
           <div className="kspace-pop-acts">
@@ -2832,11 +2833,21 @@ export function KnowledgeSpaceView({
             items.length > activeAiTurn.src.length &&
             html`<button
               type="button"
-              className="kspace-mini-btn"
+              className=${'kspace-mini-btn' + (!showAllAfterAi ? ' on' : '')}
+              title=${showAllAfterAi ? 'Spotlight cited sources in 3D Space' : 'Show all cards in 3D Space'}
               onClick=${() => setShowAllAfterAi((v) => !v)}
             >
-              ${showAllAfterAi ? `Focus sources (${activeAiTurn.src.length})` : `Show all (${items.length})`}
+              ${showAllAfterAi ? `Focus (${activeAiTurn.src.length})` : `All (${items.length})`}
             </button>`}
+            <button
+              type="button"
+              className=${'kspace-pop-x' + (chatTall ? ' on' : '')}
+              aria-label=${chatTall ? 'Restore standard chat height' : 'Expand chat height'}
+              title=${chatTall ? 'Compact height' : 'Expand height'}
+              onClick=${() => setChatTall((v) => !v)}
+            >
+              <span style=${{ fontSize: '12px', lineHeight: 1 }}>${chatTall ? '⤡' : '⤢'}</span>
+            </button>
             <button
               type="button"
               className="kspace-pop-x"
@@ -3488,6 +3499,7 @@ export function KnowledgeSpaceView({
         !isTasksView &&
         !isScriptsView &&
         !isFeedView &&
+        !(!isMobile && desktopChatOpen && activeChat && !spaceQuery.trim()) &&
         (isMobile
           ? html`<button
               type="button"
@@ -3519,7 +3531,7 @@ export function KnowledgeSpaceView({
                 ${reactive.isolateMatches ? 'Show all' : 'Only matches'}
               </button>`}
             </div>`)}
-        ${(spaceQuery || (!isMobile && desktopChatOpen && activeChat) || spaceFilterMode !== 'all') &&
+        ${(spaceQuery || spaceFilterMode !== 'all') &&
         html`<button
           type="button"
           className="kspace-ask-clr"
@@ -3615,7 +3627,8 @@ export function KnowledgeSpaceView({
                   <span>Scripts</span>
                 </button>
               </${Fragment}>`
-            : html`<${Fragment}>
+            : !(!isMobile && desktopChatOpen && activeChat)
+            ? html`<${Fragment}>
                 ${!isGuest &&
                 favs.length > 0 &&
                 html`<button
@@ -3650,7 +3663,8 @@ export function KnowledgeSpaceView({
                   <${Ic} n="spark" s=${11} />
                   <span>Chats (${chats.length})</span>
                 </button>`}
-              </${Fragment}>`}
+              </${Fragment}>`
+            : null}
         </div>
 
       ${!isMobile &&

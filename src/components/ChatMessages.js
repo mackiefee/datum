@@ -127,8 +127,29 @@ export function ChatMessages({
   onFlagGap,
   endRef = null,
 }) {
-  const [expandedTurnId, setExpandedTurnId] = useState(null);
+  const [openSrcTurnIds, setOpenSrcTurnIds] = useState(() => new Set());
+  const [copiedMsgId, setCopiedMsgId] = useState(null);
   const [flaggedQueries, setFlaggedQueries] = useState(() => new Set());
+
+  const toggleSourcesForTurn = (id) => {
+    setOpenSrcTurnIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const copyMessageText = (msg) => {
+    if (!msg || !msg.text) return;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(String(msg.text)).catch(() => {});
+    }
+    setCopiedMsgId(msg.id);
+    setTimeout(() => {
+      setCopiedMsgId((cur) => (cur === msg.id ? null : cur));
+    }, 1500);
+  };
 
   return html`<div className=${'chat-thread' + (compact ? ' is-compact' : '')} role="log" aria-label="Search conversation">
     ${messages.map((msg) => {
@@ -140,12 +161,11 @@ export function ChatMessages({
         </div>`;
       }
 
-      const matchedDocs = (msg.matchIds || [])
-        .map((id) => (poolById ? poolById.get(id) : null))
-        .filter(Boolean);
-      const isMatchesOpen = expandedTurnId === msg.id;
-      const primarySrc = msg.src && msg.src[0];
-      const primaryExtUrl = (msg.src || []).find((s) => s && s.url);
+      const srcList = Array.isArray(msg.src) ? msg.src : [];
+      const hasSources = srcList.length > 0;
+      const isSourcesOpen = openSrcTurnIds.has(msg.id);
+      const primarySrc = srcList[0] || null;
+      const primaryExtUrl = srcList.find((s) => s && s.url);
       const isPrimaryFav = primarySrc && favs.includes(primarySrc.id);
       const isGapFlagged = msg.query && flaggedQueries.has(msg.query);
       const canClip =
@@ -158,32 +178,134 @@ export function ChatMessages({
           !String(primarySrc.id).startsWith('note:') &&
           !String(primarySrc.id).startsWith('res:')
       );
-      const hasActions =
+      const showFooter =
         !msg.busy &&
-        ((msg.actions && (msg.actions.suggestNamingStudio || msg.actions.noResultsGap)) ||
-          Boolean(primaryExtUrl) ||
-          canFavPrimary ||
-          canClip);
+        (hasSources ||
+          Boolean(msg.text) ||
+          (msg.actions && (msg.actions.suggestNamingStudio || msg.actions.noResultsGap)) ||
+          Boolean(primaryExtUrl));
 
       return html`<div key=${msg.id} className="kspace-mob-msg is-assistant">
-        <div className="kspace-mob-msg-head">
-          <span className="kspace-ai-badge">
-            <${Ic} n="spark" s=${11} /> Datum AI
-          </span>
-          ${msg.scopeDocTitle &&
-          html`<span className="chat-msg-scope">§ ${msg.scopeDocTitle}</span>`}
-        </div>
+        ${msg.scopeDocTitle &&
+        html`<div className="kspace-mob-msg-head">
+          <span className="chat-msg-scope">§ ${msg.scopeDocTitle}</span>
+        </div>`}
 
         <div className="kspace-mob-msg-body">
           ${msg.busy && !msg.text
             ? html`<div className="dots"><i></i><i></i><i></i></div>`
-            : renderTextWithCitations(msg.text, msg.src, onSelectSource)}
+            : renderTextWithCitations(msg.text, srcList, onSelectSource)}
         </div>
 
-        ${msg.src &&
-        msg.src.length > 0 &&
+        ${showFooter &&
+        html`<div className="chat-msg-footer">
+          <div className="chat-footer-left">
+            ${hasSources &&
+            html`<button
+              type="button"
+              className=${'chat-src-toggle' + (isSourcesOpen ? ' on' : '')}
+              onClick=${() => toggleSourcesForTurn(msg.id)}
+              title=${isSourcesOpen ? 'Hide cited sources' : 'Show cited sources'}
+            >
+              <${Ic} n="doc" s=${11} />
+              <span>${srcList.length} ${srcList.length === 1 ? 'source' : 'sources'}</span>
+              <span className="chat-src-chev">${isSourcesOpen ? '▴' : '▾'}</span>
+            </button>`}
+
+            ${msg.actions &&
+            msg.actions.suggestNamingStudio &&
+            onOpenNamingStudio &&
+            html`<button
+              type="button"
+              className="chat-ctx-pill is-primary"
+              onClick=${() => onOpenNamingStudio(msg.actions.namingCode || '')}
+            >
+              <${Ic} n="sliders" s=${11} />
+              <span>${msg.actions.namingCode ? 'Naming Studio' : 'Naming Studio'}</span>
+            </button>`}
+
+            ${primaryExtUrl &&
+            html`<a
+              className="chat-ctx-pill"
+              href=${primaryExtUrl.url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <${Ic} n="openx" s=${11} />
+              <span>Open ${TY[primaryExtUrl.type] || 'Link'}</span>
+            </a>`}
+
+            ${msg.actions &&
+            msg.actions.noResultsGap &&
+            onFlagGap &&
+            html`<button
+              type="button"
+              className=${'chat-ctx-pill' + (isGapFlagged ? ' on' : ' is-warn')}
+              disabled=${isGapFlagged}
+              onClick=${() => {
+                if (!msg.query) return;
+                onFlagGap(msg.query);
+                setFlaggedQueries((prev) => new Set([...prev, msg.query]));
+              }}
+            >
+              <${Ic} n=${isGapFlagged ? 'check' : 'plus'} s=${11} />
+              <span>${isGapFlagged ? 'Flagged' : 'Flag missing'}</span>
+            </button>`}
+          </div>
+
+          <div className="chat-ico-bar" role="toolbar" aria-label="Message actions">
+            ${Boolean(msg.text) &&
+            html`<button
+              type="button"
+              className=${'chat-ico-btn' + (copiedMsgId === msg.id ? ' on' : '')}
+              onClick=${() => copyMessageText(msg)}
+              title=${copiedMsgId === msg.id ? 'Copied' : 'Copy answer'}
+              aria-label="Copy answer"
+            >
+              <${Ic} n=${copiedMsgId === msg.id ? 'check' : 'copy'} s=${13} />
+            </button>`}
+
+            ${canClip &&
+            onSaveToNote &&
+            html`<button
+              type="button"
+              className="chat-ico-btn"
+              onClick=${() => onSaveToNote(msg)}
+              title="Save to Private Notes"
+              aria-label="Save to Private Notes"
+            >
+              <${Ic} n="note" s=${13} />
+            </button>`}
+
+            ${canClip &&
+            onSaveToTask &&
+            html`<button
+              type="button"
+              className="chat-ico-btn"
+              onClick=${() => onSaveToTask(msg)}
+              title="Convert to Personal Task"
+              aria-label="Convert to Personal Task"
+            >
+              <${Ic} n="check" s=${13} />
+            </button>`}
+
+            ${canFavPrimary &&
+            html`<button
+              type="button"
+              className=${'chat-ico-btn' + (isPrimaryFav ? ' is-fav' : '')}
+              onClick=${() => onToggleFav(primarySrc.id)}
+              title=${isPrimaryFav ? 'Remove bookmark' : 'Bookmark source'}
+              aria-label="Bookmark source"
+            >
+              <${Ic} n="star" s=${13} f=${isPrimaryFav} />
+            </button>`}
+          </div>
+        </div>`}
+
+        ${hasSources &&
+        isSourcesOpen &&
         html`<div className="kspace-ai-srcs">
-          ${msg.src.map(
+          ${srcList.map(
             (s, idx) => html`<button
               key=${`${s.id}-${s.sectionId || idx}`}
               type="button"
@@ -191,15 +313,7 @@ export function ChatMessages({
               onMouseEnter=${() => onHoverSource && onHoverSource(s.id)}
               onMouseLeave=${() => onHoverSource && onHoverSource(null)}
               onClick=${() => onSelectSource && onSelectSource(s)}
-              title=${s.brainKind === 'task'
-                ? 'Open in Personal Tasks'
-                : s.brainKind === 'note'
-                ? 'Open in Private Notes'
-                : s.brainKind === 'resource'
-                ? 'Open in Personal Resources'
-                : s.sectionTitle
-                ? `Jump to § ${s.sectionTitle}`
-                : 'Open standard'}
+              title=${s.sectionTitle ? `Jump to § ${s.sectionTitle}` : 'Open standard'}
             >
               <b>${s.index}</b>
               <span>
@@ -209,125 +323,11 @@ export function ChatMessages({
                   ? 'Note · '
                   : s.brainKind === 'resource'
                   ? 'Resource · '
-                  : ''}${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}${s.stale ? ' (Review)' : ''}
+                  : ''}${s.title}${s.sectionTitle ? ` · § ${s.sectionTitle}` : ''}
               </span>
               <span className="kspace-src-go">↗</span>
             </button>`
           )}
-        </div>`}
-
-        ${hasActions &&
-        html`<div className="chat-msg-actions">
-          ${msg.actions &&
-          msg.actions.suggestNamingStudio &&
-          onOpenNamingStudio &&
-          html`<button
-            type="button"
-            className="chat-act-chip is-primary"
-            onClick=${() => onOpenNamingStudio(msg.actions.namingCode || '')}
-          >
-            <${Ic} n="sliders" s=${12} />
-            <span>${msg.actions.namingCode ? 'Open code in Naming Studio' : 'Open Naming Studio'}</span>
-          </button>`}
-
-          ${primaryExtUrl &&
-          html`<a
-            className="chat-act-chip"
-            href=${primaryExtUrl.url}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <${Ic} n="openx" s=${12} />
-            <span>Open ${TY[primaryExtUrl.type] || 'Link'}</span>
-          </a>`}
-
-          ${canFavPrimary &&
-          html`<button
-            type="button"
-            className=${'chat-act-chip' + (isPrimaryFav ? ' on' : '')}
-            onClick=${() => onToggleFav(primarySrc.id)}
-          >
-            <${Ic} n="star" s=${12} f=${isPrimaryFav} />
-            <span>${isPrimaryFav ? 'Bookmarked' : 'Bookmark'}</span>
-          </button>`}
-
-          ${canClip &&
-          onSaveToNote &&
-          html`<button
-            type="button"
-            className="chat-act-chip"
-            onClick=${() => onSaveToNote(msg)}
-            title="Save AI answer as a Private Note in your Second Brain"
-          >
-            <${Ic} n="note" s=${12} />
-            <span>+ Save Note</span>
-          </button>`}
-
-          ${canClip &&
-          onSaveToTask &&
-          html`<button
-            type="button"
-            className="chat-act-chip"
-            onClick=${() => onSaveToTask(msg)}
-            title="Turn AI answer into a Personal Task"
-          >
-            <${Ic} n="check" s=${12} />
-            <span>+ To Task</span>
-          </button>`}
-
-          ${msg.actions &&
-          msg.actions.noResultsGap &&
-          onFlagGap &&
-          html`<button
-            type="button"
-            className=${'chat-act-chip' + (isGapFlagged ? ' on' : ' is-warn')}
-            disabled=${isGapFlagged}
-            onClick=${() => {
-              if (!msg.query) return;
-              onFlagGap(msg.query);
-              setFlaggedQueries((prev) => new Set([...prev, msg.query]));
-            }}
-          >
-            <${Ic} n=${isGapFlagged ? 'check' : 'plus'} s=${12} />
-            <span>${isGapFlagged ? 'Gap flagged for Admin' : 'Flag missing standard'}</span>
-          </button>`}
-        </div>`}
-
-        ${matchedDocs.length > 0 &&
-        !msg.busy &&
-        html`<div className="kspace-mob-turn-matches">
-          <button
-            type="button"
-            className=${'kspace-mini-btn' + (isMatchesOpen ? ' on' : '')}
-            onClick=${() => setExpandedTurnId((cur) => (cur === msg.id ? null : msg.id))}
-          >
-            ${isMatchesOpen
-              ? `Hide matching (${matchedDocs.length})`
-              : `${matchedDocs.length} matching ${matchedDocs.length === 1 ? 'standard' : 'standards'} ▾`}
-          </button>
-          ${isMatchesOpen &&
-          html`<div className="kspace-mob-turn-cards">
-            ${matchedDocs.map(
-              (r) => html`<button
-                key=${r.id}
-                type="button"
-                className="kspace-mob-card"
-                style=${{ '--c': DC[r.disc] || '#0a84ff' }}
-                onMouseEnter=${() => onHoverSource && onHoverSource(r.id)}
-                onMouseLeave=${() => onHoverSource && onHoverSource(null)}
-                onClick=${() => (onOpenCard ? onOpenCard(r.id) : onSelectSource && onSelectSource({ id: r.id }))}
-              >
-                <div className="kspace-mob-card-top">
-                  <span className="kspace-mob-disc">
-                    <i className="kspace-mob-dot" />
-                    <span>${r.disc || 'General'}</span>
-                  </span>
-                  <span className="kspace-mob-meta">${TY[r.type] || 'Document'}</span>
-                </div>
-                <div className="kspace-mob-card-title">${r.title}</div>
-              </button>`
-            )}
-          </div>`}
         </div>`}
       </div>`;
     })}

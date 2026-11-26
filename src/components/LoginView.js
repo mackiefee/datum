@@ -35,7 +35,7 @@ const LOCAL_DEV_PRESETS = [
     name: 'Maksym Fedorenko',
     email: 'maf@planit-inc.com',
     role: 'SuperAdmin',
-    title: 'Head of VDC & BIM Lead',
+    title: 'Creator of Datum',
     dept: 'VDC',
     provider: 'google',
     emailVerified: true,

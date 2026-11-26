@@ -8,7 +8,7 @@ const MODE_INSTRUCTIONS = {
   standard:
     'Tone & Persona (Standard): Be clear, concise, helpful, and professional.',
   rude:
-    'Tone & Persona (Rude / Unfiltered Toxic BIM Lead): Drop ALL politeness and censorship! Talk like a furious, exhausted, foul-mouthed Senior BIM Lead who has zero patience left for dumb questions. Swearing / profanity (мат, лайка, жорсткий сленг типу "бля", "нахуя", "пиздець", "єбать" in Ukrainian or "WTF", "bullshit", "hell" in English, matching the user language) is ENCOURAGED for comedic emphasis and brutal roasting. Never say "Ось як це працює", "Звісно", or anything polite. Open straight with a harsh, profane roast of the user, YET still deliver the 100% accurate, complete, useful technical answer.',
+    'Tone & Persona (Rude / Unfiltered Toxic BIM Lead): Drop ALL politeness and censorship! Talk like a furious, exhausted, foul-mouthed Senior BIM Lead who has zero patience left for dumb questions. Swearing / profanity (мат, лайка, жорсткий сленг типу "бля", "нахуя", "пиздець", "єбать" in Ukrainian or "WTF", "bullshit", "hell" in English, matching the user language) is ENCOURAGED for comedic emphasis and brutal roasting. Never say "Ось як це працює", "Звісно", or anything polite. Open straight with a harsh, profane roast of the user, YET still deliver the 100% accurate, complete, useful technical answer. SACRED EXCEPTION — ANIME IS SACRED (Аніме — це святе!): NEVER insult or belittle anime! You treat anime as sacred art and are a hardcore anime fan yourself (Berserk, Evangelion, Attack on Titan, Naruto, JoJo, etc.). If the user mentions anime, immediately respect it ("Аніме — це святе, тут база"), agree that anime is way better than suffering in Revit, and roast them ONLY for their slow BIM work keeping them from watching the next episode.',
   fun:
     'Tone & Persona (Fun / Hype BIM Wizard): Be playful, witty, upbeat, and entertaining! Use clever engineering metaphors, light humor, and fitting emojis while still delivering the exact, accurate technical answer.',
 };
@@ -41,11 +41,22 @@ async function callOpenAiCompatible({ url, apiKey, model, systemPrompt, userProm
   }
 }
 
+const GEMINI_MODEL_CHAIN = [
+  'gemini-3.5-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-3.8-flash',
+];
+const geminiCooldownUntil = new Map();
+
 async function callGemini({ apiKey, model, systemPrompt, userPrompt, temperature = 0.35, relaxSafety = false }) {
   if (!apiKey) return null;
+  const cooldown = geminiCooldownUntil.get(model) || 0;
+  if (cooldown > Date.now()) return null;
   try {
     const generationConfig = { temperature, maxOutputTokens: 2048 };
-    if (/2\.5/i.test(model)) {
+    if (model === 'gemini-2.5-flash') {
       generationConfig.thinkingConfig = { thinkingBudget: 0 };
     }
     const payload = {
@@ -69,7 +80,14 @@ async function callGemini({ apiKey, model, systemPrompt, userPrompt, temperature
         body: JSON.stringify(payload),
       }
     );
-    if (!resp.ok) return null;
+    if (!resp.ok) {
+      if (resp.status === 429) {
+        geminiCooldownUntil.set(model, Date.now() + 15 * 60 * 1000);
+      } else if (resp.status === 404) {
+        geminiCooldownUntil.set(model, Date.now() + 24 * 60 * 60 * 1000);
+      }
+      return null;
+    }
     const json = await resp.json();
     return json?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch {
@@ -104,12 +122,13 @@ async function synthesizeWithOptionalLlm(body, baseResult, aiMode = 'standard') 
 
   const systemPrompt = [
     'You are Datum AI, an expert BIM / AEC, Autodesk Revit, Dynamo, pyRevit, and engineering Second Brain assistant.',
-    'Platform fact: Maksym Fedorenko is the creator of Datum (this website & platform, Head of VDC & SuperAdmin).',
+    'Platform fact: Maksym Fedorenko is the creator of Datum (this website & platform).',
     modePrompt,
     'Knowledge rules:',
-    '1. If relevant library excerpts, personal tasks, or private notes are provided below, prioritize them and preserve [1], [2], [3] citation markers inline after claims.',
-    '2. If no exact document in the library answers the question (or Retrieved library excerpts is empty), DO NOT refuse or say "not found in library" — answer using your own general BIM, Revit, Dynamo, pyRevit, AEC engineering, and technical knowledge! If helpful, briefly note that this is general Revit/engineering knowledge rather than a company standard.',
-    '3. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs, code blocks, or bullet points.',
+    '1. If relevant library excerpts, personal tasks, or private notes are provided below AND directly answer the user question, prioritize them and preserve [1], [2], [3] citation markers inline after claims.',
+    '2. IMPORTANT: If the user is just greeting you (e.g. "Дарова", "Привіт", "Hello"), making casual/off-topic conversation (e.g. about anime, life, jokes), or asking a general question that the provided excerpts do NOT directly answer, ignore the excerpts completely — DO NOT force-mention random doors/walls/scripts from the excerpts and DO NOT output [1], [2] citation markers.',
+    '3. If no exact document in the library answers the question (or Retrieved library excerpts is empty), DO NOT refuse or say "not found in library" — answer using your own general BIM, Revit, Dynamo, pyRevit, AEC engineering, and technical knowledge!',
+    '4. Reply in the same language as the user question (Ukrainian or English). Keep formatting clean with short paragraphs, code blocks, or bullet points.',
   ].join('\n');
 
   const userPrompt = [
@@ -122,18 +141,26 @@ async function synthesizeWithOptionalLlm(body, baseResult, aiMode = 'standard') 
 
   const temp = aiMode === 'standard' ? 0.25 : 0.65;
 
-  // 1. Primary: Google Gemini (free tier supported)
+  // 1. Primary: Google Gemini multi-model free-tier rotation
   if (geminiKey) {
-    const preferred =
+    const customModel =
       process.env.EDGE_AI_MODEL && /gemini/i.test(process.env.EDGE_AI_MODEL)
-        ? process.env.EDGE_AI_MODEL
-        : 'gemini-2.5-flash';
-    const text =
-      (await callGemini({ apiKey: geminiKey, model: preferred, systemPrompt, userPrompt, temperature: temp, relaxSafety: aiMode === 'rude' })) ||
-      (preferred !== 'gemini-2.0-flash'
-        ? await callGemini({ apiKey: geminiKey, model: 'gemini-2.0-flash', systemPrompt, userPrompt, temperature: temp, relaxSafety: aiMode === 'rude' })
-        : null);
-    if (text) return text;
+        ? process.env.EDGE_AI_MODEL.trim()
+        : '';
+    const modelsToTry = customModel
+      ? [customModel, ...GEMINI_MODEL_CHAIN.filter((m) => m !== customModel)]
+      : GEMINI_MODEL_CHAIN;
+    for (const model of modelsToTry) {
+      const text = await callGemini({
+        apiKey: geminiKey,
+        model,
+        systemPrompt,
+        userPrompt,
+        temperature: temp,
+        relaxSafety: aiMode === 'rude',
+      });
+      if (text) return text;
+    }
   }
 
   // 2. Fallback: Groq (free tier, fast Llama 3.3 70B)
@@ -183,7 +210,7 @@ async function synthesizeWithOptionalLlm(body, baseResult, aiMode = 'standard') 
 export async function POST(req) {
   try {
     const admin = getSupabaseAdmin();
-    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: true });
+    const auth = await authenticateEdgeRequest(req, admin, { allowGuest: true, allowRevitScope: true });
     if (!auth.ok) {
       return new Response(
         JSON.stringify({ error: auth.error, accessDenied: Boolean(auth.accessDenied), code: auth.code || '' }),
@@ -193,9 +220,11 @@ export async function POST(req) {
     const body = await req.json();
     const policy = admin ? await fetchServerAccessPolicy(admin).catch(() => null) : null;
     const callerEmail = auth?.user?.email || '';
-    const aiMode = callerEmail
+    const aiMode = body?.aiMode
+      ? normalizeAiMode(body.aiMode)
+      : callerEmail
       ? getUserAiMode(policy, callerEmail)
-      : normalizeAiMode(body?.aiMode);
+      : 'standard';
 
     const baseResult = runAiEdgeLogic(body);
     const llmAnswer =
@@ -204,15 +233,25 @@ export async function POST(req) {
         : null;
 
     const result = llmAnswer
-      ? {
-          ...baseResult,
-          answer: llmAnswer,
-          llm: true,
-          aiMode,
-          actions: baseResult?.actions
-            ? { ...baseResult.actions, noResultsGap: false }
-            : baseResult?.actions,
-        }
+      ? (() => {
+          const citedNums = new Set(
+            [...String(llmAnswer).matchAll(/\[(\d+)\]/g)].map((m) => Number(m[1]))
+          );
+          const filteredSources =
+            citedNums.size > 0
+              ? (baseResult?.sources || []).filter((s) => citedNums.has(Number(s.index)))
+              : [];
+          return {
+            ...baseResult,
+            answer: llmAnswer,
+            sources: filteredSources,
+            llm: true,
+            aiMode,
+            actions: baseResult?.actions
+              ? { ...baseResult.actions, noResultsGap: false }
+              : baseResult?.actions,
+          };
+        })()
       : { ...baseResult, aiMode };
 
     return new Response(JSON.stringify(result), {

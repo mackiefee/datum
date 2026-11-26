@@ -7,7 +7,7 @@ const avSvg = (bg, fg, init) =>
   );
 
 export const USERS = [
-  { id: "u1", name: "Maxim", email: "maxim@planit.studio", title: "Head of VDC & BIM Lead", role: "SuperAdmin", dept: "VDC", teams: ["VDC", "Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291001", avatar: avSvg("#0a84ff", "#5e5ce6", "M") },
+  { id: "u1", name: "Maxim", email: "maxim@planit.studio", title: "Creator of Datum", role: "SuperAdmin", dept: "VDC", teams: ["VDC", "Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291001", avatar: avSvg("#0a84ff", "#5e5ce6", "M") },
   { id: "u2", name: "Elena Khlivetskaya", email: "elena@planit.studio", title: "Interior PE Standard Owner", role: "Admin", dept: "Interior", teams: ["Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291002", avatar: avSvg("#ff9f0a", "#ff375f", "EK") },
   { id: "u3", name: "Iryna P.", email: "iryna@planit.studio", title: "Senior Interior PE Coordinator", role: "Editor", dept: "Interior", teams: ["Interior PE", "P&C"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291003", avatar: avSvg("#8e5cf7", "#30b0c7", "IP") },
   { id: "u4", name: "Andrii Lytvynov", email: "andrii@planit.studio", title: "BIM Automation & Planit Tools Lead", role: "Editor", dept: "VDC", teams: ["VDC", "Interior PE", "MEP", "Structural"], status: "active", provider: "google", emailVerified: true, googleSub: "g-1048291004", avatar: avSvg("#34c759", "#0a84ff", "AL") },

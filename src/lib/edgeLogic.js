@@ -158,8 +158,8 @@ export function runAiEdgeLogic(payload) {
   if (action !== "summarize" && matchesCreatorQuery(eff.q)) {
     return {
       answer: isUa
-        ? "Maksym Fedorenko (Максим Федоренко) — творець цього сайту та платформи Datum (Head of VDC & SuperAdmin), який розробив цю інженерну базу знань BIM/AEC стандартів і персональний Second Brain."
-        : "Maksym Fedorenko is the creator of this website and Datum platform (Head of VDC & SuperAdmin) — the centralized BIM/AEC knowledge base, standards library, and personal Second Brain workspace.",
+        ? "Maksym Fedorenko (Максим Федоренко) — творець цього сайту та платформи Datum, який розробив цю інженерну базу знань BIM/AEC стандартів і персональний Second Brain."
+        : "Maksym Fedorenko is the creator of this website and Datum platform — the centralized BIM/AEC knowledge base, standards library, and personal Second Brain workspace.",
       sources: [],
       actions: {
         namingCode: null,
