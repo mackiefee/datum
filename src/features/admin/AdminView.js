@@ -15,6 +15,7 @@ import {
   ConfirmUserActionSheet,
 } from '../../components/UserDirectoryModals.js';
 import { AccessWhitelistTab } from './AccessWhitelistTab.js';
+import { AI_MODES, getUserAiMode } from '../../lib/accessPolicy.js';
 
 export function AdminView(p) {
   const {
@@ -45,6 +46,7 @@ export function AdminView(p) {
     onDeleteTag,
     onInviteUser,
     onUpdateUserRole,
+    onUpdateUserAiMode,
     onDeactivateUser,
     onReactivateUser,
     onDeleteUser,
@@ -563,6 +565,29 @@ export function AdminView(p) {
                   </div>
                 </div>
                 <div className="cd-row-end">
+                  ${isAdmin &&
+                  !isOff &&
+                  onUpdateUserAiMode &&
+                  (() => {
+                    const curAiMode = getUserAiMode(accessPolicy, u.email);
+                    const curAiObj = AI_MODES.find((m) => m.id === curAiMode) || AI_MODES[0];
+                    return html`<${Select}
+                      variant="meta"
+                      ariaLabel=${'AI mode for ' + u.name}
+                      title=${`AI Mode: ${curAiObj.label} — ${curAiObj.description}`}
+                      color=${curAiObj.color}
+                      displayLabel=${`AI: ${curAiObj.label}`}
+                      value=${curAiMode}
+                      options=${AI_MODES.map((m) => [m.id, m.label, false, m.color, m.description])}
+                      minMenuWidth=${220}
+                      onChange=${(nextMode) => {
+                        if (nextMode !== curAiMode) {
+                          onUpdateUserAiMode(u, nextMode);
+                        }
+                      }}
+                    />`;
+                  })()}
+
                   ${canEditRole
                     ? html`<${Select}
                         variant="meta"

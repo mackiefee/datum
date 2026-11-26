@@ -6,7 +6,7 @@ import { TREE, buildFlat, sub, byId } from './data/spaces.js';
 import { IMG0, GUIDE, SEED, USERS, SEED_TEAMS } from './data/seed.js';
 import { db } from './lib/db.js';
 import { edgeClient } from './lib/edgeClient.js';
-import { DEFAULT_ACCESS_POLICY, normalizeAccessPolicy } from './lib/accessPolicy.js';
+import { DEFAULT_ACCESS_POLICY, normalizeAccessPolicy, getUserAiMode, AI_MODES } from './lib/accessPolicy.js';
 import {
   loadStoredSession,
   saveStoredSession,
@@ -2037,6 +2037,7 @@ export function App() {
       scope,
       history: turn.historyBeforeTurn,
       today: TODAY,
+      aiMode: getUserAiMode(accessPolicy, sessionEmail),
     });
 
     const hasHits = (out && Array.isArray(out.sources) && out.sources.length > 0) || matchIds.length > 0;
@@ -2427,6 +2428,25 @@ export function App() {
     } catch (e) {
       setDirectorySyncState("error");
       flash(e.message || "Failed to update role");
+    }
+  };
+
+  const handleUpdateUserAiMode = async (targetUser, nextMode) => {
+    if (!can.admin(role)) {
+      flash("Only Admin or SuperAdmin can change user AI mode");
+      return;
+    }
+    try {
+      const data = await db.workspace.saveUserAiMode(targetUser.email, nextMode, sessionEmail);
+      if (data && data.accessPolicy) {
+        setAccessPolicy(normalizeAccessPolicy(data.accessPolicy));
+      }
+      edgeClient.clearAiCache();
+      const modeLbl = (AI_MODES.find((m) => m.id === nextMode) || AI_MODES[0]).label;
+      logAct("Updated User AI Mode", "user", targetUser.id, targetUser.name, `AI Mode → ${modeLbl}`);
+      flash(`AI Mode for ${targetUser.name} → ${modeLbl}`);
+    } catch (e) {
+      flash(e.message || "Failed to update AI mode");
     }
   };
 
@@ -3508,6 +3528,7 @@ export function App() {
           }}
           onInviteUser=${handleInviteUser}
           onUpdateUserRole=${handleUpdateUserRole}
+          onUpdateUserAiMode=${handleUpdateUserAiMode}
           onDeactivateUser=${handleDeactivateUser}
           onReactivateUser=${handleReactivateUser}
           onDeleteUser=${handleDeleteUser}

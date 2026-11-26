@@ -27,6 +27,41 @@ export const ACCESS_MODES = [
 
 export const VALID_ACCESS_MODES = new Set(ACCESS_MODES.map((m) => m.id));
 
+export const AI_MODES = [
+  {
+    id: 'standard',
+    label: 'Standard',
+    color: '#0a84ff',
+    description: 'Clear, helpful BIM & engineering assistant.',
+  },
+  {
+    id: 'rude',
+    label: 'Rude',
+    color: '#ff453a',
+    description: 'Sarcastic, grumpy BIM lead who roasts you while helping.',
+  },
+  {
+    id: 'fun',
+    label: 'Fun',
+    color: '#bf5af2',
+    description: 'Playful, witty & energetic with fun metaphors.',
+  },
+];
+
+export const VALID_AI_MODES = new Set(AI_MODES.map((m) => m.id));
+
+export function normalizeAiMode(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  return VALID_AI_MODES.has(s) ? s : 'standard';
+}
+
+export function getUserAiMode(policy, email) {
+  const cleanEmail = normalizeEmail(email);
+  if (!cleanEmail) return 'standard';
+  const map = policy && typeof policy.userAiModes === 'object' ? policy.userAiModes : null;
+  return normalizeAiMode(map && map[cleanEmail]);
+}
+
 export const PUBLIC_CONSUMER_DOMAINS = [
   'gmail.com',
   'googlemail.com',
@@ -61,6 +96,7 @@ export const DEFAULT_ACCESS_POLICY = {
   autoApproveDomainUsers: false,
   allowGuestPortal: false,
   allowRevitPlugin: true,
+  userAiModes: {},
   updatedAt: null,
   updatedBy: '',
 };
@@ -114,6 +150,16 @@ export function normalizeAccessPolicy(raw) {
       src.allowGuestPortal !== undefined ? Boolean(src.allowGuestPortal) : DEFAULT_ACCESS_POLICY.allowGuestPortal,
     allowRevitPlugin:
       src.allowRevitPlugin !== undefined ? Boolean(src.allowRevitPlugin) : DEFAULT_ACCESS_POLICY.allowRevitPlugin,
+    userAiModes: (() => {
+      const out = {};
+      const rawMap = src.userAiModes && typeof src.userAiModes === 'object' ? src.userAiModes : {};
+      Object.entries(rawMap).forEach(([k, v]) => {
+        const em = normalizeEmail(k);
+        const m = normalizeAiMode(v);
+        if (em && m !== 'standard') out[em] = m;
+      });
+      return out;
+    })(),
     updatedAt: src.updatedAt ? String(src.updatedAt) : null,
     updatedBy: src.updatedBy ? String(src.updatedBy).trim().toLowerCase() : '',
   };

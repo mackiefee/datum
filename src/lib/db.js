@@ -476,6 +476,10 @@ export const db = {
       return db.workspace.request('POST', { action: 'access_policy_save', policy }, email);
     },
 
+    saveUserAiMode(targetEmail, aiMode, callerEmail = '') {
+      return db.workspace.request('POST', { action: 'user_ai_mode_save', email: targetEmail, aiMode }, callerEmail);
+    },
+
     fetchSnapshot(email = '') {
       return db.workspace.request('GET', null, email);
     },

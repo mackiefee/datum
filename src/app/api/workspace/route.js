@@ -1,5 +1,6 @@
 import {
   authenticateEdgeRequest,
+  fetchServerAccessPolicy,
   getSupabaseAdmin,
   isAdminRole,
   isEditorOrAbove,
@@ -7,6 +8,7 @@ import {
   toPublicLoginPolicy,
   writeAuthAuditLog,
 } from '../../../lib/edgeAuth.js';
+import { normalizeAiMode, normalizeEmail } from '../../../lib/accessPolicy.js';
 
 export const runtime = 'edge';
 
@@ -155,6 +157,27 @@ export async function POST(req) {
         },
       });
       return jsonResp({ ok: true, accessPolicy: saved });
+    }
+
+    if (action === 'user_ai_mode_save') {
+      if (!isAdminRole(auth.caller.role)) {
+        return jsonResp({ error: 'Only Admin or SuperAdmin can change user AI mode' }, 403);
+      }
+      const targetEmail = normalizeEmail(body.email);
+      if (!targetEmail) {
+        return jsonResp({ error: 'Valid user email is required' }, 400);
+      }
+      const aiMode = normalizeAiMode(body.aiMode);
+      const curPolicy = await fetchServerAccessPolicy(admin, { force: true });
+      const nextModes = { ...(curPolicy.userAiModes || {}) };
+      if (aiMode === 'standard') delete nextModes[targetEmail];
+      else nextModes[targetEmail] = aiMode;
+      const saved = await saveServerAccessPolicy(
+        admin,
+        { ...curPolicy, userAiModes: nextModes },
+        auth.caller.email
+      );
+      return jsonResp({ ok: true, email: targetEmail, aiMode, accessPolicy: saved });
     }
 
     if (action === 'seed_if_empty') {

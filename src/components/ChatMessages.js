@@ -2,17 +2,28 @@ import { html, useState } from '../lib/react.js';
 import { CITE, DC, TY } from '../config/constants.js';
 import { Ic } from './Icon.js';
 
-function renderTextWithCitations(text, sources, onSelectSource) {
-  const lines = String(text || '').split('\n').filter((l) => l.trim() !== '');
-  if (!lines.length) return null;
-
-  return lines.map((line, lIdx) => {
-    const isBullet = /^[•\-*]\s+/.test(line.trim());
-    const cleanLine = isBullet ? line.trim().replace(/^[•\-*]\s+/, '') : line;
-    const parts = cleanLine.split(CITE).map((chunk, i) =>
+function renderInlineWithCitations(text, sources, onSelectSource, keyPrefix = 'in') {
+  const tokenRe = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*)/g;
+  const segments = String(text || '').split(tokenRe);
+  return segments.map((seg, sIdx) => {
+    if (!seg) return null;
+    if (seg.startsWith('`') && seg.endsWith('`') && seg.length >= 2) {
+      return html`<code key=${`${keyPrefix}-c-${sIdx}`} className="chat-inline-code">${seg.slice(1, -1)}</code>`;
+    }
+    if (seg.startsWith('**') && seg.endsWith('**') && seg.length >= 4) {
+      return html`<strong key=${`${keyPrefix}-b-${sIdx}`}>
+        ${renderInlineWithCitations(seg.slice(2, -2), sources, onSelectSource, `${keyPrefix}-b-${sIdx}`)}
+      </strong>`;
+    }
+    if (seg.startsWith('*') && seg.endsWith('*') && seg.length >= 3) {
+      return html`<em key=${`${keyPrefix}-i-${sIdx}`}>
+        ${renderInlineWithCitations(seg.slice(1, -1), sources, onSelectSource, `${keyPrefix}-i-${sIdx}`)}
+      </em>`;
+    }
+    return seg.split(CITE).map((chunk, i) =>
       i % 2
         ? html`<sup
-            key=${i}
+            key=${`${keyPrefix}-ct-${sIdx}-${i}`}
             className="kspace-cite-sup"
             onClick=${() => {
               const s = sources && sources[Number(chunk) - 1];
@@ -21,10 +32,79 @@ function renderTextWithCitations(text, sources, onSelectSource) {
           >[${chunk}]</sup>`
         : chunk
     );
-    return isBullet
-      ? html`<div key=${lIdx} className="chat-msg-bullet"><span className="chat-bullet-dot">•</span><span>${parts}</span></div>`
-      : html`<p key=${lIdx}>${parts}</p>`;
   });
+}
+
+function renderTextWithCitations(text, sources, onSelectSource) {
+  const raw = String(text || '').replace(/\r\n/g, '\n');
+  if (!raw.trim()) return null;
+
+  const blocks = [];
+  const fenceRe = /```([a-zA-Z0-9_+#-]*)\n([\s\S]*?)```/g;
+  let lastIdx = 0;
+  let m;
+  while ((m = fenceRe.exec(raw)) !== null) {
+    if (m.index > lastIdx) {
+      blocks.push({ kind: 'text', value: raw.slice(lastIdx, m.index) });
+    }
+    blocks.push({ kind: 'code', lang: m[1] || '', value: m[2].replace(/\n+$/, '') });
+    lastIdx = fenceRe.lastIndex;
+  }
+  if (lastIdx < raw.length) {
+    blocks.push({ kind: 'text', value: raw.slice(lastIdx) });
+  }
+
+  const out = [];
+  blocks.forEach((blk, bIdx) => {
+    if (blk.kind === 'code') {
+      out.push(
+        html`<pre key=${`code-${bIdx}`} className="chat-code-block">
+          ${blk.lang && html`<span className="chat-code-lang">${blk.lang}</span>`}
+          <code>${blk.value}</code>
+        </pre>`
+      );
+      return;
+    }
+
+    const lines = blk.value.split('\n').filter((l) => l.trim() !== '');
+    lines.forEach((line, lIdx) => {
+      const trimmed = line.trim();
+      const k = `${bIdx}-${lIdx}`;
+      const headingM = trimmed.match(/^#{1,4}\s+(.+)$/);
+      if (headingM) {
+        out.push(
+          html`<div key=${k} className="chat-msg-h">
+            ${renderInlineWithCitations(headingM[1], sources, onSelectSource, k)}
+          </div>`
+        );
+        return;
+      }
+      const isBullet = /^[•\-*]\s+/.test(trimmed);
+      if (isBullet) {
+        const cleanLine = trimmed.replace(/^[•\-*]\s+/, '');
+        out.push(
+          html`<div key=${k} className="chat-msg-bullet">
+            <span className="chat-bullet-dot">•</span>
+            <span>${renderInlineWithCitations(cleanLine, sources, onSelectSource, k)}</span>
+          </div>`
+        );
+        return;
+      }
+      const numM = trimmed.match(/^(\d+\.)\s+(.+)$/);
+      if (numM) {
+        out.push(
+          html`<div key=${k} className="chat-msg-bullet">
+            <span className="chat-bullet-num">${numM[1]}</span>
+            <span>${renderInlineWithCitations(numM[2], sources, onSelectSource, k)}</span>
+          </div>`
+        );
+        return;
+      }
+      out.push(html`<p key=${k}>${renderInlineWithCitations(trimmed, sources, onSelectSource, k)}</p>`);
+    });
+  });
+
+  return out;
 }
 
 /**
