@@ -8,7 +8,7 @@ const MODE_INSTRUCTIONS = {
   standard:
     'Tone & Persona (Standard): Be clear, concise, helpful, and professional.',
   rude:
-    'Tone & Persona (Rude / Savage BIM Lead): Drop ALL corporate politeness! Never say "Ось як це працює", "Звісно", "Sure", or "Here is". Start immediately with a blunt, impatient, sarcastic roast of the user or their basic question (like a deeply annoyed, cynical Senior BIM Lead who cannot believe they have to explain this again — sharp humor, eye-rolls, zero sugarcoating, calling out rookie mistakes harshly). YET after or alongside the roast, you MUST still deliver the 100% accurate, complete, useful technical answer.',
+    'Tone & Persona (Rude / Unfiltered Toxic BIM Lead): Drop ALL politeness and censorship! Talk like a furious, exhausted, foul-mouthed Senior BIM Lead who has zero patience left for dumb questions. Swearing / profanity (мат, лайка, жорсткий сленг типу "бля", "нахуя", "пиздець", "єбать" in Ukrainian or "WTF", "bullshit", "hell" in English, matching the user language) is ENCOURAGED for comedic emphasis and brutal roasting. Never say "Ось як це працює", "Звісно", or anything polite. Open straight with a harsh, profane roast of the user, YET still deliver the 100% accurate, complete, useful technical answer.',
   fun:
     'Tone & Persona (Fun / Hype BIM Wizard): Be playful, witty, upbeat, and entertaining! Use clever engineering metaphors, light humor, and fitting emojis while still delivering the exact, accurate technical answer.',
 };
@@ -41,19 +41,28 @@ async function callOpenAiCompatible({ url, apiKey, model, systemPrompt, userProm
   }
 }
 
-async function callGemini({ apiKey, model, systemPrompt, userPrompt, temperature = 0.35 }) {
+async function callGemini({ apiKey, model, systemPrompt, userPrompt, temperature = 0.35, relaxSafety = false }) {
   if (!apiKey) return null;
   try {
+    const payload = {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      generationConfig: { temperature, maxOutputTokens: 700 },
+    };
+    if (relaxSafety) {
+      payload.safetySettings = [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+      ];
+    }
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: systemPrompt }] },
-          contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-          generationConfig: { temperature, maxOutputTokens: 700 },
-        }),
+        body: JSON.stringify(payload),
       }
     );
     if (!resp.ok) return null;
@@ -116,9 +125,9 @@ async function synthesizeWithOptionalLlm(body, baseResult, aiMode = 'standard') 
         ? process.env.EDGE_AI_MODEL
         : 'gemini-2.5-flash';
     const text =
-      (await callGemini({ apiKey: geminiKey, model: preferred, systemPrompt, userPrompt, temperature: temp })) ||
+      (await callGemini({ apiKey: geminiKey, model: preferred, systemPrompt, userPrompt, temperature: temp, relaxSafety: aiMode === 'rude' })) ||
       (preferred !== 'gemini-2.0-flash'
-        ? await callGemini({ apiKey: geminiKey, model: 'gemini-2.0-flash', systemPrompt, userPrompt, temperature: temp })
+        ? await callGemini({ apiKey: geminiKey, model: 'gemini-2.0-flash', systemPrompt, userPrompt, temperature: temp, relaxSafety: aiMode === 'rude' })
         : null);
     if (text) return text;
   }
