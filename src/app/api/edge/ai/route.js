@@ -26,7 +26,7 @@ async function callOpenAiCompatible({ url, apiKey, model, systemPrompt, userProm
       body: JSON.stringify({
         model,
         temperature: 0.35,
-        max_tokens: 650,
+        max_tokens: 1600,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },
@@ -44,10 +44,14 @@ async function callOpenAiCompatible({ url, apiKey, model, systemPrompt, userProm
 async function callGemini({ apiKey, model, systemPrompt, userPrompt, temperature = 0.35, relaxSafety = false }) {
   if (!apiKey) return null;
   try {
+    const generationConfig = { temperature, maxOutputTokens: 2048 };
+    if (/2\.5/i.test(model)) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    }
     const payload = {
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      generationConfig: { temperature, maxOutputTokens: 700 },
+      generationConfig,
     };
     if (relaxSafety) {
       payload.safetySettings = [
