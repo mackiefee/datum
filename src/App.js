@@ -368,6 +368,10 @@ export function App() {
         layers: parsedLayers,
       });
       setView("type");
+    } else if (qView === "scripts" || qView === "feed" || qView === "tasks") {
+      setKbDisplay(qView);
+      setSpaceStageOpen(true);
+      setView("kb");
     }
     if (qQuery) {
       setQ(qQuery);

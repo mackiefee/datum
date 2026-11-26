@@ -1522,7 +1522,7 @@ export function NewsfeedView({
           if (e.key === 'Enter' && !e.target.closest('button')) setReadingPostId(p.id);
         }}
       >
-        <img className="nf-hero-img" src=${backdropSrc} alt=${p.title} />
+            <img key=${p.id} className="nf-hero-img nf-hero-slide-in" src=${backdropSrc} alt=${p.title} />
         <div className="nf-hero-shade" aria-hidden="true" />
 
         ${!isGuest &&
@@ -1538,7 +1538,7 @@ export function NewsfeedView({
           <${Ic} n="star" s=${15} f=${isSaved} />
         </button>`}
 
-        <div className="nf-hero-overlay">
+        <div key=${`ov-${p.id}`} className="nf-hero-overlay nf-hero-ov-in">
           <div className="nf-hero-left">
             <span className="nf-hero-cat">${cat.label}</span>
             <h1>${p.title}</h1>
@@ -1826,7 +1826,7 @@ export function NewsfeedView({
                 <b>No workspace updates match your filter</b>
               </div>`}
         </section>`
-      : html`<section className="nf-grid-sec" aria-label=${gridHeading}>
+      : html`<section key=${`nf-grid-${catTab}-${safePage}-${sortBy}`} className="nf-grid-sec" aria-label=${gridHeading}>
           ${visibleGridStories.length > 0
             ? html`<div className="nf-stories-grid">
                 ${visibleGridStories.map((p) => renderStoryCard(p))}

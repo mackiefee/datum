@@ -182,8 +182,8 @@ def ids_in_view(view_id, wanted):
     col = FilteredElementCollector(doc, view_id)
     if ElementIdSetFilter is not None:
         return col.WherePasses(ElementIdSetFilter(wanted)).WhereElementIsNotElementType().ToElementIds()
-    want = set(w.IntegerValue for w in wanted)
-    return [i for i in col.WhereElementIsNotElementType().ToElementIds() if i.IntegerValue in want]
+    want = set(id_value(w) for w in wanted)
+    return [i for i in col.WhereElementIsNotElementType().ToElementIds() if id_value(i) in want]
 
 # UI application is supplied by the launcher.
 
@@ -4509,15 +4509,15 @@ XAML = u"""
               <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
             <StackPanel Grid.Row="0">
-              <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" Text="MODULES"/>
-              <TextBlock FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Text="Custom scripts"/>
+              <TextBlock Style="{StaticResource Caption}" Margin="0,0,0,6" Text="MODULES &amp; SCRIPTS"/>
+              <TextBlock FontSize="22" FontWeight="Bold" TextWrapping="Wrap" Text="Scripts Hub"/>
               <TextBlock Foreground="#8E8E93" FontSize="11.5" TextWrapping="Wrap" Margin="0,6,0,0"
-                         Text="Python files that run straight from Toolkit in the current project."/>
+                         Text="Online scripts synced from Datum website and your local Python modules."/>
             </StackPanel>
             <Border Grid.Row="1" Margin="0,18,0,0" CornerRadius="18" Background="#1C1C1E" Padding="14,12">
               <StackPanel>
-                <TextBlock x:Name="tbModCount" FontSize="30" FontWeight="Bold" Foreground="#2997FF" Text="0"/>
-                <TextBlock Foreground="#8E8E93" FontSize="11.5" Text="modules in the folder"/>
+                <TextBlock x:Name="tbModCount" FontSize="28" FontWeight="Bold" Foreground="#2997FF" Text="0"/>
+                <TextBlock Foreground="#8E8E93" FontSize="11.5" Text="0 online · 0 local"/>
               </StackPanel>
             </Border>
             <StackPanel x:Name="pnlModBar" Grid.Row="2" Margin="0,16,0,0"/>
@@ -5193,7 +5193,10 @@ def datum_type_url(sel_ctx):
 
 
 def datum_http_json(endpoint, payload=None, token=None, timeout=3.5):
-    import urllib2
+    try:
+        from urllib2 import Request as _UrlReq, urlopen as _urlopen
+    except ImportError:
+        from urllib.request import Request as _UrlReq, urlopen as _urlopen
     try:
         System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12
     except Exception:
@@ -5204,10 +5207,18 @@ def datum_http_json(endpoint, payload=None, token=None, timeout=3.5):
     tok = token if token is not None else cfg[u"token"]
     if tok:
         headers["Authorization"] = "Bearer " + str(tok)
-    data = json.dumps(payload, ensure_ascii=True) if payload is not None else None
-    req = urllib2.Request(url, data=data, headers=headers)
-    resp = urllib2.urlopen(req, timeout=timeout)
-    raw = resp.read().decode("utf-8")
+    if payload is not None:
+        raw_body = json.dumps(payload, ensure_ascii=True)
+        if not isinstance(raw_body, bytes):
+            raw_body = raw_body.encode("utf-8")
+        data = raw_body
+    else:
+        data = None
+    req = _UrlReq(url, data=data, headers=headers)
+    resp = _urlopen(req, timeout=timeout)
+    raw = resp.read()
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
     return json.loads(raw)
 
 
@@ -5230,6 +5241,20 @@ def datum_lookup(sel_ctx=None, query=u""):
     if query:
         payload["query"] = query
     return datum_http_json("/api/revit/lookup", payload)
+
+
+def datum_fetch_scripts():
+    return datum_http_json("/api/revit/scripts", payload=None, timeout=12.0)
+
+
+def datum_publish_script(title, code, desc=u"", project=u"General", scope=u"team"):
+    return datum_http_json("/api/revit/scripts", {
+        "title": unicode(title or u""),
+        "code": unicode(code or u""),
+        "desc": unicode(desc or u""),
+        "project": unicode(project or u"General"),
+        "scope": unicode(scope or u"team"),
+    }, timeout=12.0)
 
 
 def datum_read_selection(ua):
@@ -6907,6 +6932,10 @@ ANN_BAR_PAL = {
 def ann_sys_dark():
     """True if dark theme for apps is enabled in Windows."""
     try:
+        try:
+            clr.AddReference("Microsoft.Win32.Registry")
+        except Exception:
+            pass
         from Microsoft.Win32 import Registry
         k = Registry.CurrentUser.OpenSubKey(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
         if k is None:
@@ -6915,7 +6944,17 @@ def ann_sys_dark():
         k.Close()
         return int(v) == 0
     except Exception:
-        return False
+        try:
+            import winreg
+        except ImportError:
+            import _winreg as winreg
+        try:
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
+            v, _ = winreg.QueryValueEx(k, "AppsUseLightTheme")
+            winreg.CloseKey(k)
+            return int(v) == 0
+        except Exception:
+            return False
 
 
 def ann_bad_view(view):
@@ -8712,11 +8751,37 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             sys.path.append(d)      # modules can import each other
         return d
 
+    def mod_online_dir(self):
+        d = os.path.join(os.path.dirname(DATA), 'online_modules')
+        if not os.path.isdir(d):
+            os.makedirs(d)
+        if d not in sys.path:
+            sys.path.append(d)
+        return d
+
+    def mod_online_index_path(self):
+        return os.path.join(self.mod_online_dir(), '_online_index.json')
+
+    def mod_load_online_cache(self):
+        try:
+            raw = _read_json(self.mod_online_index_path())
+            if isinstance(raw, list):
+                return raw
+        except Exception as ex:
+            tk_log(u"mod_load_online_cache: {}".format(ex))
+        return []
+
+    def mod_save_online_cache(self, items):
+        try:
+            _write_json(self.mod_online_index_path(), items)
+        except Exception as ex:
+            tk_log(u"mod_save_online_cache: {}".format(ex))
+
     def mod_desc(self, path):
         try:
             with codecs.open(path, 'r', 'utf-8-sig') as f:
                 head = f.read(1500)
-            m = re.search(u'(?mi)^#\\s*(?:desc|\u043e\u043f\u0438\u0441)\\s*:\\s*(.+?)\\s*$', head)
+            m = re.search(u'(?mi)^#\\s*(?:desc|description|\u043e\u043f\u0438\u0441)\\s*:\\s*(.+?)\\s*$', head)
             return m.group(1) if m else u""
         except Exception:
             return u""
@@ -8735,10 +8800,12 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             el.SetValue(prop, ann_brush(hu))
 
     def mod_pill(self, text, glyph, action, tip=None, kind=u"sec", full=False):
-        """Pill: pri = lime, sec = neutral, danger = delete."""
+        """Pill: pri = blue, sec = neutral, danger = delete, on = active filter tab."""
         from System.Windows import HorizontalAlignment as HA
         bg, hv, fg = {u"pri": (u"#0071E3", u"#2997FF", u"#FFFFFF"),
                       u"sec": (u"#1C1C1E", u"#2C2C2E", u"#F5F5F7"),
+                      u"on": (u"#2C2C2E", u"#3A3A3C", u"#F5F5F7"),
+                      u"ghost": (u"#111113", u"#1C1C1E", u"#8E8E93"),
                       u"danger": (u"#1C1C1E", u"#2C2C2E", u"#FF453A")}[kind]
         bd = Border()
         bd.CornerRadius = CornerRadius(17)
@@ -8780,76 +8847,498 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         bd.MouseLeftButtonUp += lambda s, e: (setattr(e, "Handled", True), action())
         return bd
 
+    def mod_badge(self, text, bg_hex=u"#1C1C1E", fg_hex=u"#A1A1A6"):
+        bd = Border()
+        bd.CornerRadius = CornerRadius(7)
+        bd.Padding = Thickness(7, 2, 7, 2)
+        bd.Margin = Thickness(6, 0, 0, 0)
+        bd.VerticalAlignment = VerticalAlignment.Center
+        self.mod_set(bd, Border.BackgroundProperty, bg_hex)
+        tb = TextBlock()
+        tb.Text = unicode(text or u"")
+        tb.FontSize = 10.0
+        tb.FontWeight = FontWeights.SemiBold
+        self.mod_set(tb, TextBlock.ForegroundProperty, fg_hex)
+        bd.Child = tb
+        return bd
+
     def mod_bar_build(self):
         if getattr(self, "_mod_bar", False):
             return
         self._mod_bar = True
-        self.pnlModBar.Children.Add(self.mod_pill(u"Add .py", u"\uE710", self.mod_add,
-                                                  u"Copy scripts to the modules folder", u"pri", True))
+        self.pnlModBar.Children.Add(self.mod_pill(u"Add local .py", u"\uE710", self.mod_add,
+                                                  u"Add local .py script(s) to this computer's plugin folder", u"pri", True))
+        self.pnlModBar.Children.Add(self.mod_pill(u"Sync from Website", u"\uE895", lambda: self.mod_sync_online_async(manual=True),
+                                                  u"Pull latest online scripts from Datum website (Scripts & Links)", u"sec", True))
+        self.pnlModBar.Children.Add(self.mod_pill(u"Open Website Tab", u"\uE774", lambda: datum_open_url(u"/?view=scripts"),
+                                                  u"Open Scripts & Links on Datum website in browser", u"sec", True))
         self.pnlModBar.Children.Add(self.mod_pill(u"New from template", u"\uE8A5", self.mod_new,
-                                                  u"Create a module from the template and open it in the editor", u"sec", True))
-        self.pnlModBar.Children.Add(self.mod_pill(u"Open folder", u"\uE838", self.mod_open_dir,
-                                                  u"Show the modules folder in Explorer", u"sec", True))
+                                                  u"Create a local module from the template and open it in the editor", u"sec", True))
+        self.pnlModBar.Children.Add(self.mod_pill(u"Open local folder", u"\uE838", self.mod_open_dir,
+                                                  u"Show the local modules folder in Explorer", u"sec", True))
 
-    def mod_refresh(self):
+    def mod_set_filter(self, flt):
+        self._mod_filter = flt
+        self.mod_render()
+
+    def mod_refresh(self, sync_online=True):
         try:
             self.mod_bar_build()
-            d = self.mod_dir()
-            self.tbModHint.Text = d
-            files = sorted((f for f in os.listdir(d) if f.lower().endswith(u".py") and not f.startswith(u"_")),
-                           key=lambda x: x.lower())
-            self.tbModCount.Text = str(len(files))
-            self.pnlMods.Children.Clear()
-            if not files:
-                self.pnlMods.Children.Add(self.mod_empty())
-                return
-            for f in files:
-                self.pnlMods.Children.Add(self.mod_card(os.path.join(d, f), f))
+            if not hasattr(self, "_mod_online_items") or self._mod_online_items is None:
+                self._mod_online_items = self.mod_load_online_cache()
+            if not hasattr(self, "_mod_filter"):
+                self._mod_filter = u"all"
+            if not hasattr(self, "_mod_syncing"):
+                self._mod_syncing = False
+            self.mod_render()
+            if sync_online:
+                self.mod_sync_online_async(manual=False)
         except Exception as ex:
             tk_log(u"mod_refresh: {}\n{}".format(ex, traceback.format_exc()))
             self.set_status(u"Modules: {}".format(err_text(ex)))
 
-    def mod_empty(self):
-        from System.Windows import HorizontalAlignment as HA, TextAlignment
+    def mod_sync_online_async(self, manual=False):
+        if getattr(self, "_mod_syncing", False):
+            return
+        self._mod_syncing = True
+        self._mod_sync_result = None
+        if manual:
+            self.set_status(u"Syncing scripts from Datum website…")
+        self.mod_render()
+
+        online_dir = self.mod_online_dir()
+
+        def worker():
+            out = {"ok": False, "items": None, "error": u""}
+            try:
+                res = datum_fetch_scripts()
+                if res and res.get("ok") and isinstance(res.get("scripts"), list):
+                    items = []
+                    for s in res.get("scripts"):
+                        if not isinstance(s, dict):
+                            continue
+                        sid = unicode(s.get("id") or u"0")
+                        safe_id = re.sub(u"[^A-Za-z0-9_-]+", u"_", sid)
+                        raw_fn = unicode(s.get("fileName") or u"script.py")
+                        safe_fn = re.sub(u"[^A-Za-z0-9_.\u0400-\u04FF-]+", u"_", raw_fn)
+                        if not safe_fn.lower().endswith(u".py"):
+                            safe_fn += u".py"
+                        cached_path = os.path.join(online_dir, u"datum_{}_{}".format(safe_id, safe_fn))
+                        code_txt = unicode(s.get("code") or u"")
+                        has_code = bool(code_txt.strip())
+                        if has_code:
+                            try:
+                                with codecs.open(cached_path, 'w', 'utf-8') as f:
+                                    f.write(code_txt)
+                            except Exception as wex:
+                                tk_log(u"mod_sync write {}: {}".format(cached_path, wex))
+                        items.append({
+                            "id": sid,
+                            "rawId": unicode(s.get("rawId") or u""),
+                            "source": unicode(s.get("source") or u"team"),
+                            "sourceLabel": unicode(s.get("sourceLabel") or u"Team"),
+                            "title": unicode(s.get("title") or u"Untitled Script"),
+                            "fileName": safe_fn,
+                            "desc": unicode(s.get("desc") or u""),
+                            "project": unicode(s.get("project") or u"General"),
+                            "author": unicode(s.get("author") or u"Team"),
+                            "updatedAt": unicode(s.get("updatedAt") or u""),
+                            "lineCount": int(s.get("lineCount") or 0),
+                            "sizeBytes": int(s.get("sizeBytes") or 0),
+                            "url": unicode(s.get("url") or u""),
+                            "webUrl": unicode(s.get("webUrl") or u"/?view=scripts"),
+                            "hasCode": has_code,
+                            "cachedPath": cached_path if has_code else u"",
+                        })
+                    out["ok"] = True
+                    out["items"] = items
+                else:
+                    out["error"] = unicode((res or {}).get("error") or u"Could not fetch online scripts")
+            except Exception as ex:
+                out["error"] = err_text(ex)
+            self._mod_sync_result = out
+
+        try:
+            from System.Threading import Thread as NetThread, ThreadStart as NetThreadStart
+            t = NetThread(NetThreadStart(worker))
+            t.IsBackground = True
+            t.Start()
+
+            tm = getattr(self, "_mod_sync_timer", None)
+            if tm is not None:
+                try:
+                    tm.Stop()
+                except Exception:
+                    pass
+            tm = DispatcherTimer()
+            tm.Interval = TimeSpan.FromMilliseconds(80)
+
+            def on_tick(ts, te):
+                res = getattr(self, "_mod_sync_result", None)
+                if res is None:
+                    return
+                self._mod_sync_result = None
+                self._mod_syncing = False
+                try:
+                    ts.Stop()
+                except Exception:
+                    pass
+                if res.get("ok") and isinstance(res.get("items"), list):
+                    self._mod_online_items = res["items"]
+                    self._mod_online_err = u""
+                    self.mod_save_online_cache(self._mod_online_items)
+                    if manual or self.tab == 6:
+                        self.set_status(u"Synced {} online script(s) from Datum website".format(len(self._mod_online_items)))
+                else:
+                    self._mod_online_err = unicode(res.get("error") or u"Offline")
+                    if manual:
+                        self.set_status(u"Datum sync: {}".format(self._mod_online_err))
+                if self.tab == 6:
+                    self.mod_render()
+
+            tm.Tick += on_tick
+            self._mod_sync_timer = tm
+            tm.Start()
+        except Exception as ex:
+            self._mod_syncing = False
+            tk_log(u"mod_sync_online_async err: {}".format(ex))
+
+    def mod_filter_bar(self, n_online, n_local):
+        from System.Windows import HorizontalAlignment as HA
+        cur_flt = getattr(self, "_mod_filter", u"all")
+        dp = DockPanel()
+        dp.Margin = Thickness(0, 0, 10, 14)
+
+        right_sp = StackPanel()
+        right_sp.Orientation = Orientation.Horizontal
+        right_sp.VerticalAlignment = VerticalAlignment.Center
+        DockPanel.SetDock(right_sp, Dock.Right)
+
+        cfg = datum_get_cfg()
+        syncing = getattr(self, "_mod_syncing", False)
+        err = getattr(self, "_mod_online_err", u"")
+        status_txt = u"Syncing with Datum…" if syncing else (
+            u"Offline cache · {}".format(cfg[u"url"]) if err else u"Connected · {}".format(cfg.get(u"user") or cfg[u"url"])
+        )
+        tb_st = TextBlock()
+        tb_st.Text = status_txt
+        tb_st.FontSize = 11.5
+        self.mod_set(tb_st, TextBlock.ForegroundProperty, u"#2997FF" if syncing else (u"#FF9F0A" if err else u"#8E8E93"))
+        tb_st.VerticalAlignment = VerticalAlignment.Center
+        tb_st.Margin = Thickness(0, 0, 10, 0)
+        right_sp.Children.Add(tb_st)
+
+        btn_sync = self.mod_pill(u"Sync", u"\uE895", lambda: self.mod_sync_online_async(manual=True),
+                                 u"Pull latest scripts from Datum website", u"sec")
+        btn_sync.Height = 30.0
+        right_sp.Children.Add(btn_sync)
+        dp.Children.Add(right_sp)
+
+        seg_bd = Border()
+        seg_bd.CornerRadius = CornerRadius(17)
+        self.mod_set(seg_bd, Border.BackgroundProperty, u"#111113")
+        self.mod_set(seg_bd, Border.BorderBrushProperty, u"#1F1F22")
+        seg_bd.BorderThickness = Thickness(1)
+        seg_bd.Padding = Thickness(3)
+        seg_bd.HorizontalAlignment = HA.Left
+
+        seg_sp = StackPanel()
+        seg_sp.Orientation = Orientation.Horizontal
+        for fk, flbl, fico in (
+            (u"all", u"All ({})".format(n_online + n_local), None),
+            (u"online", u"Online · Website ({})".format(n_online), u"\uE774"),
+            (u"local", u"Local · Plugin ({})".format(n_local), u"\uE838"),
+        ):
+            is_on = (cur_flt == fk)
+            p = self.mod_pill(flbl, fico, lambda m=fk: self.mod_set_filter(m),
+                              None, u"on" if is_on else u"ghost")
+            p.Height = 28.0
+            p.CornerRadius = CornerRadius(14)
+            p.Margin = Thickness(0, 0, 2, 0)
+            seg_sp.Children.Add(p)
+        seg_bd.Child = seg_sp
+        dp.Children.Add(seg_bd)
+        return dp
+
+    def mod_sec_header(self, title_text, count_num, sub_text, glyph, accent_hex=u"#2997FF"):
+        dp = DockPanel()
+        dp.Margin = Thickness(2, 6, 10, 8)
+
+        if sub_text:
+            tb_sub = TextBlock()
+            tb_sub.Text = sub_text
+            tb_sub.FontSize = 11.0
+            self.mod_set(tb_sub, TextBlock.ForegroundProperty, u"#8E8E93")
+            tb_sub.VerticalAlignment = VerticalAlignment.Center
+            DockPanel.SetDock(tb_sub, Dock.Right)
+            dp.Children.Add(tb_sub)
+
+        left_sp = StackPanel()
+        left_sp.Orientation = Orientation.Horizontal
+        left_sp.VerticalAlignment = VerticalAlignment.Center
+        if glyph:
+            ic = TextBlock()
+            ic.Text = glyph
+            ic.FontFamily = ICON_FONT
+            ic.FontSize = 13.0
+            self.mod_set(ic, TextBlock.ForegroundProperty, accent_hex, True)
+            ic.VerticalAlignment = VerticalAlignment.Center
+            ic.Margin = Thickness(0, 0, 7, 0)
+            left_sp.Children.Add(ic)
+        tb = TextBlock()
+        tb.Text = title_text
+        tb.FontSize = 11.5
+        tb.FontWeight = FontWeights.Bold
+        self.mod_set(tb, TextBlock.ForegroundProperty, u"#A1A1A6")
+        tb.VerticalAlignment = VerticalAlignment.Center
+        left_sp.Children.Add(tb)
+        left_sp.Children.Add(self.mod_badge(unicode(count_num), u"#1C1C1E", u"#F5F5F7"))
+        dp.Children.Add(left_sp)
+        return dp
+
+    def mod_render(self):
+        try:
+            d = self.mod_dir()
+            self.tbModHint.Text = u"Local folder:\n" + d
+            local_files = sorted((f for f in os.listdir(d) if f.lower().endswith(u".py") and not f.startswith(u"_")),
+                                 key=lambda x: x.lower())
+            online_items = list(getattr(self, "_mod_online_items", None) or [])
+            n_online = len(online_items)
+            n_local = len(local_files)
+            self.tbModCount.Text = str(n_online + n_local)
+            try:
+                if self.tbModCount.Parent and self.tbModCount.Parent.Children.Count > 1:
+                    self.tbModCount.Parent.Children[1].Text = u"{} online (Datum) · {} local (.py)".format(n_online, n_local)
+            except Exception:
+                pass
+
+            cur_flt = getattr(self, "_mod_filter", u"all")
+            self.pnlMods.Children.Clear()
+            self.pnlMods.Children.Add(self.mod_filter_bar(n_online, n_local))
+
+            show_online = cur_flt in (u"all", u"online")
+            show_local = cur_flt in (u"all", u"local")
+
+            if show_online:
+                self.pnlMods.Children.Add(self.mod_sec_header(
+                    u"ONLINE · FROM DATUM WEBSITE",
+                    n_online,
+                    u"Synced with Scripts & Links on the website",
+                    u"\uE774",
+                    u"#2997FF"
+                ))
+                if online_items:
+                    for item in online_items:
+                        self.pnlMods.Children.Add(self.mod_online_card(item))
+                else:
+                    self.pnlMods.Children.Add(self.mod_online_empty())
+
+            if show_local:
+                self.pnlMods.Children.Add(self.mod_sec_header(
+                    u"LOCAL · ADDED IN PLUGIN",
+                    n_local,
+                    u"Custom .py files stored on this computer",
+                    u"\uE838",
+                    u"#34C759"
+                ))
+                if local_files:
+                    for f in local_files:
+                        self.pnlMods.Children.Add(self.mod_card(os.path.join(d, f), f))
+                else:
+                    self.pnlMods.Children.Add(self.mod_empty())
+        except Exception as ex:
+            tk_log(u"mod_render: {}\n{}".format(ex, traceback.format_exc()))
+            self.set_status(u"Modules: {}".format(err_text(ex)))
+
+    def mod_online_empty(self):
+        from System.Windows import HorizontalAlignment as HA
+        bd = Border()
+        bd.CornerRadius = CornerRadius(18)
+        self.mod_set(bd, Border.BackgroundProperty, u"#111113")
+        self.mod_set(bd, Border.BorderBrushProperty, u"#1F1F22")
+        bd.BorderThickness = Thickness(1)
+        bd.Padding = Thickness(20, 18, 20, 18)
+        bd.Margin = Thickness(0, 0, 10, 14)
+        dp = DockPanel()
+        btns = StackPanel()
+        btns.Orientation = Orientation.Horizontal
+        btns.VerticalAlignment = VerticalAlignment.Center
+        DockPanel.SetDock(btns, Dock.Right)
+        b_sync = self.mod_pill(u"Sync now", u"\uE895", lambda: self.mod_sync_online_async(manual=True),
+                               u"Pull scripts from Datum website", u"pri")
+        b_sync.Margin = Thickness(0, 0, 8, 0)
+        btns.Children.Add(b_sync)
+        btns.Children.Add(self.mod_pill(u"Open Website", u"\uE774", lambda: datum_open_url(u"/?view=scripts"),
+                                        u"Add scripts in Datum website -> Scripts & Links", u"sec"))
+        dp.Children.Add(btns)
         sp = StackPanel()
-        sp.HorizontalAlignment = HA.Center
-        sp.Margin = Thickness(0, 90, 0, 0)
-        ic = Border()
-        ic.Width = 72.0
-        ic.Height = 72.0
-        ic.CornerRadius = CornerRadius(22)
-        self.mod_set(ic, Border.BackgroundProperty, u"#1C1C1E")
-        ic.HorizontalAlignment = HA.Center
-        g = TextBlock()
-        g.Text = u"\uE943"
-        g.FontFamily = ICON_FONT
-        g.FontSize = 30.0
-        self.mod_set(g, TextBlock.ForegroundProperty, u"#2997FF", True)
-        g.HorizontalAlignment = HA.Center
-        g.VerticalAlignment = VerticalAlignment.Center
-        ic.Child = g
-        sp.Children.Add(ic)
+        sp.VerticalAlignment = VerticalAlignment.Center
         t1 = TextBlock()
-        t1.Text = u"No modules yet"
-        t1.FontSize = 18.0
+        t1.Text = u"No online scripts synced yet"
+        t1.FontSize = 14.0
         t1.FontWeight = FontWeights.SemiBold
         self.mod_set(t1, TextBlock.ForegroundProperty, u"#F5F5F7")
-        t1.HorizontalAlignment = HA.Center
-        t1.Margin = Thickness(0, 18, 0, 4)
         sp.Children.Add(t1)
         t2 = TextBlock()
-        t2.Text = u"Add your own .py script or create a new one from the template. It will appear here right away."
-        self.mod_set(t2, TextBlock.ForegroundProperty, u"#8E8E93")
-        t2.FontSize = 12.0
+        err = getattr(self, "_mod_online_err", u"")
+        t2.Text = (u"Connection status: {}. Make sure Datum web is running or click Sync now.".format(err)
+                   if err else u"Add a Python script on the Datum website (Scripts & Links) and click Sync now to run it here.")
+        t2.FontSize = 11.5
         t2.TextWrapping = TextWrapping.Wrap
-        t2.TextAlignment = TextAlignment.Center
-        t2.MaxWidth = 320.0
-        t2.Margin = Thickness(0, 0, 0, 18)
+        self.mod_set(t2, TextBlock.ForegroundProperty, u"#8E8E93")
+        t2.Margin = Thickness(0, 3, 14, 0)
         sp.Children.Add(t2)
-        btn = self.mod_pill(u"Add module", u"\uE710", self.mod_add, None, u"pri")
-        btn.HorizontalAlignment = HA.Center
-        sp.Children.Add(btn)
-        return sp
+        dp.Children.Add(sp)
+        bd.Child = dp
+        return bd
+
+    def mod_empty(self):
+        from System.Windows import HorizontalAlignment as HA
+        bd = Border()
+        bd.CornerRadius = CornerRadius(18)
+        self.mod_set(bd, Border.BackgroundProperty, u"#111113")
+        self.mod_set(bd, Border.BorderBrushProperty, u"#1F1F22")
+        bd.BorderThickness = Thickness(1)
+        bd.Padding = Thickness(20, 18, 20, 18)
+        bd.Margin = Thickness(0, 0, 10, 10)
+        dp = DockPanel()
+        btn = self.mod_pill(u"Add local .py", u"\uE710", self.mod_add, None, u"pri")
+        btn.VerticalAlignment = VerticalAlignment.Center
+        DockPanel.SetDock(btn, Dock.Right)
+        dp.Children.Add(btn)
+        sp = StackPanel()
+        sp.VerticalAlignment = VerticalAlignment.Center
+        t1 = TextBlock()
+        t1.Text = u"No local modules in folder"
+        t1.FontSize = 14.0
+        t1.FontWeight = FontWeights.SemiBold
+        self.mod_set(t1, TextBlock.ForegroundProperty, u"#F5F5F7")
+        sp.Children.Add(t1)
+        t2 = TextBlock()
+        t2.Text = u"Add your own .py script on this PC or create one from template. Only visible on this computer unless published to Datum."
+        self.mod_set(t2, TextBlock.ForegroundProperty, u"#8E8E93")
+        t2.FontSize = 11.5
+        t2.TextWrapping = TextWrapping.Wrap
+        t2.Margin = Thickness(0, 3, 14, 0)
+        sp.Children.Add(t2)
+        dp.Children.Add(sp)
+        bd.Child = dp
+        return bd
+
+    def mod_online_card(self, item):
+        title_txt = unicode(item.get("title") or u"Online Script")
+        src_type = unicode(item.get("source") or u"team")
+        src_lbl = unicode(item.get("sourceLabel") or u"Team").upper()
+        proj_txt = unicode(item.get("project") or u"General")
+        cached_path = unicode(item.get("cachedPath") or u"")
+        has_code = bool(item.get("hasCode") and cached_path and os.path.exists(cached_path))
+
+        card = Border()
+        card.CornerRadius = CornerRadius(22)
+        self.mod_set(card, Border.BackgroundProperty, u"#111113")
+        self.mod_set(card, Border.BorderBrushProperty, u"#1F1F22")
+        card.BorderThickness = Thickness(1)
+        card.Padding = Thickness(16, 14, 14, 14)
+        card.Margin = Thickness(0, 0, 10, 10)
+        card.MouseEnter += lambda s, e: self.mod_set(card, Border.BorderBrushProperty, u"#2C2C2E")
+        card.MouseLeave += lambda s, e: self.mod_set(card, Border.BorderBrushProperty, u"#1F1F22")
+        dp = DockPanel()
+
+        ic = Border()
+        ic.Width = 44.0
+        ic.Height = 44.0
+        ic.CornerRadius = CornerRadius(13)
+        ic.Background = isl_brush(u"#BF5AF2" if src_type != u"team" else u"#0A84FF")
+        ic.VerticalAlignment = VerticalAlignment.Center
+        ic.Margin = Thickness(0, 0, 14, 0)
+        g = TextBlock()
+        g.Text = u"\uE774"
+        g.FontFamily = ICON_FONT
+        g.FontSize = 18.0
+        g.Foreground = Brushes.White
+        g.HorizontalAlignment = System.Windows.HorizontalAlignment.Center
+        g.VerticalAlignment = VerticalAlignment.Center
+        ic.Child = g
+        DockPanel.SetDock(ic, Dock.Left)
+        dp.Children.Add(ic)
+
+        btns = StackPanel()
+        btns.Orientation = Orientation.Horizontal
+        btns.VerticalAlignment = VerticalAlignment.Center
+        DockPanel.SetDock(btns, Dock.Right)
+
+        if has_code:
+            run = self.mod_pill(u"Run", u"\uE768", lambda p=cached_path, t=title_txt: self.mod_run(p, t),
+                                u"Run this online script from Datum directly in the current Revit model", u"pri")
+            run.Margin = Thickness(12, 0, 8, 0)
+            btns.Children.Add(run)
+
+            dl = self.mod_pill(u"", u"\uE896", lambda it=item: self.mod_save_online_to_local(it),
+                               u"Save a copy to your Local modules folder")
+            dl.Margin = Thickness(0, 0, 6, 0)
+            btns.Children.Add(dl)
+
+            ed = self.mod_pill(u"", u"\uE70F", lambda p=cached_path: self.mod_edit(p),
+                               u"View cached Python script in editor")
+            ed.Margin = Thickness(0, 0, 6, 0)
+            btns.Children.Add(ed)
+
+        web_target = unicode(item.get("url") or item.get("webUrl") or u"/?view=scripts")
+        wb = self.mod_pill(u"" if has_code else u"Open", u"\uE8A7", lambda u=web_target: datum_open_url(u),
+                           u"Open on Datum website (Scripts & Links)", u"sec" if has_code else u"pri")
+        btns.Children.Add(wb)
+        dp.Children.Add(btns)
+
+        txt = StackPanel()
+        txt.VerticalAlignment = VerticalAlignment.Center
+
+        title_row = StackPanel()
+        title_row.Orientation = Orientation.Horizontal
+        t1 = TextBlock()
+        t1.Text = title_txt
+        t1.FontSize = 15.0
+        t1.FontWeight = FontWeights.SemiBold
+        self.mod_set(t1, TextBlock.ForegroundProperty, u"#F5F5F7")
+        t1.TextTrimming = TextTrimming.CharacterEllipsis
+        t1.VerticalAlignment = VerticalAlignment.Center
+        title_row.Children.Add(t1)
+        title_row.Children.Add(self.mod_badge(u"ONLINE · " + src_lbl, u"#0F2A4D", u"#4DA3FF"))
+        if proj_txt:
+            title_row.Children.Add(self.mod_badge(proj_txt, u"#1C1C1E", u"#A1A1A6"))
+        txt.Children.Add(title_row)
+
+        desc = unicode(item.get("desc") or u"").strip()
+        if desc:
+            t2 = TextBlock()
+            t2.Text = desc
+            self.mod_set(t2, TextBlock.ForegroundProperty, u"#A1A1A6")
+            t2.FontSize = 12.0
+            t2.TextWrapping = TextWrapping.Wrap
+            t2.Margin = Thickness(0, 3, 0, 0)
+            txt.Children.Add(t2)
+
+        parts = []
+        lc = int(item.get("lineCount") or 0)
+        sb = int(item.get("sizeBytes") or 0)
+        if lc > 0:
+            parts.append(u"{} lines".format(lc))
+        if sb > 0:
+            parts.append(u"{:.1f} KB".format(sb / 1024.0))
+        if item.get("author"):
+            parts.append(unicode(item.get("author")))
+        if item.get("updatedAt"):
+            parts.append(u"updated {}".format(item.get("updatedAt")))
+        if parts:
+            t3 = TextBlock()
+            t3.Text = u"  \u00B7  ".join(parts)
+            self.mod_set(t3, TextBlock.ForegroundProperty, u"#8E8E93")
+            t3.FontSize = 10.5
+            t3.Margin = Thickness(0, 4, 0, 0)
+            txt.Children.Add(t3)
+
+        dp.Children.Add(txt)
+        card.Child = dp
+        return card
 
     def mod_card(self, path, fname):
         name = os.path.splitext(fname)[0]
@@ -8887,24 +9376,33 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         btns.VerticalAlignment = VerticalAlignment.Center
         DockPanel.SetDock(btns, Dock.Right)
         run = self.mod_pill(u"Run", u"\uE768", lambda p=path: self.mod_run(p),
-                            u"Run the module in the current document", u"pri")
+                            u"Run the local module in the current document", u"pri")
         run.Margin = Thickness(12, 0, 8, 0)
         btns.Children.Add(run)
+        pub = self.mod_pill(u"", u"\uE753", lambda p=path, fn=fname: self.mod_publish_local(p, fn),
+                            u"Publish this local script to Datum website (Scripts & Links)")
+        pub.Margin = Thickness(0, 0, 6, 0)
+        btns.Children.Add(pub)
         ed = self.mod_pill(u"", u"\uE70F", lambda p=path: self.mod_edit(p), u"Open in editor")
         ed.Margin = Thickness(0, 0, 6, 0)
         btns.Children.Add(ed)
-        btns.Children.Add(self.mod_pill(u"", u"\uE74D", lambda p=path: self.mod_delete(p), u"Delete module", u"danger"))
+        btns.Children.Add(self.mod_pill(u"", u"\uE74D", lambda p=path: self.mod_delete(p), u"Delete local module", u"danger"))
         dp.Children.Add(btns)
 
         txt = StackPanel()
         txt.VerticalAlignment = VerticalAlignment.Center
+        title_row = StackPanel()
+        title_row.Orientation = Orientation.Horizontal
         t1 = TextBlock()
         t1.Text = name
         t1.FontSize = 15.0
         t1.FontWeight = FontWeights.SemiBold
         self.mod_set(t1, TextBlock.ForegroundProperty, u"#F5F5F7")
         t1.TextTrimming = TextTrimming.CharacterEllipsis
-        txt.Children.Add(t1)
+        t1.VerticalAlignment = VerticalAlignment.Center
+        title_row.Children.Add(t1)
+        title_row.Children.Add(self.mod_badge(u"LOCAL · PC", u"#1C1C1E", u"#34C759"))
+        txt.Children.Add(title_row)
         desc = self.mod_desc(path)
         if desc:
             t2 = TextBlock()
@@ -8931,6 +9429,48 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         card.Child = dp
         return card
 
+    def mod_save_online_to_local(self, item):
+        try:
+            src = unicode(item.get("cachedPath") or u"")
+            if not src or not os.path.exists(src):
+                self.set_status(u"No cached Python code for this online item")
+                return
+            d = self.mod_dir()
+            raw_fn = unicode(item.get("fileName") or u"online_script.py")
+            safe_fn = re.sub(u"[^A-Za-z0-9_.\u0400-\u04FF-]+", u"_", raw_fn)
+            if not safe_fn.lower().endswith(u".py"):
+                safe_fn += u".py"
+            dst = os.path.join(d, safe_fn)
+            shutil.copy2(src, dst)
+            self.mod_render()
+            self.set_status(u"Saved \"{}\" to Local modules folder".format(safe_fn))
+        except Exception as ex:
+            tk_log(u"mod_save_online_to_local: {}".format(ex))
+            self.set_status(u"Could not save locally: {}".format(err_text(ex)))
+
+    def mod_publish_local(self, path, fname):
+        try:
+            name = os.path.splitext(fname)[0]
+            if MessageBox.Show(
+                u"Publish local script \"{}\" to Datum website (Team Scripts & Links) so everyone can use it online?".format(name),
+                u"Publish to Datum",
+                MessageBoxButton.YesNo
+            ) != MessageBoxResult.Yes:
+                return
+            with codecs.open(path, 'r', 'utf-8-sig') as f:
+                code_txt = f.read()
+            desc_txt = self.mod_desc(path)
+            self.set_status(u"Publishing \"{}\" to Datum website…".format(name))
+            res = datum_publish_script(name, code_txt, desc=desc_txt, project=u"General", scope=u"team")
+            if res and res.get("ok"):
+                self.set_status(u"Published \"{}\" to Datum website!".format(name))
+                self.mod_sync_online_async(manual=False)
+            else:
+                self.set_status(u"Publish failed: {}".format((res or {}).get("error") or u"Check Datum login"))
+        except Exception as ex:
+            tk_log(u"mod_publish_local: {}\n{}".format(ex, traceback.format_exc()))
+            self.set_status(u"Publish error: {}".format(err_text(ex)))
+
     def mod_add(self):
         try:
             dlg = OpenFileDialog()
@@ -8940,8 +9480,8 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
                 d = self.mod_dir()
                 for src in dlg.FileNames:
                     shutil.copy2(src, os.path.join(d, os.path.basename(src)))
-                self.mod_refresh()
-                self.set_status(u"Modules added: {}".format(len(dlg.FileNames)))
+                self.mod_render()
+                self.set_status(u"Local modules added: {}".format(len(dlg.FileNames)))
         except Exception as ex:
             tk_log(u"mod_add: {}\n{}".format(ex, traceback.format_exc()))
             self.set_status(u"Could not add: {}".format(err_text(ex)))
@@ -8955,7 +9495,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
                 p = os.path.join(d, u"new_module_{}.py".format(n))
             with codecs.open(p, 'w', 'utf-8') as f:
                 f.write(self.MOD_TEMPLATE)
-            self.mod_refresh()
+            self.mod_render()
             self.mod_edit(p)
         except Exception as ex:
             tk_log(u"mod_new: {}\n{}".format(ex, traceback.format_exc()))
@@ -8974,22 +9514,23 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             self.set_status(u"Could not open the folder: {}".format(err_text(ex)))
 
     def mod_delete(self, path):
-        if MessageBox.Show(u"Delete module \"{}\"?".format(os.path.basename(path)), u"Modules",
+        if MessageBox.Show(u"Delete local module \"{}\"?".format(os.path.basename(path)), u"Modules",
                            MessageBoxButton.YesNo) != MessageBoxResult.Yes:
             return
         try:
             os.remove(path)
         except Exception as ex:
             self.set_status(u"Could not delete: {}".format(err_text(ex)))
-        self.mod_refresh()
+        self.mod_render()
 
-    def mod_run(self, path):
-        self.set_status(u"Running: {}…".format(os.path.basename(path)))
-        self.run(lambda ua, p=path: self.mod_exec(ua, p), u"mod:" + path)
+    def mod_run(self, path, display_name=None):
+        label = display_name or os.path.basename(path)
+        self.set_status(u"Running: {}…".format(label))
+        self.run(lambda ua, p=path, lb=label: self.mod_exec(ua, p, lb), u"mod:" + path)
 
-    def mod_exec(self, ua, path):
+    def mod_exec(self, ua, path, display_name=None):
         """Runs in the Handler -> a valid Revit API context. Fresh uiapp/uidoc/doc each time."""
-        name = os.path.basename(path)
+        name = display_name or os.path.basename(path)
         tk_log(u"mod: run " + name)
         try:
             with codecs.open(path, 'r', 'utf-8-sig') as f:
@@ -9439,10 +9980,10 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         t.Start()
         try:
             for sid in sheet_ids:
-                sh = doc.GetElement(ElementId(int(sid)))
+                sh = doc.GetElement(revit_id(sid))
                 if not isinstance(sh, ViewSheet):
                     continue
-                cur = set(r.IntegerValue for r in sh.GetAdditionalRevisionIds())
+                cur = set(id_value(r) for r in sh.GetAdditionalRevisionIds())
                 new = set(cur)
                 for rid, on in changes.items():
                     if on:
@@ -9453,7 +9994,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
                     continue
                 ids = List[ElementId]()
                 for r in sorted(new):
-                    ids.Add(ElementId(int(r)))
+                    ids.Add(revit_id(r))
                 try:
                     sh.SetAdditionalRevisionIds(ids)
                     changed += 1
@@ -9483,7 +10024,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             nm = u"{} | {}".format(base, title)
             if seen[title] > 1:
                 nm = u"{} ({})".format(nm, seen[title])
-            views = [doc.GetElement(ElementId(int(i))) for i in ids]
+            views = [doc.GetElement(revit_id(i)) for i in ids]
             views = sorted([v for v in views if v is not None], key=sort_key)
             if not views:
                 continue
@@ -14173,7 +14714,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             return None, None
 
     def cache_meta(self, v, bo_s, bo_v):
-        vid = v.Id.IntegerValue
+        vid = id_value(v.Id)
         if vid in self.meta_cache:
             return
         is_sheet = isinstance(v, ViewSheet)
@@ -14187,7 +14728,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         revs = []
         if is_sheet:
             try:
-                revs = [r.IntegerValue for r in v.GetAdditionalRevisionIds()]
+                revs = [id_value(r) for r in v.GetAdditionalRevisionIds()]
             except Exception:
                 revs = []
         self.meta_cache[vid] = {"id": vid, "label": self.label(v), "revs": revs,
@@ -14199,7 +14740,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         ids = []
         for v in s.Views:
             self.cache_meta(v, bo_s, bo_v)
-            ids.append(v.Id.IntegerValue)
+            ids.append(id_value(v.Id))
         return ids
 
     def build_items(self, ids, ord_idx=None):
@@ -14231,14 +14772,14 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         save_orders(self.orders)
 
     def merged_order(self, doc, name, existing_views, new_views):
-        cur = [v.Id.IntegerValue for v in existing_views]
+        cur = [id_value(v.Id) for v in existing_views]
         order = [i for i in self.ord_get(doc, name) if i in cur]
         for v in sorted(existing_views, key=sort_key):
-            if v.Id.IntegerValue not in order:
-                order.append(v.Id.IntegerValue)
+            if id_value(v.Id) not in order:
+                order.append(id_value(v.Id))
         for v in sorted(new_views, key=sort_key):
-            if v.Id.IntegerValue not in order:
-                order.append(v.Id.IntegerValue)
+            if id_value(v.Id) not in order:
+                order.append(id_value(v.Id))
         return order
 
     def get_selected_views(self, uidoc):
@@ -14519,8 +15060,9 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         try:
             for eid in Revision.GetAllRevisionIds(doc):
                 r = doc.GetElement(eid)
-                self.revs[eid.IntegerValue] = {
-                    "id": eid.IntegerValue,
+                rid = id_value(eid)
+                self.revs[rid] = {
+                    "id": rid,
                     "seq": r.SequenceNumber,
                     "num": unicode(r.RevisionNumber or u""),
                     "date": unicode(r.RevisionDate or u""),
@@ -14557,7 +15099,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         if self.doc_title is not None and doc.Title != self.doc_title and not force:
             return self.do_reindex(uiapp)     # switched the project
         sel = self.get_selected_views(uidoc)
-        ids = [v.Id.IntegerValue for v in sel]
+        ids = [id_value(v.Id) for v in sel]
         changed = (ids != self.sel_ids)
         if changed:
             bo_s, bo_v = self.get_bo(doc)
@@ -14624,7 +15166,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         if name in self.get_sets(doc):
             return self.set_status(u"Set '{}' already exists.".format(name))
         self._save_new(doc, views, name)
-        self.ord_set(doc, name, [v.Id.IntegerValue for v in sorted(views, key=sort_key)])
+        self.ord_set(doc, name, [id_value(v.Id) for v in sorted(views, key=sort_key)])
         self.cur_name = name
         self.tbNew.Text = u""
         self.update_sets(uiapp, [name])
@@ -14639,8 +15181,8 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             return self.set_status(u"Pick a set and select sheets.")
         merged, seen = [], set()
         for v in list(existing.Views) + views:
-            if v.Id.IntegerValue not in seen:
-                seen.add(v.Id.IntegerValue)
+            if id_value(v.Id) not in seen:
+                seen.add(id_value(v.Id))
                 merged.append(v)
         merged.sort(key=sort_key)
         added = len(merged) - existing.Views.Size
@@ -14658,7 +15200,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         if existing is None or not views:
             return self.set_status(u"Pick a set and select sheets.")
         n = self._overwrite(doc, existing, views)
-        self.ord_set(doc, self.cur_name, [v.Id.IntegerValue for v in sorted(views, key=sort_key)])
+        self.ord_set(doc, self.cur_name, [id_value(v.Id) for v in sorted(views, key=sort_key)])
         self.update_sets(uiapp, [self.cur_name])
         self.set_status(u"Contents replaced. The set now has {}.".format(n))
 
@@ -14667,7 +15209,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         existing = self.get_sets(doc).get(self.cur_name)
         if existing is None:
             return
-        keep = [v for v in existing.Views if v.Id.IntegerValue not in set(ids)]
+        keep = [v for v in existing.Views if id_value(v.Id) not in set(ids)]
         keep.sort(key=sort_key)
         if not keep:
             return self.set_status(u"These are all the sheets of the set. To remove everything, click 'Delete'.")
@@ -14741,7 +15283,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         uidoc = uiapp.ActiveUIDocument
         ids = List[ElementId]()
         for vid in self.sets.get(self.cur_name, []):
-            ids.Add(ElementId(int(vid)))
+            ids.Add(revit_id(vid))
         if ids.Count == 0:
             return
         uidoc.Selection.SetElementIds(ids)
@@ -14802,7 +15344,7 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
         """Only what can really be printed: not templates, not placeholder sheets, not vanished elements."""
         views, skipped = [], []
         for i in ids:
-            v = doc.GetElement(ElementId(int(i)))
+            v = doc.GetElement(revit_id(i))
             ok = isinstance(v, View) and not v.IsTemplate and v.CanBePrinted
             if ok and isinstance(v, ViewSheet) and getattr(v, "IsPlaceholder", False):
                 ok = False
@@ -17922,7 +18464,21 @@ def tkx_hist_write(rec):
 #       Revit links (utk:// protocol)
 # ======================================================================
 from System.Windows import HorizontalAlignment as TkwHA
-from Microsoft.Win32 import Registry as TkwRegistry
+try:
+    clr.AddReference("Microsoft.Win32.Registry")
+except Exception:
+    pass
+try:
+    from Microsoft.Win32 import Registry as TkwRegistry
+except ImportError:
+    TkwRegistry = None
+try:
+    import winreg as _tkw_winreg
+except ImportError:
+    try:
+        import _winreg as _tkw_winreg
+    except ImportError:
+        _tkw_winreg = None
 try:
     from urllib import quote as _tkw_quote, unquote as _tkw_unquote
 except ImportError:
@@ -17977,7 +18533,11 @@ def tkw_ws_save(d):
 
 # ---------------- links ----------------
 def tkw_q(s):
-    return _tkw_quote(unicode(s).encode("utf-8"), safe="")
+    val = unicode(s)
+    try:
+        return _tkw_quote(val, safe="")
+    except Exception:
+        return _tkw_quote(val.encode("utf-8"), safe="")
 
 
 # invisible bidi / zero-width marks (Revit sheet numbers may contain them): they make links fragile in some browsers
@@ -18098,29 +18658,52 @@ def tkw_write_vbs():
 
 def tkw_reg_ok():
     try:
-        k = TkwRegistry.CurrentUser.OpenSubKey(TKW_REG_KEY + u"\\shell\\open\\command")
-        if k is None:
-            return False
-        v = k.GetValue(u"")
-        k.Close()
-        return unicode(v or u"") == tkw_reg_cmd() and os.path.exists(TKW_LINK_VBS)
+        if TkwRegistry is not None:
+            k = TkwRegistry.CurrentUser.OpenSubKey(TKW_REG_KEY + u"\\shell\\open\\command")
+            if k is None:
+                return False
+            v = k.GetValue(u"")
+            k.Close()
+            return unicode(v or u"") == tkw_reg_cmd() and os.path.exists(TKW_LINK_VBS)
+        if _tkw_winreg is not None:
+            k = _tkw_winreg.OpenKey(_tkw_winreg.HKEY_CURRENT_USER, TKW_REG_KEY + u"\\shell\\open\\command")
+            v, _ = _tkw_winreg.QueryValueEx(k, u"")
+            _tkw_winreg.CloseKey(k)
+            return unicode(v or u"") == tkw_reg_cmd() and os.path.exists(TKW_LINK_VBS)
+        return False
     except Exception:
         return False
 
 
 def tkw_reg_install():
     tkw_write_vbs()
-    k = TkwRegistry.CurrentUser.CreateSubKey(TKW_REG_KEY)
-    k.SetValue(u"", u"URL:Universal Toolkit Revit link")
-    k.SetValue(u"URL Protocol", u"")
-    k.Close()
-    k = TkwRegistry.CurrentUser.CreateSubKey(TKW_REG_KEY + u"\\shell\\open\\command")
-    k.SetValue(u"", tkw_reg_cmd())
-    k.Close()
+    if TkwRegistry is not None:
+        k = TkwRegistry.CurrentUser.CreateSubKey(TKW_REG_KEY)
+        k.SetValue(u"", u"URL:Universal Toolkit Revit link")
+        k.SetValue(u"URL Protocol", u"")
+        k.Close()
+        k = TkwRegistry.CurrentUser.CreateSubKey(TKW_REG_KEY + u"\\shell\\open\\command")
+        k.SetValue(u"", tkw_reg_cmd())
+        k.Close()
+    elif _tkw_winreg is not None:
+        k = _tkw_winreg.CreateKey(_tkw_winreg.HKEY_CURRENT_USER, TKW_REG_KEY)
+        _tkw_winreg.SetValueEx(k, u"", 0, _tkw_winreg.REG_SZ, u"URL:Universal Toolkit Revit link")
+        _tkw_winreg.SetValueEx(k, u"URL Protocol", 0, _tkw_winreg.REG_SZ, u"")
+        _tkw_winreg.CloseKey(k)
+        k = _tkw_winreg.CreateKey(_tkw_winreg.HKEY_CURRENT_USER, TKW_REG_KEY + u"\\shell\\open\\command")
+        _tkw_winreg.SetValueEx(k, u"", 0, _tkw_winreg.REG_SZ, tkw_reg_cmd())
+        _tkw_winreg.CloseKey(k)
 
 
 def tkw_reg_remove():
-    TkwRegistry.CurrentUser.DeleteSubKeyTree(TKW_REG_KEY, False)
+    if TkwRegistry is not None:
+        TkwRegistry.CurrentUser.DeleteSubKeyTree(TKW_REG_KEY, False)
+    elif _tkw_winreg is not None:
+        for sub in (u"\\shell\\open\\command", u"\\shell\\open", u"\\shell", u""):
+            try:
+                _tkw_winreg.DeleteKey(_tkw_winreg.HKEY_CURRENT_USER, TKW_REG_KEY + sub)
+            except Exception:
+                pass
 
 
 # ---------------- spotlight: index + search ----------------

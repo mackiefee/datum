@@ -94,7 +94,7 @@ export async function signHmacJwt(payload) {
   return `${data}.${toBase64Url(sig)}`;
 }
 
-export async function verifyHmacJwt(token) {
+export async function verifyHmacJwt(token, { ignoreExp = false } = {}) {
   const parts = String(token || '').split('.');
   if (parts.length !== 3) return { valid: false, reason: 'Malformed token' };
   const [header, body, sig] = parts;
@@ -103,8 +103,9 @@ export async function verifyHmacJwt(token) {
     const ok = await crypto.subtle.verify('HMAC', key, fromBase64Url(sig), enc.encode(`${header}.${body}`));
     if (!ok) return { valid: false, reason: 'Invalid HMAC signature' };
     const claims = JSON.parse(new TextDecoder().decode(fromBase64Url(body)));
-    if (claims.exp && Date.now() > claims.exp) return { valid: false, reason: 'Session expired' };
-    return { valid: true, claims };
+    const expired = Boolean(claims.exp && Date.now() > claims.exp);
+    if (expired && !ignoreExp) return { valid: false, expired: true, claims, reason: 'Session expired' };
+    return { valid: true, expired, claims };
   } catch (e) {
     return { valid: false, reason: 'Invalid token' };
   }
@@ -344,7 +345,7 @@ export async function authenticateEdgeRequest(
   let isGuestSession = false;
 
   if (bearer && bearer !== 'local-dev-session' && bearer !== 'local-fallback-token') {
-    const hmac = await verifyHmacJwt(bearer);
+    const hmac = await verifyHmacJwt(bearer, { ignoreExp: Boolean(allowRevitScope) });
     if (hmac.valid && hmac.claims) {
       hmacClaims = hmac.claims;
       if (hmac.claims.scope === 'revit_lookup_only' && !allowRevitScope) {

@@ -405,6 +405,17 @@ export function KnowledgeSpaceView({
     ? 'feed'
     : 'space';
 
+  const MODE_ORDER = { space: 0, tasks: 1, feed: 2, scripts: 3 };
+  const prevFormationRef = useRef(activeFormation);
+  const tabDirRef = useRef(1);
+  if (prevFormationRef.current !== activeFormation) {
+    const prevIdx = MODE_ORDER[prevFormationRef.current] ?? 0;
+    const nextIdx = MODE_ORDER[activeFormation] ?? 0;
+    tabDirRef.current = nextIdx >= prevIdx ? 1 : -1;
+    prevFormationRef.current = activeFormation;
+  }
+  const tabSwitchDir = tabDirRef.current;
+
   const unifiedScriptLinks = useMemo(() => {
     const out = [];
     const myEmailLow = String(currentEmail || '').trim().toLowerCase();
@@ -1130,8 +1141,8 @@ export function KnowledgeSpaceView({
       const m = motionRef.current;
       let moving = m.dragging;
 
-      const justRevealed = wasStageOpenAnimRef.current && !isHero;
-      if (isHero) {
+      const justRevealed = wasStageOpenAnimRef.current && !isHero && mode === 'space';
+      if (isHero || mode !== 'space') {
         wasStageOpenAnimRef.current = true;
       } else if (justRevealed) {
         wasStageOpenAnimRef.current = false;
@@ -1297,12 +1308,13 @@ export function KnowledgeSpaceView({
             op: isHero || mode !== 'space' ? 0 : 0.01,
           };
           cardAnimMap.set(r.id, cur);
-        } else if (justRevealed && cur.op < 0.05 && !wantHidden) {
-          cur.x = tx * 0.52;
-          cur.y = ty * 0.52 + 28;
-          cur.z = tz - 210;
-          cur.rotY = trotY * 0.45;
-          cur.sc = Math.max(0.55, tsc * 0.84);
+        } else if (justRevealed && !wantHidden) {
+          cur.x = tx * 0.62;
+          cur.y = ty * 0.62 + 24;
+          cur.z = tz - 190;
+          cur.rotY = trotY * 0.5;
+          cur.sc = Math.max(0.6, tsc * 0.86);
+          cur.op = Math.min(cur.op, 0.04);
         }
 
         const staggerSp = clamp(0.22 - (i % 7) * 0.011, 0.14, 0.24);
@@ -2084,7 +2096,12 @@ export function KnowledgeSpaceView({
     </div>
 
     ${isTasksView
-      ? html`<div key="kspace-tasks-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+      ? html`<div
+          key="kspace-tasks-wrap"
+          className=${'kspace-tasks-wrap kspace-tab-stage' + (tabSwitchDir < 0 ? ' from-left' : ' from-right')}
+          style=${{ '--tab-dir': tabSwitchDir }}
+          onPointerDown=${(e) => e.stopPropagation()}
+        >
           <${SecondBrainView}
             embedded=${true}
             externalQuery=${spaceQuery}
@@ -2124,7 +2141,12 @@ export function KnowledgeSpaceView({
           />
         </div>`
       : isScriptsView
-      ? html`<div key="kspace-scripts-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+      ? html`<div
+          key="kspace-scripts-wrap"
+          className=${'kspace-tasks-wrap kspace-tab-stage' + (tabSwitchDir < 0 ? ' from-left' : ' from-right')}
+          style=${{ '--tab-dir': tabSwitchDir }}
+          onPointerDown=${(e) => e.stopPropagation()}
+        >
           <div className="pl-wrap datum-page is-embedded is-scripts">
             <header className="datum-page-head">
               <div className="datum-page-head-l">
@@ -2317,7 +2339,7 @@ export function KnowledgeSpaceView({
                   };
 
                   if (scriptKindFilter !== 'all') {
-                    return html`<div className="pl-card">${visibleScriptLinks.map(renderEntry)}</div>`;
+                    return html`<div key=${`skf-${scriptKindFilter}`} className="pl-card pl-sec-body">${visibleScriptLinks.map(renderEntry)}</div>`;
                   }
 
                   const scriptGroup = visibleScriptLinks.filter((e) =>
@@ -2334,7 +2356,7 @@ export function KnowledgeSpaceView({
                   ].filter(([, list]) => list.length > 0);
 
                   return sections.map(
-                    ([secTitle, secList]) => html`<section key=${secTitle} className="pl-proj-sec">
+                    ([secTitle, secList]) => html`<section key=${secTitle} className="pl-proj-sec pl-sec-body">
                       <div className="pl-gh">
                         <span>${secTitle}</span>
                         <span>${secList.length}</span>
@@ -2379,7 +2401,12 @@ export function KnowledgeSpaceView({
           />
         </div>`
       : isFeedView
-      ? html`<div key="kspace-feed-wrap" className="kspace-tasks-wrap" onPointerDown=${(e) => e.stopPropagation()}>
+      ? html`<div
+          key="kspace-feed-wrap"
+          className=${'kspace-tasks-wrap kspace-tab-stage' + (tabSwitchDir < 0 ? ' from-left' : ' from-right')}
+          style=${{ '--tab-dir': tabSwitchDir }}
+          onPointerDown=${(e) => e.stopPropagation()}
+        >
           <${NewsfeedView}
             docs=${poolAll}
             scriptLinks=${unifiedScriptLinks}
@@ -2418,7 +2445,8 @@ export function KnowledgeSpaceView({
           key="kspace-viewport"
           ref=${viewportRef}
           aria-hidden=${isHeroMode ? 'true' : undefined}
-          className="kspace-viewport"
+          className=${'kspace-viewport' + (!isHeroMode ? ' kspace-space-enter' : '')}
+          style=${{ '--tab-dir': tabSwitchDir }}
           onPointerDown=${onPointerDown}
           onPointerMove=${onPointerMove}
           onPointerUp=${onPointerUp}

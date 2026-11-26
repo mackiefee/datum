@@ -22,7 +22,7 @@ function jsonResp(data, status = 200) {
 }
 
 export async function verifyRevitTokenAgainstPolicy(token, admin) {
-  const checked = await verifyHmacJwt(token);
+  const checked = await verifyHmacJwt(token, { ignoreExp: true });
   if (!checked.valid || !checked.claims) {
     return { valid: false, status: 401, reason: checked.reason || 'Invalid token' };
   }

@@ -490,7 +490,7 @@ export async function POST(req) {
       const r = body.resource || {};
       const title = String(r.title || '').trim();
       const rawUrl = String(r.url || '').trim().slice(0, 1200);
-      const rawNotes = String(r.notes || r.snippet || '').slice(0, 500000);
+      const rawNotes = String(r.notes || r.snippet || '').slice(0, 1500000);
       if (!title && !rawUrl && !rawNotes.trim()) {
         return jsonResp({ error: 'Resource title or URL is required' }, 400);
       }

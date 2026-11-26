@@ -1448,7 +1448,7 @@ export function SecondBrainView({
     </div>`}
 
     ${filterTab === 'tasks'
-      ? html`<${Fragment}>
+      ? html`<div key=${`pl-tasks-${layout}-${taskState}-${smartBucket}-${projFilter}`} className="pl-sec-body">
           ${layout === 'board'
             ? html`<div className=${'pl-board' + (boardColumns.length > 3 ? ' is-scroll' : '')}>
                 ${boardColumns.map((col, colIdx) => {
@@ -1596,9 +1596,9 @@ export function SecondBrainView({
                   <${Ic} n="plus" s=${14} /> Add first task
                 </button>`}
               </div>`}
-        </${Fragment}>`
+        </div>`
       : filterTab === 'focus'
-      ? html`<div className="pl-focus">
+      ? html`<div key="pl-focus-sec" className="pl-focus pl-sec-body">
           <section className="pl-focus-sec" aria-label="Urgent and today priorities">
             <div className="pl-focus-head">
               <span className="pl-focus-h">Urgent & Due Today · ${focusUrgentTasks.length}</span>
@@ -1828,7 +1828,7 @@ export function SecondBrainView({
             </button>
           </div>`
       : visibleNotes.length
-      ? html`<div className="pl-notes-grid">
+      ? html`<div key="pl-notes-sec" className="pl-notes-grid pl-sec-body">
           ${visibleNotes.map((n) => {
             const isHl = highlightId && String(highlightId) === String(n.id);
             const rendered = md(n.body || '', {}, []).h;

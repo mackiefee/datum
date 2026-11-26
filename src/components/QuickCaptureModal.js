@@ -106,6 +106,24 @@ export function QuickCaptureModal({
   });
   const [linkedDocId, setLinkedDocId] = useState('');
   const [isPinned, setIsPinned] = useState(false);
+  const pyFileRef = useRef(null);
+
+  const handleLoadPyFile = (e) => {
+    const file = e && e.target && e.target.files && e.target.files[0];
+    if (!file) return;
+    const baseName = String(file.name || '').replace(/\.py$/i, '').replace(/_/g, ' ').trim();
+    const reader = new FileReader();
+    reader.onload = () => {
+      const codeText = typeof reader.result === 'string' ? reader.result : '';
+      if (codeText) {
+        setNotes(codeText);
+        setResKind('script');
+        setTitle((prev) => (prev && prev.trim() ? prev : baseName || file.name));
+      }
+    };
+    reader.readAsText(file, 'utf-8');
+    e.target.value = '';
+  };
 
   const todayIso = isoOffset(0);
 
@@ -493,13 +511,38 @@ export function QuickCaptureModal({
           onChange=${(e) => setTitle(e.target.value)}
         />
         ${mode === 'resource' &&
-        html`<input
-          type="text"
-          inputMode="url"
-          placeholder="URL, Drive link, \\\\SRV\\... path, or command…"
-          value=${resUrl}
-          onChange=${(e) => setResUrl(e.target.value)}
-        />`}
+        html`<${Fragment}>
+          <input
+            type="text"
+            inputMode="url"
+            placeholder="URL, Drive link, \\\\SRV\\... path, or command (optional for .py scripts)…"
+            value=${resUrl}
+            onChange=${(e) => setResUrl(e.target.value)}
+          />
+          <div style=${{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 12px', borderBottom: '1px solid var(--line)' }}>
+            <input
+              ref=${pyFileRef}
+              type="file"
+              accept=".py,.txt"
+              style=${{ display: 'none' }}
+              onChange=${handleLoadPyFile}
+            />
+            <button
+              type="button"
+              className="btn sm"
+              style=${{ height: 26, fontSize: 12, padding: '0 10px' }}
+              onClick=${() => pyFileRef.current && pyFileRef.current.click()}
+            >
+              <${Ic} n="code" s=${12} />
+              <span>Load .py file…</span>
+            </button>
+            <span style=${{ fontSize: 11.5, color: 'var(--sub)' }}>
+              ${['script', 'snippet', 'tool'].includes(resKind)
+                ? 'Synced with Revit Plugin → Modules (Online)'
+                : 'Load a .py script to run directly in Revit'}
+            </span>
+          </div>
+        </${Fragment}>`}
         <textarea
           style=${mode === 'resource' && (resKind === 'script' || resKind === 'snippet')
             ? { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', fontSize: 12.5, minHeight: 112 }

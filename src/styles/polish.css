@@ -638,16 +638,136 @@ a.rvt-lk:hover{background:color-mix(in srgb,var(--blue) 22%,transparent)}
 }
 
 /* Unified Primary Navigation & Canonical Subview Shell (Space / Tasks / Feed / Scripts) */
-.app-view-seg{margin-top:0;display:inline-flex;align-items:center;height:34px;padding:3px;gap:2px;border-radius:var(--r-ctrl,999px);background:color-mix(in srgb,var(--fill) 92%,transparent);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
-.app-view-seg button{height:28px;padding:0 13px;border:0;background:transparent;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--sub);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;transition:background .16s,color .16s,box-shadow .16s}
+.app-view-seg{position:relative;margin-top:0;display:inline-flex;align-items:center;height:34px;padding:3px;gap:2px;border-radius:var(--r-ctrl,999px);background:color-mix(in srgb,var(--fill) 92%,transparent);border:1px solid var(--line);box-shadow:inset 0 1px 0 rgba(255,255,255,.22)}
+.app-view-seg button{position:relative;z-index:1;height:28px;padding:0 13px;border:0;background:transparent;border-radius:999px;font-size:12.5px;font-weight:500;color:var(--sub);display:inline-flex;align-items:center;gap:6px;white-space:nowrap;cursor:pointer;transition:background .18s,color .18s,box-shadow .18s,transform .16s cubic-bezier(.22,1,.36,1)}
 .app-view-seg button:hover{color:var(--text)}
+.app-view-seg button:active{transform:scale(.96)}
 .app-view-seg button.on{background:var(--on);color:var(--text);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.app-view-seg.has-thumb button.on{background:transparent!important;box-shadow:none!important}
+.app-view-thumb{position:absolute;left:0;top:2px;bottom:2px;border-radius:999px;background:var(--on);box-shadow:0 1px 3px rgba(0,0,0,.14),0 0 0 .5px rgba(0,0,0,.04);pointer-events:none;z-index:0}
+.app-view-thumb.is-ready{transition:transform .38s cubic-bezier(.22,1,.36,1),width .38s cubic-bezier(.22,1,.36,1)}
 :root[data-theme="dark"] .app-view-seg button.on{background:rgba(255,255,255,.16);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35)}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .app-view-seg button.on{background:rgba(255,255,255,.16);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35)}}
+:root[data-theme="dark"] .app-view-thumb{background:rgba(255,255,255,.16);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .app-view-seg button.on{background:rgba(255,255,255,.16);color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+  :root:not([data-theme="light"]) .app-view-thumb{background:rgba(255,255,255,.16);box-shadow:0 1px 3px rgba(0,0,0,.35)}
+}
 .asel.app-view-dd{display:none}
 @media(max-width:959px){.app-view-seg{display:none}.asel.app-view-dd{display:inline-flex}}
 
+/* Fix segmented pill active highlight in Tasks, Feed & Scripts toolbars */
+.datum-toolbar .seg button,.pl-wrap .seg button,.nf-seg button{transition:background .22s cubic-bezier(.22,1,.36,1),color .18s ease,box-shadow .22s cubic-bezier(.22,1,.36,1),transform .15s ease}
+.datum-toolbar .seg button:active,.pl-wrap .seg button:active,.nf-seg button:active{transform:scale(.96)}
+.datum-toolbar .seg button.on,.pl-wrap .seg button.on,.nf-seg button.on{background:var(--on)!important;color:var(--text);font-weight:600;box-shadow:0 1px 3px rgba(0,0,0,.14)!important}
+:root[data-theme="dark"] .datum-toolbar .seg button.on,:root[data-theme="dark"] .pl-wrap .seg button.on,:root[data-theme="dark"] .nf-seg button.on{background:rgba(255,255,255,.16)!important;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35)!important}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .datum-toolbar .seg button.on,:root:not([data-theme="light"]) .pl-wrap .seg button.on,:root:not([data-theme="light"]) .nf-seg button.on{background:rgba(255,255,255,.16)!important;color:#fff;box-shadow:0 1px 3px rgba(0,0,0,.35)!important}
+}
+
 .asel-opt.danger{color:#ff453a}.asel-opt.danger:hover{background:color-mix(in srgb,#ff453a 14%,transparent);color:#ff453a}
+
+/* Directional Tab Transitions & Staggered Section Reveal for Space / Tasks / Feed / Scripts */
+@keyframes datumTabFromRight{
+  from{opacity:0;transform:translate3d(26px,10px,0) scale(.992)}
+  to{opacity:1;transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes datumTabFromLeft{
+  from{opacity:0;transform:translate3d(-26px,10px,0) scale(.992)}
+  to{opacity:1;transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes datumSpaceEnter{
+  from{opacity:0;transform:scale(.965)}
+  to{opacity:1;transform:scale(1)}
+}
+@keyframes datumItemRise{
+  from{opacity:0;transform:translate3d(0,14px,0) scale(.99)}
+  to{opacity:1;transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes datumHeroCrossfade{
+  from{opacity:.25;transform:scale(1.035)}
+  to{opacity:1;transform:scale(1.015)}
+}
+@keyframes datumHeroTextRise{
+  from{opacity:0;transform:translate3d(0,10px,0)}
+  to{opacity:1;transform:translate3d(0,0,0)}
+}
+
+.kspace-tab-stage.from-right > .datum-page{
+  animation:datumTabFromRight .38s cubic-bezier(.22,1,.36,1) both;
+}
+.kspace-tab-stage.from-left > .datum-page{
+  animation:datumTabFromLeft .38s cubic-bezier(.22,1,.36,1) both;
+}
+.kspace-viewport.kspace-space-enter{
+  animation:datumSpaceEnter .42s cubic-bezier(.22,1,.36,1) both;
+}
+
+.datum-page > .datum-page-head{
+  animation:datumItemRise .34s cubic-bezier(.22,1,.36,1) both;
+}
+.datum-page > .nf-hero-banner{
+  animation:datumItemRise .42s cubic-bezier(.22,1,.36,1) .04s both;
+}
+.datum-page > .datum-toolbar{
+  animation:datumItemRise .36s cubic-bezier(.22,1,.36,1) .06s both;
+}
+.datum-page > .pl-chips-row{
+  animation:datumItemRise .36s cubic-bezier(.22,1,.36,1) .09s both;
+}
+.pl-sec-body{
+  display:flex;
+  flex-direction:column;
+  gap:14px;
+  animation:datumItemRise .36s cubic-bezier(.22,1,.36,1) .08s both;
+}
+.pl-notes-grid.pl-sec-body{
+  display:grid;
+}
+
+/* Staggered card & row animations inside Tasks, Feed, and Scripts */
+.nf-stories-grid > .nf-story-card,
+.nf-pulse-stream > article,
+.nf-bottom-bento > *,
+.pl-proj-sec,
+.pl-urgent,
+.pl-focus-sec,
+.pl-board > .pl-col,
+.pl-notes-grid > .pl-note-card,
+.pl-card > .pl-row,
+.pl-card > .pl-sl-item{
+  animation:datumItemRise .38s cubic-bezier(.22,1,.36,1) both;
+}
+.nf-stories-grid > .nf-story-card:nth-child(1),.pl-card > .pl-row:nth-child(1),.pl-card > .pl-sl-item:nth-child(1),.pl-proj-sec:nth-of-type(1),.pl-board > .pl-col:nth-child(1),.pl-notes-grid > .pl-note-card:nth-child(1){animation-delay:.03s}
+.nf-stories-grid > .nf-story-card:nth-child(2),.pl-card > .pl-row:nth-child(2),.pl-card > .pl-sl-item:nth-child(2),.pl-proj-sec:nth-of-type(2),.pl-board > .pl-col:nth-child(2),.pl-notes-grid > .pl-note-card:nth-child(2){animation-delay:.065s}
+.nf-stories-grid > .nf-story-card:nth-child(3),.pl-card > .pl-row:nth-child(3),.pl-card > .pl-sl-item:nth-child(3),.pl-proj-sec:nth-of-type(3),.pl-board > .pl-col:nth-child(3),.pl-notes-grid > .pl-note-card:nth-child(3){animation-delay:.1s}
+.nf-stories-grid > .nf-story-card:nth-child(4),.pl-card > .pl-row:nth-child(4),.pl-card > .pl-sl-item:nth-child(4),.pl-proj-sec:nth-of-type(4),.pl-notes-grid > .pl-note-card:nth-child(4){animation-delay:.13s}
+.nf-stories-grid > .nf-story-card:nth-child(5),.pl-card > .pl-row:nth-child(5),.pl-card > .pl-sl-item:nth-child(5),.pl-notes-grid > .pl-note-card:nth-child(5){animation-delay:.16s}
+.nf-stories-grid > .nf-story-card:nth-child(6),.pl-card > .pl-row:nth-child(6),.pl-card > .pl-sl-item:nth-child(6),.pl-notes-grid > .pl-note-card:nth-child(6){animation-delay:.19s}
+.nf-stories-grid > .nf-story-card:nth-child(n+7),.pl-card > .pl-row:nth-child(n+7),.pl-card > .pl-sl-item:nth-child(n+7){animation-delay:.22s}
+
+/* Interactive micro-elevation on hover across Feed, Tasks & Scripts */
+.nf-story-card{
+  transition:transform .28s cubic-bezier(.22,1,.36,1);
+}
+.nf-story-card:hover{
+  transform:translateY(-4px);
+}
+.pl-note-card,.pl-pin-card{
+  transition:transform .24s cubic-bezier(.22,1,.36,1),border-color .18s ease,box-shadow .24s ease;
+}
+.pl-note-card:hover,.pl-pin-card:hover{
+  transform:translateY(-2px);
+  box-shadow:0 10px 26px rgba(0,0,0,.08);
+}
+.nf-hero-slide-in{
+  animation:datumHeroCrossfade .52s cubic-bezier(.22,1,.36,1) both;
+}
+.nf-hero-ov-in{
+  animation:datumHeroTextRise .38s cubic-bezier(.22,1,.36,1) both;
+}
+.pl-sl-drawer{
+  animation:datumHeroTextRise .22s cubic-bezier(.22,1,.36,1) both;
+}
 
 .datum-page{width:100%;max-width:var(--page-w,1480px);margin:0 auto;display:flex;flex-direction:column;gap:14px;padding-bottom:56px}
 .datum-page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:6px 0 4px}

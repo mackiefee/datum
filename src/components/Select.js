@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom';
-import { html, Fragment, useState, useEffect, useRef } from '../lib/react.js';
+import { html, Fragment, useState, useEffect, useLayoutEffect, useRef } from '../lib/react.js';
 import { ROLES, normRole } from '../config/constants.js';
 import { Ic } from './Icon.js';
 import { Avatar } from './Badge.js';
@@ -455,6 +455,10 @@ export function ViewModeSwitch({
     maxWidth: 260,
     maxHeight: 360,
   });
+  const segWrapRef = useRef(null);
+  const segBtnRefs = useRef({});
+  const [thumbStyle, setThumbStyle] = useState(null);
+  const [thumbReady, setThumbReady] = useState(false);
 
   const modes = [
     ["space", "globe", "Space", ""],
@@ -474,6 +478,30 @@ export function ViewModeSwitch({
     ? "Feed"
     : current[2];
   const segLabel = (k, lbl) => (k === "feed" ? "Feed" : k === "scripts" ? "Scripts" : lbl);
+
+  useLayoutEffect(() => {
+    if (variant === "dropdown" || typeof window === "undefined") return undefined;
+    const measureThumb = () => {
+      const wrap = segWrapRef.current;
+      const activeBtn = viewMode && segBtnRefs.current[viewMode];
+      if (!wrap || !activeBtn) {
+        setThumbStyle(null);
+        return;
+      }
+      const x = activeBtn.offsetLeft;
+      const w = activeBtn.offsetWidth;
+      if (w > 0) {
+        setThumbStyle({ transform: `translate3d(${x}px, 0, 0)`, width: `${w}px` });
+      }
+    };
+    measureThumb();
+    const rafId = requestAnimationFrame(() => setThumbReady(true));
+    window.addEventListener("resize", measureThumb, { passive: true });
+    return () => {
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", measureThumb);
+    };
+  }, [viewMode, showTasks, variant]);
 
   const dropdownNode = html`<${Fragment}>
     <button
@@ -526,11 +554,25 @@ export function ViewModeSwitch({
   if (variant === "dropdown") return dropdownNode;
 
   return html`<${Fragment}>
-    <div className=${"app-view-seg" + (className ? " " + className : "")} role="tablist" aria-label="Primary workspace views">
+    <div
+      ref=${segWrapRef}
+      className=${"app-view-seg" + (thumbStyle ? " has-thumb" : "") + (className ? " " + className : "")}
+      role="tablist"
+      aria-label="Primary workspace views"
+    >
+      ${thumbStyle &&
+      html`<span
+        className=${"app-view-thumb" + (thumbReady ? " is-ready" : "")}
+        style=${thumbStyle}
+        aria-hidden="true"
+      />`}
       ${modes.map(([k, ico, lbl]) => {
         const isOn = Boolean(viewMode === k);
         return html`<button
           key=${k}
+          ref=${(el) => {
+            segBtnRefs.current[k] = el;
+          }}
           type="button"
           role="tab"
           aria-selected=${isOn}
