@@ -53,6 +53,8 @@ function aiCacheKey(payload) {
   const lastTurn = hist.length ? `${hist.length}:${(hist[hist.length - 1] && hist[hist.length - 1].text) || ''}`.slice(0, 64) : '';
   return [
     payload.action || 'qa',
+    payload.aiMode || '',
+    payload.userEmail || '',
     payload.query || '',
     payload.userRole || '',
     payload.userName || '',
@@ -97,8 +99,9 @@ export const edgeClient = {
   },
 
   async ai(payload) {
-    const key = aiCacheKey(payload || {});
-    if (aiCache.has(key)) {
+    const isCacheable = (payload?.action || 'qa') === 'summarize';
+    const key = isCacheable ? aiCacheKey(payload || {}) : '';
+    if (isCacheable && aiCache.has(key)) {
       return aiCache.get(key);
     }
     const slimPayload = payload
@@ -161,11 +164,13 @@ export const edgeClient = {
       : payload;
 
     const out = await callEdge('/api/edge/ai', slimPayload, runAiEdgeLogic);
-    if (aiCache.size >= AI_CACHE_MAX) {
-      const oldest = aiCache.keys().next().value;
-      aiCache.delete(oldest);
+    if (isCacheable) {
+      if (aiCache.size >= AI_CACHE_MAX) {
+        const oldest = aiCache.keys().next().value;
+        aiCache.delete(oldest);
+      }
+      aiCache.set(key, out);
     }
-    aiCache.set(key, out);
     return out;
   },
 

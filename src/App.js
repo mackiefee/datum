@@ -2037,6 +2037,7 @@ export function App() {
       scope,
       history: turn.historyBeforeTurn,
       today: TODAY,
+      userEmail: sessionEmail,
       aiMode: getUserAiMode(accessPolicy, sessionEmail),
     });
 

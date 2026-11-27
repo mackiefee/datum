@@ -220,13 +220,17 @@ export async function POST(req) {
       );
     }
     const body = await req.json();
-    const policy = admin ? await fetchServerAccessPolicy(admin).catch(() => null) : null;
-    const callerEmail = auth?.user?.email || '';
-    const aiMode = body?.aiMode
-      ? normalizeAiMode(body.aiMode)
-      : callerEmail
-      ? getUserAiMode(policy, callerEmail)
-      : 'standard';
+    const policy =
+      (admin ? await fetchServerAccessPolicy(admin, { force: true }).catch(() => null) : null) ||
+      auth?.policy ||
+      null;
+    const callerEmail = auth?.caller?.email || auth?.user?.email || body?.userEmail || '';
+    const serverAiMode = policy && callerEmail ? getUserAiMode(policy, callerEmail) : null;
+    const clientAiMode = body?.aiMode ? normalizeAiMode(body.aiMode) : null;
+    const aiMode =
+      serverAiMode && (serverAiMode !== 'standard' || admin)
+        ? serverAiMode
+        : clientAiMode || serverAiMode || 'standard';
 
     const baseResult = runAiEdgeLogic(body);
     const llmAnswer =

@@ -178,6 +178,7 @@ export function toPublicLoginPolicy(rawPolicy) {
     mode: p.mode,
     allowedDomains: p.allowedDomains,
     allowGuestPortal: p.allowGuestPortal,
+    userAiModes: p.userAiModes,
     updatedAt: p.updatedAt,
   };
 }
