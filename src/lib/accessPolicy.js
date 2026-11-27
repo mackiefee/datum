@@ -41,6 +41,12 @@ export const AI_MODES = [
     description: 'Sarcastic, grumpy BIM lead who roasts you while helping.',
   },
   {
+    id: 'rude_fandom',
+    label: 'Rude + Fandom',
+    color: '#ff2d55',
+    description: 'Toxic BIM lead obsessed with Anime, K-Pop & K-Dramas + fandom references.',
+  },
+  {
     id: 'fun',
     label: 'Fun',
     color: '#bf5af2',

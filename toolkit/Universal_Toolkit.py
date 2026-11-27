@@ -1553,8 +1553,12 @@ CLEAN_CONV = {'v': 1}          # +1: a section looks along -BasisZ (checked on t
 def sheet_view_slots(sheet):
     """(viewport, view) pairs of a sheet that hold plans/elevations: not legends, not schedules."""
     found = []
-    for p, v in placements(sheet):
-        if isinstance(p, Viewport) and not isinstance(v, ViewSchedule) and v.ViewType != ViewType.Legend:
+    for ident in sheet.GetAllViewports():
+        p = doc.GetElement(ident)
+        if not isinstance(p, Viewport):
+            continue
+        v = doc.GetElement(p.ViewId)
+        if v is not None and not isinstance(v, ViewSchedule) and v.ViewType != ViewType.Legend:
             found.append((p, v))
     return found
 
@@ -1595,6 +1599,3000 @@ def _add_port(sheet, view, type_id, center):
         port.ChangeTypeId(type_id)
     doc.Regenerate()
     return port
+
+
+# ======================================================================
+#  Sheet-to-Sheet Annotation Transfer Engine (from Toolkit_7_bar_switch_fixed)
+#  Transfers Dimensions, Tags, Detail Items/Arrows, Texts & Sheet Labels
+#  from an annotated Reference Sheet to identical Sheet(s) on other floors/units.
+# ======================================================================
+
+_STYLE_CACHE = {}
+
+UI_KINDS = {
+    'green':  ('#E8F8EC', '#B6EBC4', '#248A3D', u'\uE73E'),
+    'blue':   ('#EAF3FF', '#B9D6FF', '#0A62D6', u'\uE946'),
+    'orange': ('#FFF4E0', '#FFD9A0', '#B25E00', u'\uE7BA'),
+    'red':    ('#FFF1F0', '#FFD1CC', '#D70015', u'\uE783'),
+    'gray':   ('#F2F2F7', '#E5E5EA', '#636366', None),
+}
+
+SWITCH_STYLE_XAML = u"""
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="CheckBox">
+  <Setter Property="Cursor" Value="Hand"/>
+  <Setter Property="VerticalAlignment" Value="Center"/>
+  <Setter Property="Template">
+    <Setter.Value>
+      <ControlTemplate TargetType="CheckBox">
+        <Border x:Name="tr" Width="40" Height="24" CornerRadius="12" Background="#D1D1D6">
+          <Ellipse x:Name="th" Width="20" Height="20" Fill="White" HorizontalAlignment="Left" Margin="2,0,0,0"/>
+        </Border>
+        <ControlTemplate.Triggers>
+          <Trigger Property="IsChecked" Value="True">
+            <Setter TargetName="tr" Property="Background" Value="#34C759"/>
+            <Setter TargetName="th" Property="HorizontalAlignment" Value="Right"/>
+            <Setter TargetName="th" Property="Margin" Value="0,0,2,0"/>
+          </Trigger>
+          <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+        </ControlTemplate.Triggers>
+      </ControlTemplate>
+    </Setter.Value>
+  </Setter>
+</Style>
+"""
+
+
+def ui_text(text, bold=False):
+    result = TextBlock()
+    result.Text, result.TextWrapping = text, TextWrapping.Wrap
+    if bold:
+        result.FontWeight = System.Windows.FontWeights.SemiBold
+    return result
+
+
+def ui_style(key, xaml):
+    if key not in _STYLE_CACHE:
+        try:
+            _STYLE_CACHE[key] = XamlReader.Parse(xaml)
+        except Exception:
+            _STYLE_CACHE[key] = None
+    return _STYLE_CACHE[key]
+
+
+def ui_apply(control, key, xaml):
+    style = ui_style(key, xaml)
+    if style is not None:
+        try:
+            control.Style = style
+        except Exception:
+            pass
+    return control
+
+
+def ui_tile(code, color, size=30, font=15):
+    tile = Border()
+    tile.Width, tile.Height = size, size
+    tile.CornerRadius = CornerRadius(size * 0.24)
+    tile.Background = ui_brush(color)
+    tile.Child = ui_glyph(code, font, '#FFFFFF')
+    tile.VerticalAlignment = VerticalAlignment.Center
+    return tile
+
+
+def ui_badge(text, kind='gray', glyph=True, max_width=None):
+    bg, edge, fg, icon = UI_KINDS[kind]
+    badge = Border()
+    badge.Background, badge.BorderBrush = ui_brush(bg), ui_brush(edge)
+    badge.BorderThickness, badge.CornerRadius = Thickness(1), CornerRadius(11)
+    badge.Padding = Thickness(9, 3, 9, 3)
+    badge.VerticalAlignment = VerticalAlignment.Center
+    row = StackPanel()
+    row.Orientation = Orientation.Horizontal
+    if glyph and icon:
+        mark_icon = ui_glyph(icon, 10.5, fg)
+        mark_icon.Margin = Thickness(0, 1, 6, 0)
+        row.Children.Add(mark_icon)
+    label = TextBlock()
+    label.Text, label.FontSize = text, 11.5
+    label.FontWeight = System.Windows.FontWeights.SemiBold
+    label.Foreground = ui_brush(fg)
+    label.TextTrimming = TextTrimming.CharacterEllipsis
+    label.VerticalAlignment = VerticalAlignment.Center
+    if max_width:
+        label.MaxWidth = max_width
+    row.Children.Add(label)
+    badge.Child = row
+    return badge
+
+
+def ui_note(text, kind='blue', title_text=None):
+    bg, edge, fg, icon = UI_KINDS[kind]
+    box = Border()
+    box.Background, box.BorderBrush = ui_brush(bg), ui_brush(edge)
+    box.BorderThickness, box.CornerRadius = Thickness(1), CornerRadius(10)
+    box.Padding = Thickness(12, 9, 12, 9)
+    grid = WpfGrid()
+    left, right = ColumnDefinition(), ColumnDefinition()
+    left.Width = System.Windows.GridLength.Auto
+    right.Width = System.Windows.GridLength(1.0, System.Windows.GridUnitType.Star)
+    grid.ColumnDefinitions.Add(left)
+    grid.ColumnDefinitions.Add(right)
+    mark_icon = ui_glyph(icon or u'\uE946', 14, fg)
+    mark_icon.VerticalAlignment = VerticalAlignment.Top
+    mark_icon.Margin = Thickness(0, 1, 10, 0)
+    grid.Children.Add(mark_icon)
+    texts = StackPanel()
+    WpfGrid.SetColumn(texts, 1)
+    if title_text:
+        head = ui_text(title_text, True)
+        head.FontSize, head.Foreground = 12.5, ui_brush(fg)
+        texts.Children.Add(head)
+    body = ui_text(text)
+    body.FontSize, body.Foreground = 12, ui_brush(fg)
+    if title_text:
+        body.Margin = Thickness(0, 2, 0, 0)
+    texts.Children.Add(body)
+    grid.Children.Add(texts)
+    box.Child = grid
+    return box
+
+
+def ui_section(code, color, heading, subtitle=None, right=None):
+    dock = DockPanel()
+    dock.Margin = Thickness(0, 0, 0, 12)
+    tile = ui_tile(code, color, 32, 16)
+    tile.Margin = Thickness(0, 0, 12, 0)
+    tile.VerticalAlignment = VerticalAlignment.Top
+    DockPanel.SetDock(tile, Dock.Left)
+    dock.Children.Add(tile)
+    if right is not None:
+        right.Margin = Thickness(12, 0, 0, 0)
+        right.VerticalAlignment = VerticalAlignment.Top
+        DockPanel.SetDock(right, Dock.Right)
+        dock.Children.Add(right)
+    texts = StackPanel()
+    texts.VerticalAlignment = VerticalAlignment.Center
+    head = ui_text(heading, True)
+    head.FontSize = 15
+    head.Foreground = ui_brush('#1C1C1E')
+    texts.Children.Add(head)
+    if subtitle:
+        sub = ui_text(subtitle)
+        sub.FontSize, sub.Foreground = 12, ui_brush('#8E8E93')
+        sub.Margin = Thickness(0, 2, 0, 0)
+        texts.Children.Add(sub)
+    dock.Children.Add(texts)
+    return dock
+
+
+def ui_switch_row(check, heading, subtitle=None):
+    row = WpfGrid()
+    left, right = ColumnDefinition(), ColumnDefinition()
+    left.Width = System.Windows.GridLength(1.0, System.Windows.GridUnitType.Star)
+    right.Width = System.Windows.GridLength.Auto
+    row.ColumnDefinitions.Add(left)
+    row.ColumnDefinitions.Add(right)
+    texts = StackPanel()
+    texts.VerticalAlignment = VerticalAlignment.Center
+    texts.Children.Add(ui_text(heading))
+    if subtitle:
+        sub = ui_text(subtitle)
+        sub.FontSize, sub.Foreground = 11.5, ui_brush('#8E8E93')
+        sub.Margin = Thickness(0, 1, 0, 0)
+        texts.Children.Add(sub)
+    row.Children.Add(texts)
+    check.Content = None
+    check.HorizontalAlignment = System.Windows.HorizontalAlignment.Right
+    check.Margin = Thickness(14, 0, 0, 0)
+    ui_apply(check, 'switch', SWITCH_STYLE_XAML)
+    WpfGrid.SetColumn(check, 1)
+    row.Children.Add(check)
+    row.Margin = Thickness(0, 5, 0, 5)
+    return row
+
+
+def pump_ui():
+    try:
+        from System.Windows.Threading import Dispatcher, DispatcherPriority, DispatcherFrame, DispatcherOperationCallback
+        frame = DispatcherFrame()
+        def leave(state):
+            frame.Continue = False
+            return None
+        Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, DispatcherOperationCallback(leave), None)
+        Dispatcher.PushFrame(frame)
+    except Exception:
+        pass
+
+
+class AnnotationMatchError(Exception):
+    """A reference could not be resolved without guessing."""
+
+
+def same_document(doc_a, doc_b):
+    if doc_a is None or doc_b is None:
+        return False
+    try:
+        return doc_a.Equals(doc_b)
+    except Exception:
+        return doc_a == doc_b
+
+
+def element_category_name(element):
+    try:
+        if element.Category is not None and element.Category.Name:
+            return element.Category.Name
+    except Exception:
+        pass
+    return "(no category)"
+
+
+def round_num(value, digits=6):
+    return round(float(value), digits)
+
+
+def point_key(point):
+    return (round_num(point.X), round_num(point.Y), round_num(point.Z))
+
+
+def in_view_plane(vector, view):
+    normal = view.ViewDirection.Normalize()
+    return vector.Subtract(normal.Multiply(vector.DotProduct(normal)))
+
+
+def curve_key(curve):
+    p0 = point_key(curve.GetEndPoint(0))
+    p1 = point_key(curve.GetEndPoint(1))
+    return (p0, p1) if p0 <= p1 else (p1, p0)
+
+
+def stable_reference(reference, target_doc):
+    return reference.ConvertToStableRepresentation(target_doc)
+
+
+def type_name(element):
+    if element is None:
+        return ""
+    try:
+        parameter = element.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)
+        if parameter is not None and parameter.AsString():
+            return parameter.AsString()
+    except Exception:
+        pass
+    try:
+        return element.Name or ""
+    except Exception:
+        return ""
+
+
+def owner_signature(element):
+    element_type = element.Document.GetElement(element.GetTypeId())
+    family_name = ""
+    if element_type is not None:
+        try:
+            family_name = element_type.FamilyName
+        except Exception:
+            pass
+    return (element.GetType().Name, id_value(element.Category.Id) if element.Category else None,
+            family_name, type_name(element_type))
+
+
+def annotation_type_signature(element_type):
+    try:
+        family_name = element_type.FamilyName
+    except Exception:
+        family_name = ""
+    return (element_type.GetType().Name, id_value(element_type.Category.Id) if element_type.Category else None,
+            family_name, type_name(element_type))
+
+
+def lifecycle_signature(element):
+    phases = []
+    for attribute in ("CreatedPhaseId", "DemolishedPhaseId"):
+        phase_id = getattr(element, attribute, None)
+        phase = element.Document.GetElement(phase_id) if id_value(phase_id) >= 0 else None
+        phases.append(type_name(phase) if phase is not None else "")
+    option = getattr(element, "DesignOption", None)
+    return tuple(phases) + (type_name(option) if option is not None else "",)
+
+
+def annotation_kind(element):
+    if isinstance(element, Dimension):
+        return "dimension"
+    if isinstance(element, (IndependentTag, SpatialElementTag)):
+        return "tag"
+    return None
+
+
+def tk_tag_references(tag):
+    if hasattr(tag, "GetTaggedReferences"):
+        return list(tag.GetTaggedReferences())
+    return [tag.GetTaggedReference()]
+
+
+def tk_tag_reference(tag):
+    refs = tk_tag_references(tag)
+    if not refs:
+        raise AnnotationMatchError(u"Tag has no references.")
+    return refs[0]
+
+
+def tk_has_elbow(tag, ref=None):
+    if isinstance(tag, IndependentTag) and hasattr(tag, "HasLeaderElbow"):
+        return tag.HasLeaderElbow(ref or tk_tag_reference(tag))
+    return getattr(tag, "HasElbow", False)
+
+
+def tk_leader_get(tag, part, ref=None):
+    method = getattr(tag, "GetLeader" + part, None)
+    if isinstance(tag, IndependentTag) and method:
+        return method(ref or tk_tag_reference(tag))
+    return getattr(tag, "Leader" + part)
+
+
+def tk_leader_set(tag, part, point, ref=None):
+    method = getattr(tag, "SetLeader" + part, None)
+    if isinstance(tag, IndependentTag) and method:
+        method(ref or tk_tag_reference(tag), point)
+    else:
+        setattr(tag, "Leader" + part, point)
+
+
+def tk_map_rule(rebuilder, source_context, source, reference, target_context, target, signs):
+    source_name = source.GetReferenceName(reference)
+    rules = getattr(rebuilder, "semantic_rules", [])
+    matches = [r for r in rules if r["source_family"] == source.Symbol.FamilyName and r["source_ref"] == source_name and r["target_family"] == target.Symbol.FamilyName]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        return None
+    if signs and any(s < 0 for s in signs):
+        return None
+    mapped = target.GetReferenceByName(matches[0]["target_ref"])
+    return mapped
+
+
+def annotation_key(element, view):
+    try:
+        if isinstance(element, Dimension) and isinstance(element.Curve, Line):
+            curve = element.Curve
+            direction = curve.Direction.Normalize()
+            values = (direction.X, direction.Y, direction.Z)
+            if next((v for v in values if abs(v) > 1e-9), 1) < 0:
+                direction = direction.Negate()
+            origin = curve.Origin
+            anchor = origin.Subtract(direction.Multiply(origin.DotProduct(direction)))
+            references = tuple(sorted(stable_reference(r, element.Document) for r in element.References))
+            return ("Dimension", id_value(element.GetTypeId()), references, point_key(anchor), point_key(direction))
+        if isinstance(element, (IndependentTag, RoomTag)):
+            if isinstance(element, IndependentTag):
+                reference_key = tuple(sorted(stable_reference(r, element.Document) for r in tk_tag_references(element)))
+            else:
+                rid = element.TaggedRoomId
+                reference_key = (id_value(rid.HostElementId), id_value(rid.LinkInstanceId), id_value(rid.LinkedElementId))
+            return ("Tag", id_value(element.GetTypeId()), reference_key, point_key(element.TagHeadPosition), str(element.TagOrientation))
+    except Exception:
+        return None
+    return None
+
+
+def element_fingerprint(element, view):
+    if element is None:
+        return None
+    if annotation_kind(element) is not None:
+        return annotation_key(element, view)
+    category_name = element_category_name(element)
+    type_id = id_value(element.GetTypeId()) if element.GetTypeId() is not None else -1
+    class_name = element.GetType().Name
+    if isinstance(element, TextNote):
+        try:
+            return ("TextNote", category_name, type_id, (element.Text or u"").strip(), point_key(element.Coord))
+        except Exception:
+            return None
+    try:
+        if class_name in ("DetailLine", "DetailCurve"):
+            curve = element.GeometryCurve
+            if isinstance(curve, Line):
+                return ("DetailLine", category_name, type_id, id_value(element.LineStyle.Id), curve_key(curve))
+    except Exception:
+        pass
+    if isinstance(element, FamilyInstance) and isinstance(element.Location, LocationPoint):
+        try:
+            return ("FamilyInstance2D", category_name, type_id, point_key(element.Location.Point))
+        except Exception:
+            pass
+    return None
+
+
+def collect_existing_fingerprints(target_doc, target_view):
+    fingerprints = set()
+    try:
+        for element in FilteredElementCollector(target_doc, target_view.Id).WhereElementIsNotElementType():
+            fp = element_fingerprint(element, target_view)
+            if fp is not None:
+                fingerprints.add(fp)
+    except Exception:
+        pass
+    return fingerprints
+
+
+class ModelContext(object):
+    def __init__(self, host_doc, link=None):
+        self.host_doc = host_doc
+        self.link = link
+        self.doc = link.GetLinkDocument() if link is not None else host_doc
+        if self.doc is None:
+            raise AnnotationMatchError("The referenced RVT link is unloaded. Load it and retry.")
+        self.transform = link.GetTotalTransform() if link is not None else Transform.Identity
+        self.key = id_value(link.Id) if link is not None else -1
+        self.label = "Link: {}".format(link.Name) if link is not None else "Current model"
+
+    def wrap(self, reference):
+        return reference.CreateLinkReference(self.link) if self.link is not None else reference
+
+
+class AnnotationRebuilder(object):
+    def __init__(self, source_doc, source_view, target_doc, target_view, transform,
+                 tolerance_mm=15.0, include_links=True, nearby_family_mm=120.0):
+        self.source_doc, self.source_view = source_doc, source_view
+        self.target_doc, self.target_view = target_doc, target_view
+        self.transform = transform
+        self.tolerance = tolerance_mm / 304.8
+        self.nearby_family_tolerance = max(0.0, nearby_family_mm) / 304.8
+        self.reference_tolerance = 1.5 / 304.8
+        self.include_links = include_links
+        self.contexts = [ModelContext(target_doc)]
+        self.candidate_cache = {}
+        self.candidate_type_exclusions = {}
+        self._candidate_index = {}
+        self.owner_cache = {}
+        self.owner_modes = {}
+        self.owner_notes = {}
+        self.prepared_owner_errors = {}
+        self.face_cache = {}
+        self.reference_plane_cache = {}
+        self.mra_dimension_ids = None
+        self.copied_owners = {}
+        self.bindings = []
+        self.notes = []
+        self.dimension_reference_map = []
+        self.allow_unresolved = True
+        self._accept_unresolved = False
+        self.unresolved_kept = False
+        if include_links:
+            for link in FilteredElementCollector(target_doc, target_view.Id).OfClass(RevitLinkInstance):
+                if link.GetLinkDocument() is not None:
+                    self.contexts.append(ModelContext(target_doc, link))
+
+    def remember_copy(self, source, ids):
+        candidates = [self.target_doc.GetElement(eid_) for eid_ in ids]
+        candidates = [e for e in candidates if e is not None and e.GetType() == source.GetType()]
+        if len(candidates) == 1:
+            self.copied_owners[id_value(source.Id)] = candidates[0]
+
+    def source_reference(self, reference):
+        if id_value(reference.LinkedElementId) >= 0:
+            if not self.include_links:
+                raise AnnotationMatchError("Enable 'Search linked RVTs' to rebuild this annotation.")
+            link = self.source_doc.GetElement(reference.ElementId)
+            if not isinstance(link, RevitLinkInstance):
+                raise AnnotationMatchError("The source link instance is unavailable.")
+            context = ModelContext(self.source_doc, link)
+            owner = context.doc.GetElement(reference.LinkedElementId)
+            inner = reference.CreateReferenceInLink()
+        else:
+            context = ModelContext(self.source_doc)
+            owner = context.doc.GetElement(reference.ElementId)
+            inner = reference
+        if owner is None:
+            raise AnnotationMatchError("A source reference points to a missing element.")
+        return context, owner, inner
+
+    def _index_candidates(self, context):
+        if context.key in self._candidate_index:
+            return self._candidate_index[context.key]
+        collector = (FilteredElementCollector(context.doc, self.target_view.Id)
+                     if context.link is None else FilteredElementCollector(context.doc))
+        collector = collector.WhereElementIsNotElementType()
+        exact, family, class_total = {}, {}, {}
+        for candidate in collector:
+            try:
+                class_name = candidate.GetType().Name
+                class_total[class_name] = class_total.get(class_name, 0) + 1
+                candidate_signature = owner_signature(candidate)
+                exact.setdefault(candidate_signature, []).append(candidate)
+                if isinstance(candidate, FamilyInstance) and candidate_signature[2]:
+                    family.setdefault(candidate_signature[:3], []).append(candidate)
+            except Exception:
+                continue
+        self._candidate_index[context.key] = (exact, family, class_total)
+        return exact, family, class_total
+
+    def candidates(self, context, source):
+        signature = owner_signature(source)
+        key = (context.key, signature)
+        if key not in self.candidate_cache:
+            exact, family, class_total = self._index_candidates(context)
+            if isinstance(source, FamilyInstance) and signature[2]:
+                items = list(family.get(signature[:3], []))
+            else:
+                items = list(exact.get(signature, []))
+            self.candidate_cache[key] = items
+            self.candidate_type_exclusions[key] = max(0, class_total.get(source.GetType().Name, 0) - len(items))
+        return self.candidate_cache[key]
+
+    def _project(self, point):
+        return in_view_plane(point, self.target_view)
+
+    def _near(self, a, b):
+        return a.DistanceTo(b) <= self.tolerance
+
+    def _parallel(self, a, b, oriented=False):
+        dot = a.Normalize().DotProduct(b.Normalize())
+        return dot > 0.998 if oriented else abs(dot) > 0.998
+
+    def _family_axis_signs(self, source, source_context, target, target_context):
+        expected = self.transform.Multiply(source_context.transform)
+        actual = target_context.transform
+        source_axes = (source.HandOrientation, source.FacingOrientation,
+                       source.GetTransform().OfVector(XYZ.BasisZ))
+        target_axes = (target.HandOrientation, target.FacingOrientation,
+                       target.GetTransform().OfVector(XYZ.BasisZ))
+        signs = []
+        for a, b in zip(source_axes, target_axes):
+            dot = expected.OfVector(a).Normalize().DotProduct(actual.OfVector(b).Normalize())
+            if abs(dot) <= 0.995:
+                return None
+            signs.append(1 if dot > 0 else -1)
+        return tuple(signs)
+
+    def _note(self, message):
+        if message not in self.notes:
+            self.notes.append(message)
+
+    def _curve(self, element):
+        if isinstance(element, Grid):
+            return element.Curve
+        if isinstance(element, CurveElement):
+            return element.GeometryCurve
+        location = element.Location
+        return location.Curve if isinstance(location, LocationCurve) else None
+
+    def _bounds(self, element, transform):
+        box = element.get_BoundingBox(None)
+        if box is None:
+            return None
+        points = [transform.OfPoint(box.Transform.OfPoint(XYZ(x, y, z)))
+                  for x in (box.Min.X, box.Max.X)
+                  for y in (box.Min.Y, box.Max.Y)
+                  for z in (box.Min.Z, box.Max.Z)]
+        return (XYZ(min(p.X for p in points), min(p.Y for p in points), min(p.Z for p in points)),
+                XYZ(max(p.X for p in points), max(p.Y for p in points), max(p.Z for p in points)))
+
+    def _owner_match_issue(self, source, source_context, candidate, target_context, position_tolerance=None):
+        if lifecycle_signature(source) != lifecycle_signature(candidate):
+            return "Different creation/demolition phase or design option."
+        expected = self.transform.Multiply(source_context.transform)
+        actual = target_context.transform
+        if isinstance(source, Level):
+            a = expected.OfPoint(XYZ(0, 0, source.ProjectElevation))
+            b = actual.OfPoint(XYZ(0, 0, candidate.ProjectElevation))
+            normal = actual.OfVector(XYZ.BasisZ).Normalize()
+            if not self._parallel(expected.OfVector(XYZ.BasisZ), normal):
+                return "Different level plane orientation."
+            distance = abs(a.Subtract(b).DotProduct(normal))
+            return (None if distance <= self.tolerance else
+                    "Level elevation differs by {:.1f} mm.".format(distance * 304.8))
+        if isinstance(source, Grid):
+            a, b = self._curve(source), self._curve(candidate)
+            if not isinstance(a, Line) or not isinstance(b, Line):
+                return "Only straight grid references are supported."
+            direction = in_view_plane(actual.OfVector(b.Direction), self.target_view)
+            other = in_view_plane(expected.OfVector(a.Direction), self.target_view)
+            if direction.GetLength() < 1e-9 or other.GetLength() < 1e-9:
+                return "Grid direction cannot be resolved in the target view plane."
+            delta = self._project(expected.OfPoint(a.Origin).Subtract(actual.OfPoint(b.Origin)))
+            direction = direction.Normalize()
+            if not self._parallel(direction, other):
+                return "Different grid direction."
+            distance = delta.Subtract(direction.Multiply(delta.DotProduct(direction))).GetLength()
+            return (None if distance <= self.tolerance else
+                    "Grid line offset is {:.1f} mm.".format(distance * 304.8))
+        location = source.Location
+        target_location = candidate.Location
+        if isinstance(source, Room) and isinstance(location, LocationPoint):
+            desired = actual.Inverse.OfPoint(expected.OfPoint(location.Point))
+            box = candidate.get_BoundingBox(None)
+            if box is None:
+                return "Target room has no bounding box."
+            if desired.Z < box.Min.Z - self.tolerance or desired.Z > box.Max.Z + self.tolerance:
+                return "Expected room point is outside the target room's height range."
+            probe = XYZ(desired.X, desired.Y, (box.Min.Z + box.Max.Z) / 2.0)
+            return None if candidate.IsPointInRoom(probe) else "Expected point is outside the target room boundary."
+        if isinstance(location, LocationPoint) and isinstance(target_location, LocationPoint):
+            a, b = expected.OfPoint(location.Point), actual.OfPoint(target_location.Point)
+            point_tolerance = self.tolerance if position_tolerance is None else position_tolerance
+            if a.DistanceTo(b) > point_tolerance:
+                if (isinstance(source, FamilyInstance) and isinstance(candidate, FamilyInstance)
+                        and self._resized_anchor_match(source_context, source, target_context, candidate,
+                                                       point_tolerance)):
+                    return None
+                delta = b.Subtract(a).Multiply(304.8)
+                return ("Insertion point offset: {:.1f} mm; dX={:+.1f}, dY={:+.1f}, dZ={:+.1f} mm.".format(
+                    a.DistanceTo(b) * 304.8, delta.X, delta.Y, delta.Z))
+            return None
+        a, b = self._curve(source), self._curve(candidate)
+        if isinstance(a, Line) and isinstance(b, Line) and a.IsBound and b.IsBound:
+            sa = [expected.OfPoint(a.GetEndPoint(i)) for i in (0, 1)]
+            ta = [actual.OfPoint(b.GetEndPoint(i)) for i in (0, 1)]
+            distance = min(max(sa[0].DistanceTo(ta[0]), sa[1].DistanceTo(ta[1])),
+                           max(sa[0].DistanceTo(ta[1]), sa[1].DistanceTo(ta[0])))
+            return (None if distance <= self.tolerance else
+                    "Curve endpoints differ by up to {:.1f} mm.".format(distance * 304.8))
+        sa, ta = self._bounds(source, expected), self._bounds(candidate, actual)
+        if sa is None or ta is None:
+            return "Geometry bounds are unavailable for comparison."
+        distance = max(sa[0].DistanceTo(ta[0]), sa[1].DistanceTo(ta[1]))
+        return (None if distance <= self.tolerance else
+                "Transformed geometry bounds differ by up to {:.1f} mm.".format(distance * 304.8))
+
+    def _diagnostic_distance(self, source, source_context, candidate, target_context):
+        try:
+            if isinstance(source.Location, LocationPoint) and isinstance(candidate.Location, LocationPoint):
+                expected = self.transform.OfPoint(source_context.transform.OfPoint(source.Location.Point))
+                actual = target_context.transform.OfPoint(candidate.Location.Point)
+                return expected.DistanceTo(actual)
+        except Exception:
+            pass
+        return float("inf")
+
+    def match_owner(self, source_context, source):
+        key = (source_context.key, source.UniqueId)
+        if source_context.link is None and id_value(source.Id) in self.copied_owners:
+            answer = (self.contexts[0], self.copied_owners[id_value(source.Id)])
+            self.owner_cache[key] = answer
+            self.owner_modes[key] = "copied"
+            return answer
+        if key in self.prepared_owner_errors:
+            raise AnnotationMatchError(self.prepared_owner_errors[key])
+        if key in self.owner_cache:
+            for note in self.owner_notes.get(key, []):
+                self._note(note)
+            return self.owner_cache[key]
+        matches, resized, nearby, resized_nearby, rejected = [], [], [], [], []
+        checked, other_types = 0, 0
+        signature = owner_signature(source)
+        search_contexts = ([c for c in self.contexts if c.link is None]
+                           if source_context.link is None else self.contexts)
+        for context in search_contexts:
+            for candidate in self.candidates(context, source):
+                checked += 1
+                try:
+                    issue = self._owner_match_issue(source, source_context, candidate, context)
+                    if (issue is not None and self.nearby_family_tolerance > self.tolerance
+                            and isinstance(source, FamilyInstance) and isinstance(candidate, FamilyInstance)
+                            and isinstance(source.Location, LocationPoint) and isinstance(candidate.Location, LocationPoint)
+                            and self._owner_match_issue(source, source_context, candidate, context,
+                                                       self.nearby_family_tolerance) is None):
+                        bucket = (nearby if self._diagnostic_distance(source, source_context, candidate, context)
+                                  <= self.nearby_family_tolerance else resized_nearby)
+                        bucket.append((context, candidate))
+                except OperationCanceledException:
+                    raise
+                except Exception as exc:
+                    issue = "Could not inspect target geometry: {}".format(exc)
+                if issue is None:
+                    bucket = (resized if isinstance(source, FamilyInstance)
+                              and self._diagnostic_distance(source, source_context, candidate, context) > self.tolerance
+                              else matches)
+                    bucket.append((context, candidate))
+                else:
+                    rank = self._diagnostic_distance(source, source_context, candidate, context)
+                    rejected.append((rank, "{} / ID {}: {}".format(context.label, id_value(candidate.Id), issue)))
+                    rejected.sort(key=lambda item: item[0])
+                    del rejected[3:]
+            other_types += self.candidate_type_exclusions.get((context.key, signature), 0)
+        mode = "exact"
+        if not matches and resized:
+            matches = resized
+            mode = "resized"
+        if not matches and nearby:
+            matches = nearby
+            mode = "nearby"
+        if not matches and resized_nearby:
+            matches = resized_nearby
+            mode = "resized_nearby"
+        if not matches:
+            raise AnnotationMatchError("No verified match for {} (source ID {}).".format(
+                element_category_name(source), id_value(source.Id)))
+        if len(matches) > 1:
+            matches.sort(key=lambda pair: self._diagnostic_distance(source, source_context, pair[1], pair[0]))
+        self.owner_cache[key] = matches[0]
+        self.owner_modes[key] = mode
+        self.owner_notes[key] = []
+        return matches[0]
+
+    def _reference_transform(self, source_context, source, target_context, target):
+        transform = target_context.transform.Inverse.Multiply(self.transform).Multiply(source_context.transform)
+        try:
+            sc = center([source])
+            tc = center([target])
+            delta = tc.Subtract(transform.OfPoint(sc))
+            transform = Transform.CreateTranslation(delta).Multiply(transform)
+        except Exception:
+            if isinstance(source.Location, LocationPoint) and isinstance(target.Location, LocationPoint):
+                delta = target.Location.Point.Subtract(transform.OfPoint(source.Location.Point))
+                transform = Transform.CreateTranslation(delta).Multiply(transform)
+        return transform
+
+    def _face_outline(self, face, transform):
+        try:
+            edges = []
+            for loop in face.GetEdgesAsCurveLoops():
+                for curve in loop:
+                    if not isinstance(curve, Line) or not curve.IsBound:
+                        continue
+                    edges.append(tuple(transform.OfPoint(curve.GetEndPoint(i)) for i in (0, 1)))
+            return (float(face.Area), edges) if edges else None
+        except Exception:
+            return None
+
+    def _same_outline(self, source, target, transform):
+        if source is None or target is None or len(source[1]) != len(target[1]):
+            return False
+        if abs(source[0] - target[0]) > max(1e-6, abs(source[0]) * 1e-3):
+            return False
+        unused = list(target[1])
+        for edge in source[1]:
+            a, b = [transform.OfPoint(p) for p in edge]
+            matches = [i for i, (c, d) in enumerate(unused)
+                       if min(max(a.DistanceTo(c), b.DistanceTo(d)),
+                              max(a.DistanceTo(d), b.DistanceTo(c))) <= self.reference_tolerance]
+            if len(matches) != 1:
+                return False
+            unused.pop(matches[0])
+        return True
+
+    def _reference_geometry(self, context, element, view=None):
+        key = (context.key, element.UniqueId, element.Document.GetHashCode(),
+               id_value(view.Id) if view is not None else None)
+        if key in self.face_cache:
+            return self.face_cache[key]
+        data = {"faces": [], "lines": [], "body_points": [], "body_complete": True}
+        options = Options()
+        options.ComputeReferences = True
+        options.IncludeNonVisibleObjects = True
+        if view is not None:
+            options.View = view
+        def add_line(curve, reference, transform, endpoint_getter):
+            if not isinstance(curve, Line) or not curve.IsBound:
+                return
+            ends = tuple(transform.OfPoint(curve.GetEndPoint(i)) for i in (0, 1))
+            data["body_points"].extend(ends)
+            if reference is None:
+                return
+            endpoints = []
+            for i in (0, 1):
+                try:
+                    endpoint = endpoint_getter(i)
+                    if endpoint is not None:
+                        endpoints.append((endpoint, ends[i]))
+                except Exception:
+                    pass
+            data["lines"].append((reference, ends, endpoints))
+        def visit(geometry, transform, depth=0):
+            if geometry is None or depth > 16:
+                return
+            for obj in geometry:
+                if isinstance(obj, Solid):
+                    for face in obj.Faces:
+                        outline = self._face_outline(face, transform) if isinstance(face, PlanarFace) else None
+                        if outline is not None:
+                            data["body_points"].extend(p for ends in outline[1] for p in ends)
+                        if isinstance(face, PlanarFace) and face.Reference is not None:
+                            data["faces"].append((face.Reference, transform.OfPoint(face.Origin),
+                                transform.OfVector(face.FaceNormal).Normalize(), outline))
+                    for edge in obj.Edges:
+                        add_line(edge.AsCurve(), edge.Reference, transform, edge.GetEndPointReference)
+                elif isinstance(obj, GeometryInstance):
+                    visit(obj.GetSymbolGeometry(), transform.Multiply(obj.Transform), depth + 1)
+                elif isinstance(obj, Curve):
+                    add_line(obj, obj.Reference, transform, obj.GetEndPointReference)
+                elif isinstance(obj, Edge):
+                    add_line(obj.AsCurve(), obj.Reference, transform, obj.GetEndPointReference)
+        try:
+            visit(element.get_Geometry(options), Transform.Identity)
+        finally:
+            options.Dispose()
+        if not data["body_points"]:
+            try:
+                bb = element.get_BoundingBox(None)
+                if bb is not None:
+                    data["body_points"].extend(box_points(bb))
+            except Exception:
+                pass
+        self.face_cache[key] = data
+        return data
+
+    def _geometry_variants(self, context, element, view):
+        snapshots = [self._reference_geometry(context, element)]
+        if context.link is None and view is not None:
+            try:
+                snapshots.append(self._reference_geometry(context, element, view))
+            except OperationCanceledException:
+                raise
+            except Exception:
+                pass
+        result = {"faces": [], "lines": []}
+        for kind in result:
+            seen = set()
+            for snapshot in snapshots:
+                for record in snapshot[kind]:
+                    key = stable_reference(record[0], context.doc)
+                    if key not in seen:
+                        seen.add(key)
+                        result[kind].append(record)
+        return result
+
+    def planar_faces(self, context, element):
+        return [face[:3] for face in self._reference_geometry(context, element)["faces"]]
+
+    def _body_points(self, context, element):
+        data = self._reference_geometry(context, element)
+        points = data["body_points"]
+        if not points:
+            return None
+        axes = self._body_axes(element)
+        bounds_ = self._axis_bounds(points, axes)
+        return points if all(hi - lo > 1e-5 for lo, hi in bounds_) else points
+
+    def _body_axes(self, element):
+        if isinstance(element, FamilyInstance):
+            transform = element.GetTransform()
+            return tuple(transform.OfVector(v).Normalize() for v in (XYZ.BasisX, XYZ.BasisY, XYZ.BasisZ))
+        return (XYZ.BasisX, XYZ.BasisY, XYZ.BasisZ)
+
+    def _axis_bounds(self, points, axes):
+        return [(min(p.DotProduct(axis) for p in points), max(p.DotProduct(axis) for p in points))
+                for axis in axes]
+
+    def _outer_side(self, points, point, normal, oriented=False):
+        if not points:
+            return None
+        lo, hi = self._axis_bounds(points, [normal])[0]
+        if hi - lo <= self.reference_tolerance:
+            return None
+        offset = point.DotProduct(normal)
+        if abs(offset - hi) <= self.reference_tolerance:
+            return 1
+        if not oriented and abs(offset - lo) <= self.reference_tolerance:
+            return -1
+        return None
+
+    def _resized_anchor_match(self, source_context, source, target_context, target, tolerance):
+        expected = self.transform.Multiply(source_context.transform)
+        axes = tuple(expected.OfVector(v).Normalize() for v in self._body_axes(source))
+        source_points = self._body_points(source_context, source)
+        target_points = self._body_points(target_context, target)
+        if not source_points or not target_points:
+            return False
+        source_bounds = self._axis_bounds([expected.OfPoint(p) for p in source_points], axes)
+        target_bounds = self._axis_bounds([target_context.transform.OfPoint(p) for p in target_points], axes)
+        errors = [min(abs(a - c), abs(b - d), abs((a + b - c - d) / 2.0))
+                  for (a, b), (c, d) in zip(source_bounds, target_bounds)]
+        return sum(value * value for value in errors) <= tolerance * tolerance
+
+    def _body_mapping(self, source_context, source, target_context, target, transform):
+        source_points = self._body_points(source_context, source)
+        target_points = self._body_points(target_context, target)
+        if not source_points or not target_points:
+            return None
+        source_axes = self._body_axes(source)
+        target_axes = tuple(transform.OfVector(v).Normalize() for v in source_axes)
+        source_bounds = self._axis_bounds(source_points, source_axes)
+        target_bounds = self._axis_bounds(target_points, target_axes)
+        if any(hi - lo <= 1e-5 for lo, hi in target_bounds) or any(hi - lo <= 1e-5 for lo, hi in source_bounds):
+            return None
+        return source_axes, source_bounds, target_axes, target_bounds
+
+    def _relative_body_point(self, point, axes, bounds_):
+        return tuple((point.DotProduct(axis) - lo) / max(hi - lo, 1e-6)
+                     for axis, (lo, hi) in zip(axes, bounds_))
+
+    def _mapped_body_point(self, point, mapping):
+        source_axes, source_bounds, target_axes, target_bounds = mapping
+        relative = self._relative_body_point(point, source_axes, source_bounds)
+        result = XYZ(0, 0, 0)
+        for value, axis, (lo, hi) in zip(relative, target_axes, target_bounds):
+            result = result.Add(axis.Multiply(lo + value * (hi - lo)))
+        return result
+
+    def _same_relative_outline(self, source, target, mapping):
+        if source is None or target is None or len(source[1]) != len(target[1]):
+            return False
+        unused = list(target[1])
+        for edge in source[1]:
+            a, b = [self._mapped_body_point(p, mapping) for p in edge]
+            indices = [i for i, (c, d) in enumerate(unused)
+                       if min(max(a.DistanceTo(c), b.DistanceTo(d)),
+                              max(a.DistanceTo(d), b.DistanceTo(c))) <= self.reference_tolerance * 4.0]
+            if len(indices) != 1:
+                return False
+            unused.pop(indices[0])
+        return True
+
+    def _outer_edge_mapping(self, ends, mapping):
+        if mapping is None:
+            return False
+        axes, bounds_ = mapping[0], mapping[1]
+        outside = 0
+        for axis, (lo, hi) in zip(axes, bounds_):
+            a, b = [p.DotProduct(axis) for p in ends]
+            if any(max(abs(a - bound), abs(b - bound)) <= self.reference_tolerance * 2.0 for bound in (lo, hi)):
+                outside += 1
+        return outside >= 2
+
+    def _map_geometric_reference(self, source_context, source, reference, target_context, target):
+        transform = self._reference_transform(source_context, source, target_context, target)
+        source_data = self._geometry_variants(source_context, source, self.source_view)
+        target_data = self._geometry_variants(target_context, target, self.target_view)
+        key = stable_reference(reference, source_context.doc)
+        if reference.ElementReferenceType == ElementReferenceType.REFERENCE_TYPE_SURFACE:
+            faces = [f for f in source_data["faces"] if stable_reference(f[0], source_context.doc) == key]
+            if not faces:
+                try:
+                    geometry = source.GetGeometryObjectFromReference(reference)
+                    if isinstance(geometry, PlanarFace):
+                        faces = [(reference, geometry.Origin, geometry.FaceNormal,
+                                  self._face_outline(geometry, Transform.Identity))]
+                except Exception:
+                    pass
+            if not faces:
+                raise AnnotationMatchError("Source ID {}: planar reference not found: {}".format(
+                    id_value(source.Id), key))
+            face = faces[0]
+            point, normal = transform.OfPoint(face[1]), transform.OfVector(face[2]).Normalize()
+            mapping = self._body_mapping(source_context, source, target_context, target, transform)
+            if mapping is not None:
+                mapped_pt = self._mapped_body_point(face[1], mapping)
+            else:
+                mapped_pt = point
+            source_points = self._body_points(source_context, source)
+            if self._outer_side(source_points, face[1], face[2], True) is not None:
+                target_points = self._body_points(target_context, target)
+                if target_points:
+                    limit = max(p.DotProduct(normal) for p in target_points)
+                    matches = [f for f in target_data["faces"] if self._parallel(normal, f[2], True)
+                               and abs(f[1].DotProduct(normal) - limit) <= self.reference_tolerance * 2.0]
+                    if len(matches) > 1 and mapping is not None:
+                        outlined = [f for f in matches if self._same_relative_outline(face[3], f[3], mapping)]
+                        if len(outlined) == 1:
+                            matches = outlined
+                    if len(matches) >= 1:
+                        matches.sort(key=lambda f: f[1].DistanceTo(mapped_pt))
+                        return matches[0][0]
+            matches = [f for f in target_data["faces"] if self._parallel(normal, f[2], True)
+                       and abs(mapped_pt.Subtract(f[1]).DotProduct(f[2])) <= self.reference_tolerance * 2.0]
+            if len(matches) > 1:
+                outlined = [f for f in matches if self._same_outline(face[3], f[3], transform)]
+                if len(outlined) == 1:
+                    matches = outlined
+            if len(matches) == 1:
+                return matches[0][0]
+            # Fallback: nearest parallel face within 35 mm in normal projection
+            parallel_faces = [f for f in target_data["faces"] if self._parallel(normal, f[2], True)]
+            if parallel_faces:
+                parallel_faces.sort(key=lambda f: (abs(mapped_pt.Subtract(f[1]).DotProduct(f[2])), f[1].DistanceTo(mapped_pt)))
+                best_f = parallel_faces[0]
+                if abs(mapped_pt.Subtract(best_f[1]).DotProduct(best_f[2])) <= 35.0 / 304.8:
+                    return best_f[0]
+            raise AnnotationMatchError("Target ID {} has no matching planar face for {}".format(id_value(target.Id), key))
+        if reference.ElementReferenceType == ElementReferenceType.REFERENCE_TYPE_LINEAR:
+            mapping = self._body_mapping(source_context, source, target_context, target, transform)
+            for source_ref, ends, endpoints in source_data["lines"]:
+                endpoint = next((p for r, p in endpoints if stable_reference(r, source_context.doc) == key), None)
+                if stable_reference(source_ref, source_context.doc) != key and endpoint is None:
+                    continue
+                map_point = (lambda p: self._mapped_body_point(p, mapping)) if mapping is not None else transform.OfPoint
+                a, b = [map_point(p) for p in ends]
+                matches = []
+                for tol_mult in (1.0, 5.0, 20.0):
+                    tol = self.reference_tolerance * tol_mult
+                    for target_ref, (c, d), target_endpoints in target_data["lines"]:
+                        if min(max(a.DistanceTo(c), b.DistanceTo(d)), max(a.DistanceTo(d), b.DistanceTo(c))) > tol:
+                            continue
+                        if endpoint is None:
+                            matches.append((min(max(a.DistanceTo(c), b.DistanceTo(d)), max(a.DistanceTo(d), b.DistanceTo(c))), target_ref))
+                        else:
+                            point = map_point(endpoint)
+                            for r, p in target_endpoints:
+                                if point.DistanceTo(p) <= tol:
+                                    matches.append((point.DistanceTo(p), r))
+                    if matches:
+                        break
+                if matches:
+                    matches.sort(key=lambda item: item[0])
+                    return matches[0][1]
+                raise AnnotationMatchError("Target ID {} has no matching edge for {}.".format(id_value(target.Id), key))
+        raise AnnotationMatchError("Unsupported {} reference on source ID {}: {}".format(
+            str(reference.ElementReferenceType), id_value(source.Id), key))
+
+    def _reference_plane(self, context, element, reference):
+        stable = stable_reference(reference, context.doc)
+        key = (context.doc.GetHashCode(), context.key, element.UniqueId, stable)
+        if key in self.reference_plane_cache:
+            return self.reference_plane_cache[key]
+        faces = [face for face in self.planar_faces(context, element)
+                 if stable_reference(face[0], context.doc) == stable]
+        if len(faces) == 1:
+            result = ((faces[0][1], faces[0][2]), None)
+            self.reference_plane_cache[key] = result
+            return result
+        doc_ = context.host_doc
+        if doc_.IsReadOnly:
+            return (None, "The host document is read-only.")
+        probe = SubTransaction(doc_) if doc_.IsModifiable else Transaction(doc_, "Inspect annotation reference")
+        result = (None, "Revit did not expose a plane for this reference.")
+        try:
+            probe.Start()
+            sketch = SketchPlane.Create(doc_, context.wrap(reference))
+            plane = sketch.GetPlane()
+            origin = XYZ(plane.Origin.X, plane.Origin.Y, plane.Origin.Z)
+            normal = XYZ(plane.Normal.X, plane.Normal.Y, plane.Normal.Z)
+            inverse = context.transform.Inverse
+            result = ((inverse.OfPoint(origin), inverse.OfVector(normal).Normalize()), None)
+        except OperationCanceledException:
+            raise
+        except Exception as exc:
+            result = (None, "Revit could not read the reference plane: {}".format(exc))
+        finally:
+            try:
+                if probe.GetStatus() == TransactionStatus.Started:
+                    probe.RollBack()
+            finally:
+                probe.Dispose()
+        self.reference_plane_cache[key] = result
+        return result
+
+    def _map_family_plane(self, source_context, source, reference, target_context, target, signs):
+        rule = tk_map_rule(self, source_context, source, reference, target_context, target, signs)
+        if rule is not None:
+            return rule
+        reference_type = source.GetReferenceType(reference)
+        name = source.GetReferenceName(reference)
+        if reference.ElementReferenceType != ElementReferenceType.REFERENCE_TYPE_SURFACE:
+            return self._map_geometric_reference(source_context, source, reference, target_context, target)
+        groups = (
+            (FamilyInstanceReferenceType.Left, FamilyInstanceReferenceType.CenterLeftRight, FamilyInstanceReferenceType.Right),
+            (FamilyInstanceReferenceType.Front, FamilyInstanceReferenceType.CenterFrontBack, FamilyInstanceReferenceType.Back),
+            (FamilyInstanceReferenceType.Bottom, FamilyInstanceReferenceType.CenterElevation, FamilyInstanceReferenceType.Top))
+        desired_type = reference_type
+        built_in = False
+        if signs is not None:
+            for axis, group in enumerate(groups):
+                if reference_type in group:
+                    built_in = True
+                    if signs[axis] < 0:
+                        desired_type = group[2 - group.index(reference_type)]
+                    break
+        if built_in:
+            choices = list(target.GetReferences(desired_type) or [])
+            if len(choices) == 1:
+                return choices[0]
+        if signs == (1, 1, 1):
+            try:
+                s_refs = list(source.GetReferences(reference_type) or [])
+                t_refs = list(target.GetReferences(desired_type) or [])
+                if len(s_refs) == len(t_refs) and len(s_refs) > 0:
+                    s_key = stable_reference(reference, source_context.doc)
+                    for idx, sr in enumerate(s_refs):
+                        if stable_reference(sr, source_context.doc) == s_key:
+                            return t_refs[idx]
+            except Exception:
+                pass
+        choices = []
+        for kind in [kind for group in groups for kind in group] + [
+                FamilyInstanceReferenceType.StrongReference, FamilyInstanceReferenceType.WeakReference]:
+            try:
+                choices.extend(list(target.GetReferences(kind) or []))
+            except Exception:
+                pass
+        if name:
+            try:
+                named = target.GetReferenceByName(name)
+                if named is not None:
+                    choices.append(named)
+            except Exception:
+                pass
+        choices = list(dict((stable_reference(r, target_context.doc), r) for r in choices
+                           if r.ElementReferenceType == ElementReferenceType.REFERENCE_TYPE_SURFACE).values())
+        if not choices:
+            return self._map_geometric_reference(source_context, source, reference, target_context, target)
+        source_plane, error = self._reference_plane(source_context, source, reference)
+        if source_plane is None:
+            return self._map_geometric_reference(source_context, source, reference, target_context, target)
+        local_transform = self._reference_transform(source_context, source, target_context, target)
+        point = local_transform.OfPoint(source_plane[0])
+        normal = local_transform.OfVector(source_plane[1]).Normalize()
+        side = self._outer_side(self._body_points(source_context, source), source_plane[0], source_plane[1])
+        if side is not None:
+            target_points = self._body_points(target_context, target)
+            if target_points:
+                limits = self._axis_bounds(target_points, [normal])[0]
+                offset = limits[1 if side > 0 else 0]
+                point = point.Add(normal.Multiply(offset - point.DotProduct(normal)))
+        matches = []
+        for choice in choices:
+            candidate_plane, error = self._reference_plane(target_context, target, choice)
+            if candidate_plane is None:
+                continue
+            if self._parallel(normal, candidate_plane[1]):
+                dist = abs(point.Subtract(candidate_plane[0]).DotProduct(candidate_plane[1]))
+                if dist <= 25.0 / 304.8:
+                    matches.append((dist, choice))
+        if matches:
+            matches.sort(key=lambda item: item[0])
+            return matches[0][1]
+        return self._map_geometric_reference(source_context, source, reference, target_context, target)
+
+    def _map_inner_reference(self, source_context, source, reference, target_context, target):
+        ref_type = reference.ElementReferenceType
+        if ref_type == ElementReferenceType.REFERENCE_TYPE_NONE:
+            return Reference(target)
+        if isinstance(source, FamilyInstance) and isinstance(target, FamilyInstance):
+            name = source.GetReferenceName(reference)
+            reference_type = source.GetReferenceType(reference)
+            signs = self._family_axis_signs(source, source_context, target, target_context)
+            built_in = reference_type not in (FamilyInstanceReferenceType.NotAReference,
+                                              FamilyInstanceReferenceType.StrongReference,
+                                              FamilyInstanceReferenceType.WeakReference)
+            if signs == (1, 1, 1):
+                if name:
+                    matched = target.GetReferenceByName(name)
+                    if matched is not None:
+                        return matched
+                try:
+                    s_fam_id = id_value(source.Symbol.Family.Id) if source.Symbol and source.Symbol.Family else -1
+                    t_fam_id = id_value(target.Symbol.Family.Id) if target.Symbol and target.Symbol.Family else -2
+                    if s_fam_id >= 0 and s_fam_id == t_fam_id and same_document(source_context.doc, target_context.doc):
+                        raw_stable = stable_reference(reference, source_context.doc)
+                        if raw_stable and source.UniqueId in raw_stable:
+                            mapped_stable = raw_stable.replace(source.UniqueId, target.UniqueId, 1)
+                            if source.Symbol.UniqueId != target.Symbol.UniqueId and source.Symbol.UniqueId in mapped_stable:
+                                mapped_stable = mapped_stable.replace(source.Symbol.UniqueId, target.Symbol.UniqueId, 1)
+                            parsed = Reference.ParseFromStableRepresentation(target_context.doc, mapped_stable)
+                            if parsed is not None:
+                                return parsed
+                except Exception:
+                    pass
+            if built_in or (ref_type == ElementReferenceType.REFERENCE_TYPE_SURFACE
+                            and (name or reference_type != FamilyInstanceReferenceType.NotAReference)):
+                try:
+                    return self._map_family_plane(source_context, source, reference, target_context, target, signs)
+                except Exception:
+                    pass
+        local_transform = self._reference_transform(source_context, source, target_context, target)
+        source_curve, target_curve = self._curve(source), self._curve(target)
+        if isinstance(source_curve, Line) and isinstance(target_curve, Line):
+            source_key = stable_reference(reference, source_context.doc)
+            if (ref_type == ElementReferenceType.REFERENCE_TYPE_LINEAR
+                    and source_curve.IsBound and target_curve.IsBound):
+                for i in (0, 1):
+                    try:
+                        endpoint_ref = source_curve.GetEndPointReference(i)
+                    except Exception:
+                        endpoint_ref = None
+                    if endpoint_ref is not None and stable_reference(endpoint_ref, source_context.doc) == source_key:
+                        point = local_transform.OfPoint(source_curve.GetEndPoint(i))
+                        indices = [j for j in (0, 1) if self._near(point, target_curve.GetEndPoint(j))]
+                        if len(indices) == 1:
+                            return target_curve.GetEndPointReference(indices[0])
+            if (ref_type == ElementReferenceType.REFERENCE_TYPE_LINEAR
+                    and source_curve.Reference is not None and target_curve.Reference is not None
+                    and stable_reference(source_curve.Reference, source_context.doc) == source_key):
+                return target_curve.Reference
+        return self._map_geometric_reference(source_context, source, reference, target_context, target)
+
+    def map_reference(self, reference):
+        source_context, source, inner = self.source_reference(reference)
+        target_context, target = self.match_owner(source_context, source)
+        mapped = self._map_inner_reference(source_context, source, inner, target_context, target)
+        if mapped is None:
+            raise AnnotationMatchError("The target element has no equivalent reference.")
+        self.bindings.append("{} / {} -> {} / {}".format(source_context.label, id_value(source.Id),
+                                                       target_context.label, id_value(target.Id)))
+        return target_context.wrap(mapped)
+
+    def target_type(self, source):
+        source_type = self.source_doc.GetElement(source.GetTypeId())
+        if source_type is None:
+            raise AnnotationMatchError("The annotation type is missing from the source.")
+        if same_document(self.source_doc, self.target_doc):
+            return source_type
+        cache = self.__dict__.setdefault('_target_type_cache', {})
+        key = id_value(source_type.Id)
+        if key in cache:
+            found = self.target_doc.GetElement(cache[key])
+            if found is not None:
+                return found
+        wanted = annotation_type_signature(source_type)
+        matches = self._matching_target_types(source_type, wanted, False)
+        if len(matches) != 1:
+            matches = self._matching_target_types(source_type, wanted, True)
+        if len(matches) != 1:
+            raise AnnotationMatchError("Load the matching annotation type '{}' into the target model.".format(type_name(source_type)))
+        cache[key] = matches[0].Id
+        return matches[0]
+
+    def _matching_target_types(self, source_type, wanted, rebuild):
+        index = self.__dict__.setdefault('_target_type_index', {})
+        class_name = wanted[0]
+        if rebuild or class_name not in index:
+            collector = FilteredElementCollector(self.target_doc).WhereElementIsElementType()
+            try:
+                collector = FilteredElementCollector(self.target_doc).OfClass(source_type.GetType()).WhereElementIsElementType()
+            except Exception:
+                pass
+            buckets = {}
+            for candidate in collector:
+                try:
+                    buckets.setdefault(annotation_type_signature(candidate), []).append(candidate)
+                except Exception:
+                    continue
+            index[class_name] = buckets
+        return list(index[class_name].get(wanted, []))
+
+    def _is_dimension_text_pulled_out(self, source, dim_curve=None):
+        """Returns True only if the dimension/segment text in `source` was manually pulled out
+        away from its default centered position on the dimension line."""
+        try:
+            src_tp = getattr(source, "TextPosition", None)
+            if src_tp is None:
+                return False
+            src_origin = getattr(source, "Origin", None)
+            if src_origin is None:
+                return False
+            diff = src_tp.Subtract(src_origin)
+            try:
+                scale = float(getattr(self.source_view, "Scale", 20) or 20)
+            except Exception:
+                scale = 20.0
+            tol_along = max(2.5, 0.12 * scale) / 304.8
+            tol_perp = max(25.0, 1.2 * scale) / 304.8
+            if dim_curve is not None and hasattr(dim_curve, "Direction"):
+                line_dir = dim_curve.Direction.Normalize()
+                along = abs(diff.DotProduct(line_dir))
+                perp_vec = in_view_plane(diff.Subtract(line_dir.Multiply(diff.DotProduct(line_dir))), self.source_view)
+                perp = perp_vec.GetLength()
+                return along > tol_along or perp > tol_perp
+            return diff.GetLength() > tol_perp
+        except Exception:
+            return False
+
+    def _dimension_text(self, source, target, dim_curve=None):
+        for name in ("Above", "Below", "Prefix", "Suffix"):
+            try:
+                value = getattr(source, name, None)
+                if value:
+                    setattr(target, name, value)
+            except Exception:
+                pass
+        if not self._is_dimension_text_pulled_out(source, dim_curve):
+            return
+        try:
+            if hasattr(source, "HasLeader") and hasattr(target, "HasLeader"):
+                target.HasLeader = bool(source.HasLeader)
+        except Exception:
+            pass
+        try:
+            if source.IsTextPositionAdjustable() and target.IsTextPositionAdjustable() and source.TextPosition is not None:
+                target.TextPosition = self.transform.OfPoint(source.TextPosition)
+        except Exception:
+            pass
+        try:
+            src_le = getattr(source, "LeaderEndPosition", None)
+            if src_le is not None and hasattr(target, "LeaderEndPosition"):
+                target.LeaderEndPosition = self.transform.OfPoint(src_le)
+        except Exception:
+            pass
+
+    def _has_adjusted_dimension_text(self, source):
+        try:
+            curve = getattr(source, "Curve", None)
+            if source.NumberOfSegments:
+                for seg in source.Segments:
+                    if self._is_dimension_text_pulled_out(seg, curve):
+                        return True
+            else:
+                if self._is_dimension_text_pulled_out(source, curve):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _dimension_attempt(self, source, mapped):
+        keys = [stable_reference(reference, self.target_doc) for reference in mapped]
+        if len(set(keys)) != len(keys):
+            raise AnnotationMatchError("Different source references map to the same target reference.")
+        attempt = SubTransaction(self.target_doc)
+        try:
+            attempt.Start()
+            refs = ReferenceArray()
+            for reference in mapped:
+                refs.Append(reference)
+            line = source.Curve.CreateTransformed(self.transform)
+            target = self.target_doc.Create.NewDimension(self.target_view, line, refs, self.target_type(source))
+            if target is None:
+                raise AnnotationMatchError("NewDimension returned no element.")
+            if not target.IsValid:
+                raise AnnotationMatchError("NewDimension returned IsValid=false.")
+            if self.allow_unresolved or self._accept_unresolved or target.AreReferencesAvailable:
+                if self._has_adjusted_dimension_text(source):
+                    self.target_doc.Regenerate()
+                if attempt.Commit() != TransactionStatus.Committed:
+                    raise AnnotationMatchError("Revit did not commit the dimension attempt.")
+                return target
+            self.target_doc.Regenerate()
+            if not target.AreReferencesAvailable:
+                prototype_id = target.Id
+                resolved = target.References
+                replacement = self.target_doc.Create.NewDimension(
+                    self.target_view, line, resolved, self.target_type(source))
+                self.target_doc.Regenerate()
+                if replacement is None or not replacement.IsValid:
+                    raise AnnotationMatchError("Reference read-back retry did not create a valid dimension.")
+                unresolved = False
+                if not replacement.AreReferencesAvailable:
+                    if not (self._accept_unresolved and self._dimension_is_drawn(replacement)):
+                        raise AnnotationMatchError("NewDimension returned AreReferencesAvailable=false (IsValid=true), "
+                                                   "including the reference read-back retry.")
+                    unresolved = True
+                self.target_doc.Delete(prototype_id)
+                self.target_doc.Regenerate()
+                target = self.target_doc.GetElement(replacement.Id)
+                if target is None or not target.IsValid or (not unresolved and not target.AreReferencesAvailable):
+                    raise AnnotationMatchError("The replacement dimension did not survive temporary-dimension cleanup.")
+                if unresolved:
+                    self.unresolved_kept = True
+            if attempt.Commit() != TransactionStatus.Committed:
+                raise AnnotationMatchError("Revit did not commit the dimension attempt.")
+            return target
+        finally:
+            try:
+                if attempt.GetStatus() == TransactionStatus.Started:
+                    attempt.RollBack()
+            finally:
+                attempt.Dispose()
+
+    def _dimension_is_drawn(self, dimension):
+        try:
+            return bool(dimension.IsValid and dimension.References.Size >= 2
+                        and dimension.get_BoundingBox(self.target_view) is not None)
+        except OperationCanceledException:
+            raise
+        except Exception:
+            return False
+
+    def _face_outline_references(self, host_reference, direction):
+        if host_reference.ElementReferenceType != ElementReferenceType.REFERENCE_TYPE_SURFACE:
+            return []
+        if id_value(host_reference.LinkedElementId) >= 0:
+            link = self.target_doc.GetElement(host_reference.ElementId)
+            context = ModelContext(self.target_doc, link)
+            owner = context.doc.GetElement(host_reference.LinkedElementId)
+            reference = host_reference.CreateReferenceInLink()
+        else:
+            context = ModelContext(self.target_doc)
+            owner = self.target_doc.GetElement(host_reference.ElementId)
+            reference = host_reference
+        if owner is None:
+            return []
+        data = self._geometry_variants(context, owner, self.target_view)
+        key = stable_reference(reference, context.doc)
+        faces = [f for f in data["faces"] if stable_reference(f[0], context.doc) == key]
+        if len(faces) != 1 or faces[0][3] is None:
+            return []
+        face = faces[0]
+        normal = context.transform.OfVector(face[2]).Normalize()
+        direction = direction.Normalize()
+        view_normal = self.target_view.ViewDirection.Normalize()
+        if not self._parallel(normal, direction) or abs(direction.DotProduct(view_normal)) > 1e-4:
+            return []
+        choices = {}
+        for candidate, (a, b), endpoints in data["lines"]:
+            if candidate.ElementReferenceType != ElementReferenceType.REFERENCE_TYPE_LINEAR:
+                continue
+            if not any(min(max(a.DistanceTo(c), b.DistanceTo(d)), max(a.DistanceTo(d), b.DistanceTo(c)))
+                       <= self.reference_tolerance * 2.0 for c, d in face[3][1]):
+                continue
+            host_a, host_b = context.transform.OfPoint(a), context.transform.OfPoint(b)
+            if host_a.DistanceTo(host_b) <= self.reference_tolerance:
+                continue
+            tangent = host_b.Subtract(host_a).Normalize()
+            if abs(tangent.DotProduct(direction)) > 1e-3 or abs(tangent.DotProduct(view_normal)) > 1e-3:
+                continue
+            wrapped = context.wrap(candidate)
+            depth = host_a.Add(host_b).Multiply(0.5).Subtract(self.target_view.Origin).DotProduct(view_normal)
+            choices[stable_reference(wrapped, self.target_doc)] = (depth, wrapped)
+        ordered = sorted(choices.items(), key=lambda item: (-item[1][0], item[0]))
+        return [item[1][1] for item in ordered]
+
+    def _outline_reference_sets(self, source, mapped):
+        direction = self.transform.OfVector(source.Curve.Direction).Normalize()
+        choices = [self._face_outline_references(reference, direction) or [reference] for reference in mapped]
+        original = tuple(stable_reference(r, self.target_doc) for r in mapped)
+        seen = set([original])
+        for rank in (0, 1, -1):
+            refs = [items[rank if rank < len(items) else -1] for items in choices]
+            keys = tuple(stable_reference(r, self.target_doc) for r in refs)
+            if keys not in seen:
+                seen.add(keys)
+                yield refs
+
+    def _coplanar_family_reference(self, host_reference):
+        if id_value(host_reference.LinkedElementId) >= 0:
+            link = self.target_doc.GetElement(host_reference.ElementId)
+            context = ModelContext(self.target_doc, link)
+            owner = context.doc.GetElement(host_reference.LinkedElementId)
+            reference = host_reference.CreateReferenceInLink()
+        else:
+            context = ModelContext(self.target_doc)
+            owner = self.target_doc.GetElement(host_reference.ElementId)
+            reference = host_reference
+        if not isinstance(owner, FamilyInstance) or reference.ElementReferenceType != ElementReferenceType.REFERENCE_TYPE_SURFACE:
+            return host_reference
+        key = stable_reference(reference, context.doc)
+        faces = [f for f in self._geometry_variants(context, owner, self.target_view)["faces"]
+                 if stable_reference(f[0], context.doc) == key]
+        if len(faces) != 1:
+            return host_reference
+        face = faces[0]
+        candidates = {}
+        for kind in (FamilyInstanceReferenceType.Left, FamilyInstanceReferenceType.CenterLeftRight,
+                     FamilyInstanceReferenceType.Right, FamilyInstanceReferenceType.Front,
+                     FamilyInstanceReferenceType.CenterFrontBack, FamilyInstanceReferenceType.Back,
+                     FamilyInstanceReferenceType.Bottom, FamilyInstanceReferenceType.CenterElevation,
+                     FamilyInstanceReferenceType.Top, FamilyInstanceReferenceType.StrongReference,
+                     FamilyInstanceReferenceType.WeakReference):
+            try:
+                for candidate in owner.GetReferences(kind) or []:
+                    candidate_key = stable_reference(candidate, context.doc)
+                    if candidate_key != key and candidate.ElementReferenceType == ElementReferenceType.REFERENCE_TYPE_SURFACE:
+                        candidates[candidate_key] = candidate
+            except Exception:
+                pass
+        matches = []
+        for candidate in candidates.values():
+            plane, error = self._reference_plane(context, owner, candidate)
+            if plane is None:
+                continue
+            if (self._parallel(face[2], plane[1]) and
+                    abs(face[1].Subtract(plane[0]).DotProduct(plane[1])) <= self.reference_tolerance * 2.0):
+                matches.append(candidate)
+        if len(matches) == 1:
+            return context.wrap(matches[0])
+        return host_reference
+
+    def create_dimension(self, source, mapped_references=None, strict_references=False):
+        self.dimension_reference_map = []
+        if self.mra_dimension_ids is None:
+            self.mra_dimension_ids = set(id_value(mra.DimensionId) for mra in
+                FilteredElementCollector(self.source_doc).OfClass(MultiReferenceAnnotation))
+        if id_value(source.Id) in self.mra_dimension_ids:
+            raise AnnotationMatchError("Multi-reference annotations must be placed with their dedicated Revit tool.")
+        if (not isinstance(source.Curve, Line)
+                or source.DimensionType.StyleType not in (DimensionStyleType.Linear, DimensionStyleType.LinearFixed)):
+            raise AnnotationMatchError("Only linear dimensions and chains are rebuilt.")
+        references = list(source.References)
+        if len(references) < 2:
+            raise AnnotationMatchError("The source dimension has fewer than two references.")
+        mapped = ([self.map_reference(reference) for reference in references]
+                  if mapped_references is None else list(mapped_references))
+        if len(mapped) != len(references):
+            raise AnnotationMatchError("Target references count mismatch.")
+        try:
+            target = self._dimension_attempt(source, mapped)
+        except AnnotationMatchError as first_error:
+            if strict_references:
+                raise
+            target = None
+            errors = ["Primary: {}".format(first_error)]
+            alternate = [self._coplanar_family_reference(reference) for reference in mapped]
+            keys = [stable_reference(r, self.target_doc) for r in mapped]
+            alternate_keys = [stable_reference(r, self.target_doc) for r in alternate]
+            if alternate_keys != keys:
+                try:
+                    target = self._dimension_attempt(source, alternate)
+                    mapped = alternate
+                except AnnotationMatchError as second_error:
+                    errors.append("Family-plane retry: {}".format(second_error))
+            if target is None:
+                for index, edge_refs in enumerate(self._outline_reference_sets(source, mapped)):
+                    try:
+                        target = self._dimension_attempt(source, edge_refs)
+                        mapped = edge_refs
+                        break
+                    except AnnotationMatchError as edge_error:
+                        errors.append("Outline-edge retry {}: {}".format(index + 1, edge_error))
+            if target is None and self.allow_unresolved:
+                self._accept_unresolved = True
+                try:
+                    target = self._dimension_attempt(source, mapped)
+                except AnnotationMatchError as last_error:
+                    errors.append("Keep-unconfirmed retry: {}".format(last_error))
+                finally:
+                    self._accept_unresolved = False
+            if target is None:
+                raise AnnotationMatchError("\n".join(errors))
+        self.dimension_reference_map = [(stable_reference(a, self.source_doc), stable_reference(b, self.target_doc))
+                                        for a, b in zip(references, mapped)]
+        if source.NumberOfSegments:
+            source_segments, target_segments = list(source.Segments), list(target.Segments)
+            if len(source_segments) == len(target_segments):
+                try:
+                    src_dir = self.transform.OfVector(source.Curve.Direction).Normalize()
+                    s_ordered = sorted(source_segments, key=lambda seg: self.transform.OfPoint(seg.Origin).DotProduct(src_dir))
+                    t_ordered = sorted(target_segments, key=lambda seg: seg.Origin.DotProduct(src_dir))
+                    for s_seg, t_seg in zip(s_ordered, t_ordered):
+                        self._dimension_text(s_seg, t_seg, source.Curve)
+                except Exception:
+                    for s_seg, t_seg in zip(source_segments, target_segments):
+                        self._dimension_text(s_seg, t_seg, source.Curve)
+        else:
+            self._dimension_text(source, target, source.Curve)
+        return target
+
+    def _tag_layout(self, source, target, source_refs=None, target_refs=None):
+        target.TagOrientation = source.TagOrientation
+        target.TagHeadPosition = self.transform.OfPoint(source.TagHeadPosition)
+        if source.HasLeader:
+            target.HasLeader = True
+            if isinstance(source, IndependentTag):
+                condition = source.LeaderEndCondition
+                if target.CanLeaderEndConditionBeAssigned(condition):
+                    target.LeaderEndCondition = condition
+                s_list = source_refs or [tk_tag_reference(source)]
+                t_list = target_refs or [tk_tag_reference(target)]
+                for s_ref, t_ref in zip(s_list, t_list):
+                    try:
+                        if condition == LeaderEndCondition.Free:
+                            tk_leader_set(target, "End", self.transform.OfPoint(tk_leader_get(source, "End", s_ref)), t_ref)
+                        if tk_has_elbow(source, s_ref):
+                            tk_leader_set(target, "Elbow", self.transform.OfPoint(tk_leader_get(source, "Elbow", s_ref)), t_ref)
+                    except Exception:
+                        pass
+            else:
+                try:
+                    tk_leader_set(target, "End", self.transform.OfPoint(tk_leader_get(source, "End")))
+                    if tk_has_elbow(source):
+                        tk_leader_set(target, "Elbow", self.transform.OfPoint(tk_leader_get(source, "Elbow")))
+                except Exception:
+                    pass
+
+    def create_tag(self, source):
+        if id_value(source.MultiReferenceAnnotationId) >= 0:
+            raise AnnotationMatchError("A multi-reference annotation tag cannot be rebuilt independently.")
+        src_refs = tk_tag_references(source)
+        if not src_refs:
+            raise AnnotationMatchError("Tag has no references.")
+        mapped_refs = [self.map_reference(r) for r in src_refs]
+        target = IndependentTag.Create(self.target_doc, self.target_type(source).Id,
+            self.target_view.Id, mapped_refs[0], bool(source.HasLeader), source.TagOrientation,
+            self.transform.OfPoint(source.TagHeadPosition))
+        if len(mapped_refs) > 1 and hasattr(target, "AddReferences"):
+            try:
+                target.AddReferences(List[Reference](mapped_refs[1:]))
+            except Exception:
+                pass
+        self.target_doc.Regenerate()
+        if target is None or target.IsOrphaned:
+            raise AnnotationMatchError("Revit created a tag without a valid target host.")
+        self._tag_layout(source, target, src_refs, tk_tag_references(target))
+        return target
+
+    def create_room_tag(self, source):
+        if self.target_view.ViewType not in (ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.EngineeringPlan):
+            raise AnnotationMatchError("Room tags are rebuilt on plan views.")
+        room_id = source.TaggedRoomId
+        if id_value(room_id.LinkInstanceId) >= 0:
+            context = ModelContext(self.source_doc, self.source_doc.GetElement(room_id.LinkInstanceId))
+            room = context.doc.GetElement(room_id.LinkedElementId)
+        else:
+            context = ModelContext(self.source_doc)
+            room = context.doc.GetElement(room_id.HostElementId)
+        if room is None:
+            raise AnnotationMatchError("The source room is unavailable.")
+        target_context, target_room = self.match_owner(context, room)
+        linked_id = (LinkElementId(target_context.link.Id, target_room.Id) if target_context.link is not None
+                     else LinkElementId(target_room.Id))
+        point = self.transform.OfPoint(source.TagHeadPosition)
+        target = self.target_doc.Create.NewRoomTag(linked_id, UV(point.X, point.Y), self.target_view.Id)
+        if target is None:
+            raise AnnotationMatchError("Revit could not create a room tag for this target room.")
+        target.ChangeTypeId(self.target_type(source).Id)
+        self._tag_layout(source, target)
+        self.target_doc.Regenerate()
+        return target
+
+    def create(self, element):
+        self.bindings, self.notes = [], []
+        if isinstance(element, Dimension):
+            result = self.create_dimension(element)
+        elif isinstance(element, IndependentTag):
+            result = self.create_tag(element)
+        elif isinstance(element, RoomTag):
+            result = self.create_room_tag(element)
+        else:
+            raise AnnotationMatchError("Unsupported spatial tag type.")
+        if result.OwnerViewId != self.target_view.Id:
+            raise AnnotationMatchError("The annotation was not created in the requested view.")
+        return result
+
+
+class SheetFailuresPreprocessor(IFailuresPreprocessor):
+    def __init__(self, notes):
+        self.notes = notes
+
+    def PreprocessFailures(self, accessor):
+        has_error = False
+        for failure in list(accessor.GetFailureMessages()):
+            message = u"Revit: {}".format(failure.GetDescriptionText())
+            if message not in self.notes:
+                self.notes.append(message)
+            if failure.GetSeverity() == FailureSeverity.Warning:
+                accessor.DeleteWarning(failure)
+            elif failure.GetSeverity() == FailureSeverity.Error:
+                has_error = True
+        return FailureProcessingResult.ProceedWithRollBack if has_error else FailureProcessingResult.Continue
+
+
+def owned(view):
+    return list(FilteredElementCollector(doc).OwnedByView(view.Id).WhereElementIsNotElementType())
+
+
+def mark(element):
+    try:
+        parameter = element.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
+        return (parameter.AsString() or '') if parameter else ''
+    except Exception:
+        return ''
+
+
+def text_value(element, name):
+    sources = [element]
+    try:
+        type_element = doc.GetElement(element.GetTypeId())
+        if type_element:
+            sources.append(type_element)
+    except Exception:
+        pass
+    for source in sources:
+        try:
+            parameter = source.LookupParameter(name)
+        except Exception:
+            parameter = None
+        if parameter and parameter.HasValue:
+            value = parameter.AsString() or parameter.AsValueString() or ''
+            if value.strip():
+                return value.strip()
+    return ''
+
+
+CYR_TO_LAT = {
+    u'А': 'A', u'В': 'B', u'С': 'C', u'Е': 'E', u'Н': 'H', u'К': 'K', u'М': 'M', u'О': 'O', u'Р': 'P', u'Т': 'T', u'Х': 'X',
+    u'а': 'a', u'в': 'b', u'с': 'c', u'е': 'e', u'н': 'h', u'к': 'k', u'м': 'm', u'о': 'o', u'р': 'p', u'т': 't', u'х': 'x'
+}
+
+
+def clean_mark(s):
+    if not s:
+        return ''
+    return ''.join(CYR_TO_LAT.get(ch, ch) for ch in s)
+
+
+def role(mark_str):
+    cleaned = clean_mark(mark_str or '')
+    match = re.search(r"(?:^|[-\s_])((?:TH|TD|T|B|W|N|F|V|R)[\d.]*[A-Z]*)\s*$", cleaned.strip(), re.I)
+    return match.group(1).upper() if match else None
+
+
+def stone_code(element):
+    return (text_value(element, 'Type') + text_value(element, 'Column Number')).replace(' ', '')
+
+
+def stone_key(element):
+    m = mark(element)
+    r = role(m) if m else None
+    return r or m or stone_code(element)
+
+
+def parse_replacements(text):
+    pairs = []
+    for line in (text or u"").splitlines():
+        if not line.strip():
+            continue
+        if "=>" not in line:
+            continue
+        old, new = [s.strip() for s in line.split("=>", 1)]
+        if old and old not in [p[0] for p in pairs]:
+            pairs.append((old, new))
+    return pairs
+
+
+def replace_text(text, pairs):
+    changes = dict(pairs)
+    if not changes or not text:
+        return text
+    pattern = "|".join(re.escape(s) for s in sorted(changes, key=len, reverse=True))
+    return re.sub(pattern, lambda m: changes[m.group(0)], text or "")
+
+
+def copy_strings(source, target, replacements, notes):
+    if not replacements:
+        return
+    identity = set(int(x) for x in (BuiltInParameter.VIEW_NAME, BuiltInParameter.SHEET_NAME, BuiltInParameter.SHEET_NUMBER))
+    for parameter in source.Parameters:
+        try:
+            if id_value(parameter.Id) in identity:
+                continue
+            if parameter.StorageType != StorageType.String or not parameter.HasValue:
+                continue
+            old = parameter.AsString()
+            new = replace_text(old, replacements)
+            if new == old:
+                continue
+            dest = target.get_Parameter(parameter.Definition)
+            if dest is None or dest.IsReadOnly:
+                continue
+            dest.Set(new)
+        except Exception:
+            pass
+
+
+def plane_angle(current, desired, normal):
+    n = normal.Normalize()
+    a = current.Subtract(n.Multiply(current.DotProduct(n)))
+    b = desired.Subtract(n.Multiply(desired.DotProduct(n)))
+    if a.GetLength() < 1e-9 or b.GetLength() < 1e-9:
+        return 0.0
+    a, b = a.Normalize(), b.Normalize()
+    return math.atan2(n.DotProduct(a.CrossProduct(b)), a.DotProduct(b))
+
+
+def presentation_vector(vector, source, target):
+    return target.RightDirection.Multiply(vector.DotProduct(source.RightDirection)).Add(
+        target.UpDirection.Multiply(vector.DotProduct(source.UpDirection))).Add(
+        target.ViewDirection.Multiply(vector.DotProduct(source.ViewDirection)))
+
+
+def annotation_glyph(item):
+    if isinstance(item, TextNote):
+        return item.Coord, item.BaseDirection
+    if (isinstance(item, FamilyInstance) and item.Category and
+            id_value(item.Category.Id) == int(BuiltInCategory.OST_GenericAnnotation)):
+        location = item.Location
+        if isinstance(location, DB.LocationPoint):
+            return location.Point, item.GetTransform().BasisX
+    return None
+
+
+def align_annotation_glyph(source_item, target_item, source_view, target_view):
+    try:
+        old, new = annotation_glyph(source_item), annotation_glyph(target_item)
+        if old is None or new is None:
+            if isinstance(source_item, IndependentTag) and isinstance(target_item, IndependentTag):
+                target_item.TagOrientation = source_item.TagOrientation
+            return False
+        desired = presentation_vector(old[1], source_view, target_view)
+        angle = plane_angle(new[1], desired, target_view.ViewDirection)
+        if abs(angle) < 1e-6:
+            return False
+        leaders = []
+        if hasattr(target_item, 'GetLeaders'):
+            for leader in target_item.GetLeaders():
+                leaders.append((leader.End, leader.Elbow, leader.LeaderShape))
+        pinned = target_item.Pinned
+        try:
+            if pinned:
+                target_item.Pinned = False
+            ElementTransformUtils.RotateElement(doc, target_item.Id,
+                Line.CreateBound(new[0], new[0].Add(target_view.ViewDirection)), angle)
+            if leaders:
+                doc.Regenerate()
+                actual = list(target_item.GetLeaders())
+                if len(actual) == len(leaders):
+                    for leader, (end, elbow, shape) in zip(actual, leaders):
+                        leader.End = end
+                        if shape != DB.LeaderShape.Straight:
+                            leader.Elbow = elbow
+        finally:
+            target_item.Pinned = pinned
+        return True
+    except Exception:
+        return False
+
+
+def in_plane_transform(additional, view):
+    n = view.ViewDirection.Normalize()
+    c0 = view.Origin
+    def flat(v):
+        return v.Subtract(n.Multiply(v.DotProduct(n)))
+    tilted = additional.OfVector(n)
+    if abs(abs(tilted.DotProduct(n)) - 1.0) < 1e-7 and not additional.HasReflection:
+        origin = additional.Origin
+        additional.Origin = origin.Subtract(n.Multiply(origin.DotProduct(n)))
+        return additional
+    r = view.RightDirection.Normalize()
+    rr = flat(additional.OfVector(r))
+    angle = plane_angle(r, rr, n) if rr.GetLength() > 1e-9 else 0.0
+    delta = flat(additional.OfPoint(c0).Subtract(c0))
+    return Transform.CreateTranslation(delta).Multiply(Transform.CreateRotationAtPoint(n, angle, c0))
+
+
+def view_basis_transform(source_view, target_view, source_anchor, target_anchor):
+    """Rigid 3D transform mapping source_view's (Right, Up, ViewDir) basis at source_anchor
+    to target_view's (Right, Up, ViewDir) basis at target_anchor. Always reflection-free and in-plane."""
+    rs = source_view.RightDirection.Normalize()
+    us = source_view.UpDirection.Normalize()
+    ns = source_view.ViewDirection.Normalize()
+    rt = target_view.RightDirection.Normalize()
+    ut = target_view.UpDirection.Normalize()
+    nt = target_view.ViewDirection.Normalize()
+
+    tr_src = Transform.Identity
+    tr_src.BasisX, tr_src.BasisY, tr_src.BasisZ = rs, us, ns
+    tr_src.Origin = source_anchor
+
+    tr_dst = Transform.Identity
+    tr_dst.BasisX, tr_dst.BasisY, tr_dst.BasisZ = rt, ut, nt
+    tr_dst.Origin = target_anchor
+
+    return tr_dst.Multiply(tr_src.Inverse)
+
+
+def view_stone_transform(source_elems, target_elems, source_view, target_view, fallback=None):
+    try:
+        sc = center(source_elems if isinstance(source_elems, (list, tuple)) else [source_elems])
+        tc = center(target_elems if isinstance(target_elems, (list, tuple)) else [target_elems])
+        return view_basis_transform(source_view, target_view, sc, tc)
+    except Exception:
+        return fallback or Transform.Identity
+
+
+class SheetViewRebuilder(AnnotationRebuilder):
+    """Rebuilds annotations from source_view to target_view using explicit view-local stone pairing
+    with automatic fallback to view-relative geometric matching."""
+    def __init__(self, source_view, target_view, transform, mapping, shared_caches=None):
+        AnnotationRebuilder.__init__(self, doc, source_view, doc, target_view, transform, 25.0, False, 150.0)
+        self.mapping = mapping
+        if isinstance(shared_caches, dict):
+            self.face_cache = shared_caches.setdefault('face_cache', {})
+            self.reference_plane_cache = shared_caches.setdefault('reference_plane_cache', {})
+            if 'mra_dimension_ids' in shared_caches:
+                self.mra_dimension_ids = shared_caches['mra_dimension_ids']
+            else:
+                self.mra_dimension_ids = set(id_value(mra.DimensionId) for mra in
+                    FilteredElementCollector(doc).OfClass(MultiReferenceAnnotation))
+                shared_caches['mra_dimension_ids'] = self.mra_dimension_ids
+
+    def match_owner(self, context, source):
+        if context.link is None and eid(source) in self.copied_owners:
+            return self.contexts[0], self.copied_owners[eid(source)]
+        if context.link is None and source.UniqueId in self.mapping:
+            return self.contexts[0], self.mapping[source.UniqueId]
+        return AnnotationRebuilder.match_owner(self, context, source)
+
+    def _family_axis_signs(self, source, source_context, target, target_context):
+        if source.UniqueId in self.mapping and isinstance(source, FamilyInstance) and isinstance(target, FamilyInstance):
+            saved = self.transform
+            try:
+                self.transform = view_stone_transform(source, target, self.source_view, self.target_view, saved)
+                return AnnotationRebuilder._family_axis_signs(self, source, source_context, target, target_context)
+            finally:
+                self.transform = saved
+        return AnnotationRebuilder._family_axis_signs(self, source, source_context, target, target_context)
+
+    def _reference_transform(self, source_context, source, target_context, target):
+        if source_context.link is None and source.UniqueId in self.mapping:
+            return view_stone_transform(source, target, self.source_view, self.target_view, self.transform)
+        return AnnotationRebuilder._reference_transform(self, source_context, source, target_context, target)
+
+
+def view_annotation_transform(item, source_stones, mapping, fallback, source_view, target_view):
+    hosts = []
+    if isinstance(item, Dimension):
+        for r in item.References:
+            try:
+                h = doc.GetElement(r.ElementId)
+                if h is not None and h.UniqueId in mapping:
+                    hosts.append(h)
+            except Exception:
+                pass
+    elif isinstance(item, IndependentTag):
+        for r in tk_tag_references(item):
+            try:
+                h = doc.GetElement(r.ElementId)
+                if h is not None and h.UniqueId in mapping:
+                    hosts.append(h)
+            except Exception:
+                pass
+    if hosts:
+        unique_hosts = []
+        seen_ids = set()
+        for h in hosts:
+            if eid(h) not in seen_ids:
+                seen_ids.add(eid(h))
+                unique_hosts.append(h)
+        target_hosts = [mapping[h.UniqueId] for h in unique_hosts]
+        return view_stone_transform(unique_hosts, target_hosts, source_view, target_view, fallback)
+    if len(source_stones) == 1 and source_stones[0].UniqueId in mapping:
+        s0 = source_stones[0]
+        return view_stone_transform(s0, mapping[s0.UniqueId], source_view, target_view, fallback)
+    if source_stones:
+        try:
+            box = item.get_BoundingBox(source_view)
+            if box is not None:
+                point = box.Transform.OfPoint(box.Min.Add(box.Max).Multiply(0.5))
+                rs = source_view.RightDirection.Normalize()
+                us = source_view.UpDirection.Normalize()
+                pu, pv = point.DotProduct(rs), point.DotProduct(us)
+                best_s = None
+                best_d = None
+                for s in source_stones:
+                    if s.UniqueId not in mapping:
+                        continue
+                    c = center([s])
+                    d = math.hypot(pu - c.DotProduct(rs), pv - c.DotProduct(us))
+                    if best_d is None or d < best_d:
+                        best_d, best_s = d, s
+                if best_s is not None:
+                    return view_stone_transform(best_s, mapping[best_s.UniqueId], source_view, target_view, fallback)
+        except Exception:
+            pass
+    return fallback
+
+
+_WALL_LETTER_RE = re.compile(r'WALL\s*"?([A-Za-z]{1,3})"?(?![A-Za-z0-9])', re.I)
+
+
+def _view_letter(view):
+    texts = []
+    try:
+        param = view.get_Parameter(BuiltInParameter.VIEW_DESCRIPTION)
+        if param is not None and param.AsString():
+            texts.append(param.AsString())
+    except Exception:
+        pass
+    texts.append(title(view) or u'')
+    for text in texts:
+        found = _WALL_LETTER_RE.search(text)
+        if found:
+            return found.group(1).upper()
+    return None
+
+
+def _view_kind_bucket(view):
+    if isinstance(view, DB.ViewPlan):
+        return "plan"
+    if is_section_like(view):
+        return "section_like"
+    if isinstance(view, DB.View3D):
+        return "3d"
+    return str(view.ViewType)
+
+
+def pair_sheet_viewports(source_sheet, target_sheet):
+    """Pairs (source_port, source_view) with (target_port, target_view) by 2D sheet layout,
+    row/column structure, view kind, and wall letter."""
+    src_slots = sheet_view_slots(source_sheet)
+    dst_slots = sheet_view_slots(target_sheet)
+    if not src_slots or not dst_slots:
+        return [], [v for p, v in src_slots], [v for p, v in dst_slots]
+
+    def slot_info(slots):
+        xs = [p.GetBoxCenter().X for p, v in slots]
+        ys = [p.GetBoxCenter().Y for p, v in slots]
+        x0, x1 = min(xs), max(xs)
+        y0, y1 = min(ys), max(ys)
+        dx = max(x1 - x0, 0.05)
+        dy = max(y1 - y0, 0.05)
+        out = []
+        for idx, (p, v) in enumerate(slots):
+            c = p.GetBoxCenter()
+            b = p.GetBoxOutline()
+            w = abs(b.MaximumPoint.X - b.MinimumPoint.X)
+            h = abs(b.MaximumPoint.Y - b.MinimumPoint.Y)
+            out.append({
+                "idx": idx, "port": p, "view": v,
+                "x": c.X, "y": c.Y,
+                "nx": (c.X - x0) / dx if len(slots) > 1 else 0.5,
+                "ny": (c.Y - y0) / dy if len(slots) > 1 else 0.5,
+                "w": w, "h": h,
+                "kind": _view_kind_bucket(v),
+                "letter": _view_letter(v),
+            })
+        return out
+
+    s_info = slot_info(src_slots)
+    t_info = slot_info(dst_slots)
+
+    candidates = []
+    for s in s_info:
+        for t in t_info:
+            if s["kind"] != t["kind"]:
+                continue
+            dist_abs = math.hypot(s["x"] - t["x"], s["y"] - t["y"])
+            dist_norm = math.hypot(s["nx"] - t["nx"], s["ny"] - t["ny"])
+            size_diff = math.hypot(s["w"] - t["w"], s["h"] - t["h"])
+            cost = min(dist_abs, dist_norm * 1.5) + 0.35 * size_diff
+            if s["letter"] and t["letter"]:
+                if s["letter"] == t["letter"]:
+                    cost -= 0.15
+                else:
+                    cost += 0.35
+            candidates.append((cost, s["idx"], t["idx"]))
+
+    candidates.sort(key=lambda item: item[0])
+    used_s, used_t = set(), set()
+    paired = []
+    for cost, si, ti in candidates:
+        if si not in used_s and ti not in used_t:
+            used_s.add(si)
+            used_t.add(ti)
+            paired.append((src_slots[si][0], src_slots[si][1], dst_slots[ti][0], dst_slots[ti][1]))
+
+    # Sort paired viewports top-to-bottom, left-to-right on the sheet
+    paired.sort(key=lambda row: (-round(row[0].GetBoxCenter().Y, 1), round(row[0].GetBoxCenter().X, 1)))
+    unmatched_s = [src_slots[i][1] for i in range(len(src_slots)) if i not in used_s]
+    unmatched_t = [dst_slots[i][1] for i in range(len(dst_slots)) if i not in used_t]
+    return paired, unmatched_s, unmatched_t
+
+
+def collect_view_model_elements(view, include_referenced_from=None):
+    """Collects visible model elements in `view` (plus any hosts referenced by annotations in `include_referenced_from`)."""
+    found = {}
+    try:
+        for el in FilteredElementCollector(doc, view.Id).WhereElementIsNotElementType():
+            try:
+                if el is None or el.Category is None or el.Category.CategoryType != DB.CategoryType.Model:
+                    continue
+                if id_value(el.OwnerViewId) != -1 or isinstance(el, RevitLinkInstance):
+                    continue
+                if isinstance(el, (DB.View, DB.ElevationMarker)):
+                    continue
+                bb = el.get_BoundingBox(None)
+                if bb is None:
+                    continue
+                found[el.UniqueId] = el
+            except Exception:
+                continue
+    except Exception:
+        pass
+    if include_referenced_from is not None:
+        for item in owned(include_referenced_from):
+            refs = []
+            try:
+                if isinstance(item, Dimension):
+                    refs = list(item.References)
+                elif isinstance(item, IndependentTag):
+                    refs = tk_tag_references(item)
+            except Exception:
+                refs = []
+            for r in refs:
+                try:
+                    if id_value(r.LinkedElementId) >= 0:
+                        continue
+                    host = doc.GetElement(r.ElementId)
+                    if host is not None and host.Category is not None and host.Category.CategoryType == DB.CategoryType.Model:
+                        if id_value(host.OwnerViewId) == -1 and host.get_BoundingBox(None) is not None:
+                            found[host.UniqueId] = host
+                except Exception:
+                    pass
+    return list(found.values())
+
+
+def pair_elements_in_view(source_view, target_view):
+    """Pairs model elements visible in `source_view` with their counterparts in `target_view`
+    using 2D view-plane bounding boxes (both absolute offset from view content center and normalized [0..1] coordinates),
+    element sizes, categories, and Mark/role suffixes.
+    Returns (mapping_dict {source_uid: target_elem}, source_elements, target_elements, transform)."""
+    src_all = collect_view_model_elements(source_view, include_referenced_from=source_view)
+    dst_all = collect_view_model_elements(target_view)
+
+    # Identify which categories are referenced by annotations in source_view
+    ref_cat_ids = set()
+    ref_uids = set()
+    for item in owned(source_view):
+        refs = []
+        try:
+            if isinstance(item, Dimension):
+                refs = list(item.References)
+            elif isinstance(item, IndependentTag):
+                refs = tk_tag_references(item)
+        except Exception:
+            refs = []
+        for r in refs:
+            try:
+                host = doc.GetElement(r.ElementId)
+                if host is not None and host.Category is not None:
+                    ref_cat_ids.add(id_value(host.Category.Id))
+                    ref_uids.add(host.UniqueId)
+            except Exception:
+                pass
+
+    def measure_in_view(elements, view):
+        r_axis = view.RightDirection.Normalize()
+        u_axis = view.UpDirection.Normalize()
+        n_axis = view.ViewDirection.Normalize()
+        records = []
+        for el in elements:
+            try:
+                bb = el.get_BoundingBox(None)
+                if bb is None:
+                    continue
+                pts = box_points(bb)
+                us = [p.DotProduct(r_axis) for p in pts]
+                vs = [p.DotProduct(u_axis) for p in pts]
+                ns = [p.DotProduct(n_axis) for p in pts]
+                u0, u1 = min(us), max(us)
+                v0, v1 = min(vs), max(vs)
+                n0, n1 = min(ns), max(ns)
+                cat_id = id_value(el.Category.Id) if el.Category else -1
+                m = mark(el)
+                k = role(m) or stone_key(el) or u""
+                records.append({
+                    "el": el, "uid": el.UniqueId, "cat_id": cat_id,
+                    "fam": owner_signature(el)[2],
+                    "u0": u0, "u1": u1, "v0": v0, "v1": v1, "n0": n0, "n1": n1,
+                    "uc": 0.5 * (u0 + u1), "vc": 0.5 * (v0 + v1), "nc": 0.5 * (n0 + n1),
+                    "du": u1 - u0, "dv": v1 - v0, "dn": n1 - n0,
+                    "role": k.strip().upper(), "mark": m.strip(),
+                    "referenced": el.UniqueId in ref_uids,
+                })
+            except Exception:
+                continue
+        return records
+
+    s_recs = measure_in_view(src_all, source_view)
+    t_recs = measure_in_view(dst_all, target_view)
+    if not s_recs or not t_recs:
+        tr = view_basis_transform(source_view, target_view, source_view.Origin, target_view.Origin)
+        return {}, src_all, dst_all, tr
+
+    # Compute the reference bounding frame in view space from referenced categories (or all model elements)
+    s_anchor_recs = [r for r in s_recs if not ref_cat_ids or r["cat_id"] in ref_cat_ids] or s_recs
+    t_anchor_recs = [r for r in t_recs if not ref_cat_ids or r["cat_id"] in ref_cat_ids] or t_recs
+
+    s_u0, s_u1 = min(r["u0"] for r in s_anchor_recs), max(r["u1"] for r in s_anchor_recs)
+    s_v0, s_v1 = min(r["v0"] for r in s_anchor_recs), max(r["v1"] for r in s_anchor_recs)
+    s_uc, s_vc = 0.5 * (s_u0 + s_u1), 0.5 * (s_v0 + s_v1)
+    s_span_u, s_span_v = max(s_u1 - s_u0, 0.05), max(s_v1 - s_v0, 0.05)
+
+    t_u0, t_u1 = min(r["u0"] for r in t_anchor_recs), max(r["u1"] for r in t_anchor_recs)
+    t_v0, t_v1 = min(r["v0"] for r in t_anchor_recs), max(r["v1"] for r in t_anchor_recs)
+    t_uc, t_vc = 0.5 * (t_u0 + t_u1), 0.5 * (t_v0 + t_v1)
+    t_span_u, t_span_v = max(t_u1 - t_u0, 0.05), max(t_v1 - t_v0, 0.05)
+    avg_span = 0.5 * (s_span_u + s_span_v)
+
+    pairs = []
+    for s in s_recs:
+        s_nu = (s["uc"] - s_u0) / s_span_u
+        s_nv = (s["vc"] - s_v0) / s_span_v
+        for t in t_recs:
+            if s["cat_id"] != t["cat_id"]:
+                continue
+            d_abs = math.hypot((s["uc"] - s_uc) - (t["uc"] - t_uc), (s["vc"] - s_vc) - (t["vc"] - t_vc))
+            t_nu = (t["uc"] - t_u0) / t_span_u
+            t_nv = (t["vc"] - t_v0) / t_span_v
+            d_norm = math.hypot(s_nu - t_nu, s_nv - t_nv) * avg_span
+            d_size = math.hypot(s["du"] - t["du"], s["dv"] - t["dv"])
+            pos_err = min(d_abs, d_norm)
+            if pos_err > max(avg_span * 0.75, 4.0):
+                continue
+            cost = pos_err + 0.45 * d_size
+            if s["fam"] and t["fam"] and s["fam"] == t["fam"]:
+                cost -= 0.05
+            if s["role"] and t["role"] and s["role"] == t["role"]:
+                cost -= 0.25
+            if s["referenced"]:
+                cost -= 0.02
+            pairs.append((cost, s["uid"], t["uid"], s["el"], t["el"]))
+
+    pairs.sort(key=lambda item: item[0])
+    mapping = {}
+    used_t = set()
+    paired_s_els, paired_t_els = [], []
+    for cost, s_uid, t_uid, s_el, t_el in pairs:
+        if s_uid not in mapping and t_uid not in used_t:
+            mapping[s_uid] = t_el
+            used_t.add(t_uid)
+            if s_uid in ref_uids or not ref_uids:
+                paired_s_els.append(s_el)
+                paired_t_els.append(t_el)
+
+    anchor_s = paired_s_els or [r["el"] for r in s_anchor_recs]
+    anchor_t = paired_t_els or [r["el"] for r in t_anchor_recs]
+    view_tr = view_stone_transform(anchor_s, anchor_t, source_view, target_view)
+    return mapping, anchor_s, anchor_t, view_tr
+
+
+def transfer_view_annotations(source_view, target_view, mapping, subset, view_tr, pairs, copy_opts,
+                              notes, omissions, phase='all', deferred=None, copies=None, shared_caches=None):
+    """Transfers annotations from `source_view` to `target_view` using `SheetViewRebuilder`."""
+    if isinstance(source_view, DB.View3D):
+        return ({} if copies is None else copies), {'dims': 0, 'tags': 0, 'details': 0}
+
+    ref_ids = set()
+    try:
+        ref_ids = set(id_value(i) for i in list(source_view.GetReferenceCallouts()) + list(source_view.GetReferenceSections()))
+    except Exception:
+        pass
+
+    existing = owned(source_view)
+    order = sorted(existing, key=lambda e: 1 if isinstance(e, (Dimension, IndependentTag)) else 0)
+    if not copy_opts.get('dimensions', True):
+        order = [e for e in order if not isinstance(e, Dimension)]
+    if not copy_opts.get('tags', True):
+        order = [e for e in order if not isinstance(e, (IndependentTag, RoomTag))]
+    if not copy_opts.get('details', True):
+        order = [e for e in order if isinstance(e, (Dimension, IndependentTag, RoomTag))]
+
+    copies = {} if copies is None else copies
+    marker_categories = set(int(getattr(BuiltInCategory, name))
+                            for name in ('OST_Viewers', 'OST_Sections', 'OST_Elev', 'OST_Callouts', 'OST_ReferenceViewer')
+                            if hasattr(BuiltInCategory, name))
+    target_fps = collect_existing_fingerprints(doc, target_view)
+    engine = None
+    counts = {'dims': 0, 'tags': 0, 'details': 0}
+
+    for item in order:
+        if phase == 'main' and isinstance(item, Dimension):
+            if deferred is not None:
+                deferred.append(item)
+            continue
+        if phase == 'dims' and not isinstance(item, Dimension):
+            continue
+        if eid(item) in ref_ids or isinstance(item, View) or (item.Category and id_value(item.Category.Id) in marker_categories):
+            continue
+        if item.GetType().Name in ('SketchPlane', 'ViewFamilyType', 'ExtentElem'):
+            continue
+        if not isinstance(item, (TextNote, Dimension, IndependentTag, RoomTag, CurveElement, DB.FilledRegion, FamilyInstance)):
+            continue
+
+        sub = SubTransaction(doc)
+        try:
+            sub.Start()
+            tr = view_annotation_transform(item, subset, mapping, view_tr, source_view, target_view)
+            if engine is None:
+                engine = SheetViewRebuilder(source_view, target_view, tr, mapping, shared_caches=shared_caches)
+                engine.allow_unresolved = True
+            else:
+                engine.transform = tr
+            engine.copied_owners.update(copies)
+
+            if isinstance(item, (Dimension, IndependentTag, RoomTag)):
+                created = engine.create(item)
+                notes.extend(engine.notes)
+                fp = element_fingerprint(created, target_view)
+                if fp is not None and fp in target_fps:
+                    sub.RollBack()
+                    continue
+                if fp is not None:
+                    target_fps.add(fp)
+                ids = [created.Id]
+                if isinstance(item, Dimension):
+                    counts['dims'] += 1
+                else:
+                    counts['tags'] += 1
+            else:
+                additional = tr.Multiply(ElementTransformUtils.GetTransformFromViewToView(source_view, target_view).Inverse)
+                additional = in_plane_transform(additional, target_view)
+                opts = CopyPasteOptions()
+                try:
+                    ids = list(ElementTransformUtils.CopyElements(source_view, List[ElementId]([item.Id]), target_view, additional, opts))
+                finally:
+                    opts.Dispose()
+                same = [doc.GetElement(i) for i in ids if doc.GetElement(i) is not None and doc.GetElement(i).GetType() == item.GetType()]
+                if len(same) == 1:
+                    fp = element_fingerprint(same[0], target_view)
+                    if fp is not None and fp in target_fps:
+                        sub.RollBack()
+                        continue
+                    if fp is not None:
+                        target_fps.add(fp)
+                    copies[eid(item)] = same[0]
+                counts['details'] += 1
+
+            for ident in ids:
+                created = doc.GetElement(ident)
+                if created is None:
+                    continue
+                if isinstance(created, TextNote) and pairs:
+                    new_txt = replace_text(created.Text, pairs)
+                    if new_txt != created.Text:
+                        created.Text = new_txt
+                copy_strings(created, created, pairs, notes)
+                if created.GetType() == item.GetType():
+                    align_annotation_glyph(item, created, source_view, target_view)
+
+            if sub.Commit() != TransactionStatus.Committed:
+                raise ValueError('Revit rolled back the annotation.')
+        except (RegenerationFailedException, ModificationForbiddenException, Cancelled, OperationCanceledException):
+            raise
+        except Exception as exc:
+            if sub.GetStatus() == TransactionStatus.Started:
+                sub.RollBack()
+            if phase == 'main' and isinstance(item, Dimension) and deferred is not None:
+                deferred.append(item)
+            else:
+                copies.pop(eid(item), None)
+                omissions.append(u'{} → {} / {} ID {}: {}'.format(
+                    title(source_view), title(target_view), item.GetType().Name, eid(item), err_text(exc).split('\n')[0]))
+        finally:
+            if sub.GetStatus() == TransactionStatus.Started:
+                sub.RollBack()
+            sub.Dispose()
+    return copies, counts
+
+
+def clear_view_annotations_for_paste(target_view, copy_opts):
+    """Removes existing 2D annotations in `target_view` before pasting fresh ones from `source_view`."""
+    if isinstance(target_view, DB.View3D):
+        return 0
+    ref_ids = set()
+    try:
+        ref_ids = set(id_value(i) for i in list(target_view.GetReferenceCallouts()) + list(target_view.GetReferenceSections()))
+    except Exception:
+        pass
+    marker_categories = set(int(getattr(BuiltInCategory, name))
+                            for name in ('OST_Viewers', 'OST_Sections', 'OST_Elev', 'OST_Callouts', 'OST_ReferenceViewer')
+                            if hasattr(BuiltInCategory, name))
+    to_delete = []
+    for item in owned(target_view):
+        try:
+            if eid(item) in ref_ids or isinstance(item, View):
+                continue
+            if item.Category and id_value(item.Category.Id) in marker_categories:
+                continue
+            if item.GetType().Name in ('SketchPlane', 'ViewFamilyType', 'ExtentElem'):
+                continue
+            if isinstance(item, Dimension):
+                if copy_opts.get('dimensions', True):
+                    to_delete.append(item.Id)
+            elif isinstance(item, (IndependentTag, RoomTag)):
+                if copy_opts.get('tags', True):
+                    to_delete.append(item.Id)
+            elif isinstance(item, (TextNote, CurveElement, DB.FilledRegion, FamilyInstance)):
+                if copy_opts.get('details', True):
+                    to_delete.append(item.Id)
+        except Exception:
+            continue
+    deleted = 0
+    for did in to_delete:
+        try:
+            doc.Delete(did)
+            deleted += 1
+        except Exception:
+            pass
+    return deleted
+
+
+def transfer_sheet_level_annotations(source_sheet, target_sheet, paired_ports, pairs, copy_opts, notes, omissions):
+    """Transfers 2D annotations owned directly by `source_sheet` (such as 'WALL \"A\"' text notes, symbols, lines)
+    onto `target_sheet`, and syncs viewport types & Title on Sheet AFTER view annotations have been created."""
+    copied_sheet_anns = 0
+
+    # 1. First set Title on Sheet (VIEW_DESCRIPTION) and viewport type/rotation
+    for src_port, src_view, dst_port, dst_view in paired_ports:
+        try:
+            src_desc = src_view.get_Parameter(BuiltInParameter.VIEW_DESCRIPTION)
+            dst_desc = dst_view.get_Parameter(BuiltInParameter.VIEW_DESCRIPTION)
+            if src_desc is not None and dst_desc is not None and not dst_desc.IsReadOnly:
+                val = (src_desc.AsString() or u"").strip()
+                if val:
+                    dst_desc.Set(replace_text(val, pairs))
+        except Exception:
+            pass
+        if copy_opts.get('align_viewports', True):
+            try:
+                if dst_port.GetTypeId() != src_port.GetTypeId():
+                    dst_port.ChangeTypeId(src_port.GetTypeId())
+                dst_port.Rotation = src_port.Rotation
+            except Exception:
+                pass
+
+    # Regenerate so Revit updates the viewport outlines (including newly created view annotations)
+    # and activates the viewport title on dst_port before setting BoxCenter and LabelOffset.
+    if copy_opts.get('align_viewports', True) and paired_ports:
+        doc.Regenerate()
+        for src_port, src_view, dst_port, dst_view in paired_ports:
+            try:
+                dst_port.SetBoxCenter(src_port.GetBoxCenter())
+            except Exception:
+                pass
+        doc.Regenerate()
+        for src_port, src_view, dst_port, dst_view in paired_ports:
+            try:
+                if hasattr(src_port, "LabelOffset") and hasattr(dst_port, "LabelOffset"):
+                    src_min = src_port.GetBoxOutline().MinimumPoint
+                    dst_min = dst_port.GetBoxOutline().MinimumPoint
+                    want_paper = src_min.Add(src_port.LabelOffset)
+                    dst_port.LabelOffset = want_paper.Subtract(dst_min)
+                    dst_port.LabelLineLength = src_port.LabelLineLength
+            except Exception:
+                pass
+
+    if not copy_opts.get('sheet_annotations', True):
+        return 0
+
+    # 2. Compute sheet shift if viewports were NOT aligned to exact same paper coordinates
+    sheet_shift = XYZ(0, 0, 0)
+    if paired_ports and not copy_opts.get('align_viewports', True):
+        dx = sum(dp.GetBoxCenter().X - sp.GetBoxCenter().X for sp, sv, dp, dv in paired_ports) / len(paired_ports)
+        dy = sum(dp.GetBoxCenter().Y - sp.GetBoxCenter().Y for sp, sv, dp, dv in paired_ports) / len(paired_ports)
+        sheet_shift = XYZ(dx, dy, 0.0)
+    sheet_tr = Transform.CreateTranslation(sheet_shift)
+
+    # 3. Collect sheet-owned annotations (excluding Viewports, Schedules, TitleBlocks)
+    existing_fps = collect_existing_fingerprints(doc, target_sheet)
+    sheet_owned = [e for e in FilteredElementCollector(doc, source_sheet.Id).WhereElementIsNotElementType()
+                   if id_value(e.OwnerViewId) == id_value(source_sheet.Id)]
+    to_copy = []
+    for el in sheet_owned:
+        if isinstance(el, (Viewport, ScheduleSheetInstance, View)):
+            continue
+        if el.Category is not None and id_value(el.Category.Id) == int(BuiltInCategory.OST_TitleBlocks):
+            continue
+        if el.GetType().Name in ("GuideGrid", "PanelScheduleSheetInstance", "SketchPlane"):
+            continue
+        to_copy.append(el)
+
+    ids_set = set(id_value(e.Id) for e in to_copy)
+    to_copy = [e for e in to_copy if id_value(e.GroupId) not in ids_set]
+
+    for el in to_copy:
+        sub = SubTransaction(doc)
+        try:
+            sub.Start()
+            opts = CopyPasteOptions()
+            try:
+                new_ids = list(ElementTransformUtils.CopyElements(
+                    source_sheet, List[ElementId]([el.Id]), target_sheet, sheet_tr, opts))
+            finally:
+                opts.Dispose()
+            keep = True
+            for nid in new_ids:
+                created = doc.GetElement(nid)
+                if created is None:
+                    continue
+                if isinstance(created, TextNote) and pairs:
+                    new_txt = replace_text(created.Text, pairs)
+                    if new_txt != created.Text:
+                        created.Text = new_txt
+                copy_strings(created, created, pairs, notes)
+                fp = element_fingerprint(created, target_sheet)
+                if fp is not None and fp in existing_fps:
+                    keep = False
+                    break
+                if fp is not None:
+                    existing_fps.add(fp)
+            if not keep:
+                sub.RollBack()
+                continue
+            if sub.Commit() == TransactionStatus.Committed:
+                copied_sheet_anns += 1
+        except Exception as exc:
+            if sub.GetStatus() == TransactionStatus.Started:
+                sub.RollBack()
+            omissions.append(u'Sheet {} / {} ID {}: {}'.format(
+                target_sheet.SheetNumber, el.GetType().Name, eid(el), err_text(exc).split('\n')[0]))
+        finally:
+            if sub.GetStatus() == TransactionStatus.Started:
+                sub.RollBack()
+            sub.Dispose()
+    return copied_sheet_anns
+
+
+def execute_sheet_annotations_transfer(source_sheet, target_sheets, copy_opts, manual_pairs):
+    """Transfers all annotations from `source_sheet` to each sheet in `target_sheets` in one Undo group."""
+    notes, omissions = [], []
+    summary_rows = []
+    total_dims, total_tags, total_details, total_sheet_anns = 0, 0, 0, 0
+
+    try:
+        original_active = uidoc.ActiveView
+    except Exception:
+        original_active = None
+
+    group = TransactionGroup(doc, u'Universal Toolkit: Copy Sheet Annotations')
+    group.Start()
+    shared_caches = {}
+    try:
+        for target_sheet in target_sheets:
+            paired_ports, un_s, un_t = pair_sheet_viewports(source_sheet, target_sheet)
+            if not paired_ports:
+                omissions.append(u'{} — {}: не знайдено відповідних видових екранів (viewports).'.format(
+                    target_sheet.SheetNumber, target_sheet.Name))
+                continue
+            if un_s:
+                notes.append(u'{}: на листі-еталоні залишилися неспаровані види: {}'.format(
+                    target_sheet.SheetNumber, u', '.join(title(v) for v in un_s)))
+
+            # Prepare per-view element pairing and automatic Mark text replacements
+            view_jobs = []
+            sheet_pairs = list(manual_pairs)
+            explicit_old = set(a for a, b in sheet_pairs)
+            if source_sheet.SheetNumber != target_sheet.SheetNumber and source_sheet.SheetNumber not in explicit_old:
+                sheet_pairs.append((source_sheet.SheetNumber, target_sheet.SheetNumber))
+                explicit_old.add(source_sheet.SheetNumber)
+
+            for src_port, src_view, dst_port, dst_view in paired_ports:
+                if src_view.Id == dst_view.Id:
+                    continue
+                mapping, anchor_s, anchor_t, view_tr = pair_elements_in_view(src_view, dst_view)
+                for s_uid, t_el in mapping.items():
+                    s_el = doc.GetElement(s_uid)
+                    if s_el is not None:
+                        old_m, new_m = mark(s_el), mark(t_el)
+                        if old_m and new_m and old_m != new_m and old_m not in explicit_old:
+                            sheet_pairs.append((old_m, new_m))
+                            explicit_old.add(old_m)
+                view_jobs.append((src_port, src_view, dst_port, dst_view, mapping, anchor_s, view_tr))
+
+            # Phase 1: Sheet annotations, viewport alignment, tags, detail items, and direct dimension attempt
+            deferred_dim_jobs = []
+            sh_dims, sh_tags, sh_details, sh_anns = 0, 0, 0, 0
+
+            t = Transaction(doc, u'Copy sheet annotations: ' + target_sheet.SheetNumber)
+            t.Start()
+            try:
+                failures = t.GetFailureHandlingOptions()
+                failures.SetFailuresPreprocessor(SheetFailuresPreprocessor(notes))
+                failures.SetClearAfterRollback(True)
+                t.SetFailureHandlingOptions(failures)
+
+                for src_port, src_view, dst_port, dst_view, mapping, anchor_s, view_tr in view_jobs:
+                    if copy_opts.get('replace_existing', True):
+                        clear_view_annotations_for_paste(dst_view, copy_opts)
+                    deferred = []
+                    copies, counts = transfer_view_annotations(
+                        src_view, dst_view, mapping, anchor_s, view_tr, sheet_pairs, copy_opts,
+                        notes, omissions, phase='all', deferred=deferred, shared_caches=shared_caches)
+                    sh_dims += counts['dims']
+                    sh_tags += counts['tags']
+                    sh_details += counts['details']
+                    if deferred and copy_opts.get('dimensions', True):
+                        deferred_dim_jobs.append((src_view, dst_view, mapping, anchor_s, view_tr, copies))
+                    pump_ui()
+
+                sh_anns += transfer_sheet_level_annotations(
+                    source_sheet, target_sheet, paired_ports, sheet_pairs, copy_opts, notes, omissions)
+
+                doc.Regenerate()
+                if t.Commit() != TransactionStatus.Committed:
+                    fail(u'Revit відкотив транзакцію для листа ' + target_sheet.SheetNumber)
+            except Exception:
+                if t.GetStatus() == TransactionStatus.Started:
+                    t.RollBack()
+                raise
+            finally:
+                t.Dispose()
+
+            # Phase 2: Any dimensions that needed the target view activated first
+            for src_view, dst_view, mapping, anchor_s, view_tr, copies in deferred_dim_jobs:
+                try:
+                    uidoc.ActiveView = dst_view
+                except Exception:
+                    pass
+                td = Transaction(doc, u'Rebuild dimensions: ' + title(dst_view))
+                td.Start()
+                try:
+                    failures = td.GetFailureHandlingOptions()
+                    failures.SetFailuresPreprocessor(SheetFailuresPreprocessor(notes))
+                    failures.SetClearAfterRollback(True)
+                    td.SetFailureHandlingOptions(failures)
+                    doc.Regenerate()
+                    _, counts = transfer_view_annotations(
+                        src_view, dst_view, mapping, anchor_s, view_tr, sheet_pairs, copy_opts,
+                        notes, omissions, phase='dims', copies=copies)
+                    sh_dims += counts['dims']
+                    doc.Regenerate()
+                    td.Commit()
+                except Exception as exc:
+                    if td.GetStatus() == TransactionStatus.Started:
+                        td.RollBack()
+                    omissions.append(u'Розміри у виді «{}»: {}'.format(title(dst_view), err_text(exc)))
+                finally:
+                    if td.GetStatus() == TransactionStatus.Started:
+                        td.RollBack()
+                    td.Dispose()
+
+            total_dims += sh_dims
+            total_tags += sh_tags
+            total_details += sh_details
+            total_sheet_anns += sh_anns
+            summary_rows.append(
+                u'• {} — {}: видів спаровано {}, розмірів {}, тегів {}, деталей/текстів у видах {}, анотацій на листі {}'.format(
+                    target_sheet.SheetNumber, target_sheet.Name, len(view_jobs),
+                    sh_dims, sh_tags, sh_details, sh_anns))
+
+        if group.Assimilate() != TransactionStatus.Committed:
+            fail(u'Revit не зберіг перенесення анотацій.')
+    except Exception:
+        if group.GetStatus() == TransactionStatus.Started:
+            group.RollBack()
+        raise
+    finally:
+        if group.GetStatus() == TransactionStatus.Started:
+            group.RollBack()
+        group.Dispose()
+        if target_sheets:
+            try:
+                uidoc.ActiveView = target_sheets[0]
+            except Exception:
+                if original_active is not None:
+                    try:
+                        uidoc.ActiveView = original_active
+                    except Exception:
+                        pass
+
+    report_lines = [
+        u'Еталон: {} — {}'.format(source_sheet.SheetNumber, source_sheet.Name),
+        u'Оброблено цільових листів: {}'.format(len(target_sheets)),
+        u'Разом створено: розмірів — {}, тегів — {}, деталей/символів/текстів у видах — {}, підписів на листі — {}.'.format(
+            total_dims, total_tags, total_details, total_sheet_anns),
+        u'',
+        u'Деталі по листах:',
+    ] + summary_rows
+
+    if omissions:
+        report_lines += [u'', u'Зауваження / пропущені елементи ({}):'.format(len(omissions))] + omissions[:40]
+    if notes:
+        unique_notes = []
+        for n in notes:
+            if n not in unique_notes:
+                unique_notes.append(n)
+        report_lines += [u'', u'Примітки ({}):'.format(len(unique_notes))] + unique_notes[:30]
+
+    show_report(u'Перенесення анотацій між листами', u'\n'.join(report_lines))
+    return u'Анотації перенесено на {} лист(ів): розмірів {}, тегів {}, деталей {}.'.format(
+        len(target_sheets), total_dims, total_tags, total_details + total_sheet_anns)
+
+
+def _sheet_annotation_score(sheet):
+    """Counts annotations inside viewports on `sheet` to help auto-detect which sheet is annotated vs clean."""
+    total = 0
+    for port, view in sheet_view_slots(sheet):
+        try:
+            for e in owned(view):
+                if isinstance(e, (Dimension, IndependentTag, TextNote)):
+                    total += 1
+        except Exception:
+            pass
+    return total
+
+
+_COPIED_SHEET_ANN = {
+    'doc_title': None,
+    'sheet_uid': None,
+    'sheet_num': None,
+    'sheet_name': None,
+    'views_count': 0,
+    'ann_count': 0,
+}
+
+
+def _resolve_current_sheet():
+    """Returns the currently active ViewSheet, or the single selected ViewSheet in Project Browser,
+    or the ViewSheet that hosts the currently active view."""
+    av = uidoc.ActiveView
+    if isinstance(av, ViewSheet) and not av.IsPlaceholder:
+        return av
+    sel_sheets = [doc.GetElement(i) for i in uidoc.Selection.GetElementIds() if isinstance(doc.GetElement(i), ViewSheet) and not doc.GetElement(i).IsPlaceholder]
+    if len(sel_sheets) == 1:
+        return sel_sheets[0]
+    if av is not None:
+        for vp in FilteredElementCollector(doc).OfClass(Viewport):
+            if vp.ViewId == av.Id:
+                sh = doc.GetElement(vp.SheetId)
+                if isinstance(sh, ViewSheet) and not sh.IsPlaceholder:
+                    return sh
+    return None
+
+
+def copy_active_sheet_annotations():
+    """Step 1 (Copy): Remembers the active (or selected) annotated sheet in the clipboard buffer
+    so the user can switch to another sheet and click Paste."""
+    sheet = _resolve_current_sheet()
+    if sheet is None:
+        all_sheets = sorted(
+            [s for s in FilteredElementCollector(doc).OfClass(ViewSheet) if not s.IsPlaceholder],
+            key=lambda s: nat(s.SheetNumber)
+        )
+        if not all_sheets:
+            fail(u'У проєкті немає листів.')
+        sheet = choose(
+            u'Copy Sheet Annotations — Оберіть лист-джерело',
+            u'Оберіть оформлений лист з анотаціями, який потрібно скопіювати в буфер:',
+            [(u'{} — {}  ({} видів)'.format(
+                s.SheetNumber, s.Name, len(s.GetAllViewports())), s)
+             for s in all_sheets]
+        )
+    vp_count = len(sheet_view_slots(sheet))
+    ann_count = _sheet_annotation_score(sheet)
+    if vp_count == 0:
+        fail(u'На листі «{} — {}» немає розміщених видів.'.format(sheet.SheetNumber, sheet.Name))
+    _COPIED_SHEET_ANN['doc_title'] = doc.Title
+    _COPIED_SHEET_ANN['sheet_uid'] = sheet.UniqueId
+    _COPIED_SHEET_ANN['sheet_num'] = sheet.SheetNumber
+    _COPIED_SHEET_ANN['sheet_name'] = sheet.Name
+    _COPIED_SHEET_ANN['views_count'] = vp_count
+    _COPIED_SHEET_ANN['ann_count'] = ann_count
+    return u'✓ Скопійовано лист «{} — {}» ({} видів, {} анотацій). Відкрийте пустий лист і натисніть Paste Sheet!'.format(
+        sheet.SheetNumber, sheet.Name, vp_count, ann_count)
+
+
+def paste_sheet_annotations():
+    """Step 2 (Paste): If a source sheet was copied and the user is now on a different target sheet
+    (or selected target sheets in Project Browser), pastes all annotations right away.
+    Otherwise opens the Source -> Target selection dialog."""
+    src_sheet = None
+    if _COPIED_SHEET_ANN.get('sheet_uid') and _COPIED_SHEET_ANN.get('doc_title') == doc.Title:
+        cand = doc.GetElement(_COPIED_SHEET_ANN['sheet_uid'])
+        if isinstance(cand, ViewSheet) and not cand.IsPlaceholder:
+            src_sheet = cand
+
+    if src_sheet is not None:
+        sel_sheets = [
+            doc.GetElement(i) for i in uidoc.Selection.GetElementIds()
+            if isinstance(doc.GetElement(i), ViewSheet)
+            and not doc.GetElement(i).IsPlaceholder
+            and doc.GetElement(i).UniqueId != src_sheet.UniqueId
+        ]
+        active_sheet = _resolve_current_sheet()
+        target_sheets = []
+        if sel_sheets:
+            target_sheets = sel_sheets
+        elif active_sheet is not None and active_sheet.UniqueId != src_sheet.UniqueId:
+            target_sheets = [active_sheet]
+
+        if target_sheets:
+            default_opts = {
+                'dimensions': True,
+                'tags': True,
+                'details': True,
+                'sheet_annotations': True,
+                'align_viewports': True,
+                'clear_existing': False,
+            }
+            return execute_sheet_annotations_transfer(src_sheet, target_sheets, default_opts, [])
+
+    return copy_sheet_annotations_wizard(preselected_source=src_sheet)
+
+
+def copy_sheet_annotations_wizard(preselected_source=None):
+    """Interactive Apple-style dialog to pick Source Annotated Sheet and Target Clean Sheet(s)
+    and paste all dimensions, tags, 2D details/arrows, and sheet labels."""
+    all_sheets = sorted(
+        [s for s in FilteredElementCollector(doc).OfClass(ViewSheet) if not s.IsPlaceholder],
+        key=lambda s: nat(s.SheetNumber)
+    )
+    if len(all_sheets) < 2:
+        fail(u'У проєкті потрібно щонайменше 2 листи (лист-еталон з анотаціями та цільовий лист).')
+
+    active_sheet = _resolve_current_sheet()
+    sel_sheets = [doc.GetElement(i) for i in uidoc.Selection.GetElementIds() if isinstance(doc.GetElement(i), ViewSheet)]
+
+    default_source = preselected_source
+    default_targets = set()
+
+    if default_source is None and _COPIED_SHEET_ANN.get('sheet_uid') and _COPIED_SHEET_ANN.get('doc_title') == doc.Title:
+        cand = doc.GetElement(_COPIED_SHEET_ANN['sheet_uid'])
+        if isinstance(cand, ViewSheet):
+            default_source = cand
+
+    if len(sel_sheets) >= 2 and default_source is None:
+        scored = sorted(sel_sheets, key=lambda s: (-_sheet_annotation_score(s), nat(s.SheetNumber)))
+        default_source = scored[0]
+        for s in scored[1:]:
+            default_targets.add(s.UniqueId)
+    elif active_sheet is not None:
+        if default_source is not None and active_sheet.UniqueId != default_source.UniqueId:
+            default_targets.add(active_sheet.UniqueId)
+        else:
+            score = _sheet_annotation_score(active_sheet)
+            if score == 0:
+                default_targets.add(active_sheet.UniqueId)
+                base_num = re.sub(r'\s*-\s*\d+\s*$', '', active_sheet.SheetNumber).strip()
+                if default_source is None:
+                    for s in all_sheets:
+                        if s.Id == active_sheet.Id:
+                            continue
+                        if s.SheetNumber.strip() == base_num or s.Name == active_sheet.Name:
+                            default_source = s
+                            break
+            else:
+                if default_source is None:
+                    default_source = active_sheet
+                base_num = default_source.SheetNumber.strip()
+                for s in all_sheets:
+                    if s.Id != default_source.Id and s.SheetNumber.startswith(base_num):
+                        default_targets.add(s.UniqueId)
+
+    if default_source is None:
+        default_source = all_sheets[0]
+
+    win, panel, buttons = window(
+        u'Заповнити лист анотаціями за зразком',
+        u'Переносить усі розміри, теги виробів/граней, стрілки напрямку, 2D-символи та підписи на листі (WALL "A" тощо) '
+        u'з готового листа на такий самий лист іншого поверху або юніта.'
+    )
+    win.Width, win.Height = 780, 720
+    fit_window(win)
+
+    stack = StackPanel()
+    stack.Margin = Thickness(0, 0, 6, 0)
+    panel.Children.Add(scroll_content(stack))
+
+    # Card 1: Source Sheet
+    src_card = StackPanel()
+    src_card.Children.Add(ui_section(
+        u'\uE8A5', '#007AFF',
+        u'1. Лист-еталон (з анотаціями)',
+        u'Оберіть уже оформлений лист, з якого потрібно скопіювати всі розміри, теги та підписи.'
+    ))
+    src_combo = ComboBox()
+    src_combo.IsTextSearchEnabled = True
+    src_combo.MaxDropDownHeight = 320
+    src_combo.MinHeight = 34
+    for s in all_sheets:
+        vp_count = len(s.GetAllViewports())
+        item = ComboBoxItem()
+        label_txt = u'{} — {}  ({} видів)'.format(s.SheetNumber, s.Name, vp_count)
+        item.Content, item.Tag, item.ToolTip = label_txt, s, label_txt
+        src_combo.Items.Add(item)
+        if default_source is not None and s.UniqueId == default_source.UniqueId:
+            src_combo.SelectedItem = item
+    if src_combo.SelectedItem is None and src_combo.Items.Count > 0:
+        src_combo.SelectedIndex = 0
+    src_card.Children.Add(src_combo)
+    stack.Children.Add(ui_card(src_card))
+
+    # Card 2: Target Sheets
+    dst_card = StackPanel()
+    dst_badge = ui_badge(u'Обрано: 0', 'blue')
+    dst_card.Children.Add(ui_section(
+        u'\uE7C3', '#34C759',
+        u'2. Цільовий лист / листи (без анотацій)',
+        u'Позначте один або кілька листів з такими самими видами на іншому поверсі, які треба заповнити анотаціями.',
+        dst_badge
+    ))
+    search_host, search_box, _ = ui_search(u'Пошук цільового листа за номером або назвою…')
+    search_host.Margin = Thickness(0, 0, 0, 8)
+    dst_card.Children.Add(search_host)
+
+    list_panel = StackPanel()
+    target_rows = []
+
+    def update_target_count(sender=None, args=None):
+        src_sel = src_combo.SelectedItem.Tag if src_combo.SelectedItem else None
+        cnt = sum(1 for cb, sh, txt in target_rows if cb.IsChecked and (src_sel is None or sh.UniqueId != src_sel.UniqueId))
+        dst_badge.Child.Children[dst_badge.Child.Children.Count - 1].Text = u'Обрано: {}'.format(cnt)
+
+    for s in all_sheets:
+        cb = CheckBox()
+        vp_count = len(s.GetAllViewports())
+        txt = u'{} — {}  ({} видів)'.format(s.SheetNumber, s.Name, vp_count)
+        cb.Content = ui_text(txt)
+        cb.IsChecked = s.UniqueId in default_targets
+        cb.Margin = Thickness(6, 5, 6, 5)
+        cb.Checked += update_target_count
+        cb.Unchecked += update_target_count
+        target_rows.append((cb, s, txt))
+        list_panel.Children.Add(cb)
+
+    def filter_targets(sender=None, args=None):
+        q = (search_box.Text or u'').strip().lower()
+        src_sel = src_combo.SelectedItem.Tag if src_combo.SelectedItem else None
+        for cb, sh, txt in target_rows:
+            is_src = src_sel is not None and sh.UniqueId == src_sel.UniqueId
+            if is_src:
+                cb.Visibility = Visibility.Collapsed
+            else:
+                cb.Visibility = Visibility.Visible if (not q or q in txt.lower()) else Visibility.Collapsed
+        update_target_count()
+
+    search_box.TextChanged += filter_targets
+    src_combo.SelectionChanged += filter_targets
+
+    list_scroll = scroll_content(list_panel)
+    list_scroll.MaxHeight = 190
+    list_border = Border()
+    list_border.Background = ui_brush('#F9F9FB')
+    list_border.BorderBrush = ui_brush('#E5E5EA')
+    list_border.BorderThickness = Thickness(1)
+    list_border.CornerRadius = CornerRadius(8)
+    list_border.Padding = Thickness(4)
+    list_border.Child = list_scroll
+    dst_card.Children.Add(list_border)
+    stack.Children.Add(ui_card(dst_card))
+    filter_targets()
+
+    # Card 3: Options
+    opt_card = StackPanel()
+    opt_card.Children.Add(ui_section(
+        u'\uE713', '#AF52DE',
+        u'3. Що переносити',
+        u'Усі елементи привʼязуються до відповідного каменю/елементів на новому поверсі й скасовуються одним Ctrl+Z.'
+    ))
+    chk_dims = CheckBox()
+    chk_dims.IsChecked = True
+    opt_card.Children.Add(ui_switch_row(chk_dims, u'Розміри (Dimensions)',
+        u'Лінійні розміри й ланцюжки з привʼязкою до граней і ребер цільового каменю та збереженням виносок тексту.'))
+
+    chk_tags = CheckBox()
+    chk_tags.IsChecked = True
+    opt_card.Children.Add(ui_switch_row(chk_tags, u'Теги та марки (Independent Tags)',
+        u'Марки виробів (напр. 47.03-W1A) та позначки обробки граней (C), (B), (W), (D) із положенням полиць.'))
+
+    chk_details = CheckBox()
+    chk_details.IsChecked = True
+    opt_card.Children.Add(ui_switch_row(chk_details, u'Стрілки, 2D-символи, лінії та тексти у видах',
+        u'Стрілки напрямку текстури, деталі, лінії та текстові примітки всередині кожного виду.'))
+
+    chk_sheet_anns = CheckBox()
+    chk_sheet_anns.IsChecked = True
+    opt_card.Children.Add(ui_switch_row(chk_sheet_anns, u'Тексти й анотації на самому листі (WALL "A", тощо)',
+        u'Текстові підписи стін під видами, символи на листі та параметри Title on Sheet.'))
+
+    chk_align_vp = CheckBox()
+    chk_align_vp.IsChecked = True
+    opt_card.Children.Add(ui_switch_row(chk_align_vp, u'Вирівняти позиції видових екранів за еталоном',
+        u'Поставити види на цільовому листі точно в ті самі координати (X, Y) та тип Viewport, що й на еталоні.'))
+
+    rep_label = Label()
+    rep_label.Content = u'Додаткові заміни тексту (необовʼязково, старе => нове, по одній на рядок):'
+    opt_card.Children.Add(rep_label)
+    rep_box = TextBox()
+    rep_box.AcceptsReturn = True
+    rep_box.Height = 52
+    rep_box.ToolTip = u'Наприклад: 47.03 => 48.03 (марки спарованих каменів підставляються автоматично)'
+    opt_card.Children.Add(rep_box)
+    stack.Children.Add(ui_card(opt_card))
+
+    chosen = {'ok': False}
+
+    def on_run(sender, args):
+        src_sel = src_combo.SelectedItem.Tag if src_combo.SelectedItem else None
+        if src_sel is None:
+            TaskDialog.Show(u'Перенесення анотацій', u'Оберіть лист-еталон з анотаціями.')
+            return
+        targets = [sh for cb, sh, txt in target_rows if cb.IsChecked and sh.UniqueId != src_sel.UniqueId]
+        if not targets:
+            TaskDialog.Show(u'Перенесення анотацій', u'Позначте хоча б один цільовий лист.')
+            return
+        chosen['source'] = src_sel
+        chosen['targets'] = targets
+        chosen['opts'] = {
+            'dimensions': bool(chk_dims.IsChecked),
+            'tags': bool(chk_tags.IsChecked),
+            'details': bool(chk_details.IsChecked),
+            'sheet_annotations': bool(chk_sheet_anns.IsChecked),
+            'align_viewports': bool(chk_align_vp.IsChecked),
+        }
+        chosen['pairs'] = parse_replacements(rep_box.Text)
+        chosen['ok'] = True
+        win.DialogResult = True
+
+    button(buttons, u'Скасувати', lambda s, a: win.Close(), cancel=True)
+    button(buttons, u'Paste Annotations (Вставити)', on_run, default=True, kind='primary', glyph=u'\uE77F')
+
+    if not win.ShowDialog() or not chosen['ok']:
+        raise Cancelled()
+
+    return execute_sheet_annotations_transfer(
+        chosen['source'], chosen['targets'], chosen['opts'], chosen['pairs'])
+
 
 
 def _marker_of_view(host, view):
@@ -1937,7 +4935,10 @@ class MarkerNudgePanel(object):
             setattr(self, n, self.win.FindName(n))
         self.handler = Handler()
         self.handler.on_error = self.set_status
-        self.ev = ExternalEvent.Create(self.handler)
+        try:
+            self.ev = ExternalEvent.Create(self.handler)
+        except Exception:
+            self.ev = None
         self.btnUp.Click += lambda s, e: self.queue_nudge(0, 1, False)
         self.btnDown.Click += lambda s, e: self.queue_nudge(0, -1, False)
         self.btnLeft.Click += lambda s, e: self.queue_nudge(-1, 0, False)
@@ -1979,11 +4980,22 @@ class MarkerNudgePanel(object):
             self.queue_nudge(steps[e.Key][0], steps[e.Key][1], big)
 
     def queue(self, work):
-        self.handler.queue.append((u'nudge', lambda uiapp: self.safe(uiapp, work)))
-        req = self.ev.Raise()
-        if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
-            self.handler.queue = []
-            self.set_status(u'Revit is busy (a command is active). Try again.')
+        if self.ev is not None and self.handler is not None:
+            self.handler.queue.append((u'nudge', lambda uiapp: self.safe(uiapp, work)))
+            req = self.ev.Raise()
+            if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
+                self.handler.queue = []
+                self.set_status(u'Revit is busy (a command is active). Try again.')
+            return
+        main = _TK_MAIN[0]
+        if main is not None and getattr(main, 'ev', None) is not None and getattr(main, 'handler', None) is not None:
+            main.handler.queue.append((u'nudge', lambda uiapp: self.safe(uiapp, work)))
+            req = main.ev.Raise()
+            if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
+                main.handler.queue = [q for q in main.handler.queue if q[0] != u'nudge']
+                self.set_status(u'Revit is busy (a command is active). Try again.')
+            return
+        self.set_status(u'Revit API event is unavailable. Reopen Toolkit.')
 
     def queue_nudge(self, sx, sy, big):
         self.queue(lambda uiapp: self.nudge(uiapp, sx, sy, big))
@@ -2513,7 +5525,10 @@ class ViewMakerPanel(object):
         self.apply_theme()
         self.handler = Handler()
         self.handler.on_error = self.set_status
-        self.ev = ExternalEvent.Create(self.handler)
+        try:
+            self.ev = ExternalEvent.Create(self.handler)
+        except Exception:
+            self.ev = None
         self.ids = []
         self.host_id = None
         self.right, self.up = XYZ.BasisX, XYZ.BasisY
@@ -2540,6 +5555,7 @@ class ViewMakerPanel(object):
         self.timer.Tick += lambda s, e: self.watch()
         self.timer.Start()
         self.win.Closed += self.on_closed
+        _VM[0] = self
         self.dock(uiapp)
 
     def dock(self, uiapp):
@@ -2556,6 +5572,13 @@ class ViewMakerPanel(object):
             WindowInteropHelper(w).Owner = uiapp.MainWindowHandle
         except Exception:
             pass
+        try:
+            if bars_merge_ok(self) and _TK_MAIN[0] is not None:
+                self.merge_into(_TK_MAIN[0])
+                bar_sync()
+                return
+        except Exception as ex:
+            tk_log(u'view maker dock merge: {}'.format(ex))
         try:
             WindowInteropHelper(w).EnsureHandle()
             from System.Windows import SystemParameters
@@ -2799,11 +5822,22 @@ class ViewMakerPanel(object):
         self.gridSide.Opacity = 0.3 if horizontal else 1.0
 
     def queue(self, work):
-        self.handler.queue.append((u'viewmaker', lambda uiapp: self.safe(uiapp, work)))
-        req = self.ev.Raise()
-        if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
-            self.handler.queue = []
-            self.set_status(u'Revit is busy (a command is active). Try again.')
+        if self.ev is not None and self.handler is not None:
+            self.handler.queue.append((u'viewmaker', lambda uiapp: self.safe(uiapp, work)))
+            req = self.ev.Raise()
+            if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
+                self.handler.queue = []
+                self.set_status(u'Revit is busy (a command is active). Try again.')
+            return
+        main = _TK_MAIN[0]
+        if main is not None and getattr(main, 'ev', None) is not None and getattr(main, 'handler', None) is not None:
+            main.handler.queue.append((u'viewmaker', lambda uiapp: self.safe(uiapp, work)))
+            req = main.ev.Raise()
+            if req != ExternalEventRequest.Accepted and req != ExternalEventRequest.Pending:
+                main.handler.queue = [q for q in main.handler.queue if q[0] != u'viewmaker']
+                self.set_status(u'Revit is busy (a command is active). Try again.')
+            return
+        self.set_status(u'Revit API event is unavailable. Reopen Toolkit.')
 
     def safe(self, uiapp, work):
         try:
@@ -4262,7 +7296,7 @@ XAML = u"""
           <StackPanel Grid.Row="0" Margin="0,0,0,10">
             <TextBlock FontSize="24" FontWeight="Bold" Foreground="#F5F5F7" Text="Tools"/>
             <TextBlock Foreground="#8E8E93" Margin="0,2,0,0" TextWrapping="Wrap"
-                       Text="Elevation markers and quick creation of views on a sheet. Works with any project."/>
+                       Text="Copy sheet annotations across floors/units, align elevation markers, and create views on a sheet."/>
           </StackPanel>
 
           <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
@@ -4270,6 +7304,34 @@ XAML = u"""
               <TextBlock Style="{StaticResource Caption}" Text="TOOLS"/>
               <Border CornerRadius="18" BorderBrush="#1F1F22" BorderThickness="1" Background="#111113">
                 <StackPanel>
+            <Button x:Name="btnCopySheetAnn" Style="{StaticResource RowBtn}" ToolTip="Step 1: Open the ready annotated sheet (e.g. 03.2 - M42) and click Copy to remember its dimensions, tags, arrows, and labels">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Border Width="30" Height="30" CornerRadius="7" Background="#0A84FF" VerticalAlignment="Center">
+                  <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE8C8;" Foreground="White" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                  <TextBlock Text="1. Copy Sheet Annotations (from active sheet)"/>
+                  <TextBlock Text="Remember all dimensions, stone/polish tags, vein arrows, and WALL labels from the currently open sheet" Foreground="#8E8E93" FontSize="11.5" TextWrapping="Wrap" Margin="0,1,0,0"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE76C;" Foreground="#5A5A5E" FontSize="11" VerticalAlignment="Center"/>
+              </Grid>
+            </Button>
+            <Border Height="1" Background="#2C2C2E" Margin="54,0,0,0"/>
+            <Button x:Name="btnPasteSheetAnn" Style="{StaticResource RowBtn}" ToolTip="Step 2: Open the empty sheet on another floor (e.g. 03.2 - M42 - 2) and click Paste to populate all annotations">
+              <Grid>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Border Width="30" Height="30" CornerRadius="7" Background="#34C759" VerticalAlignment="Center">
+                  <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE77F;" Foreground="White" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center">
+                  <TextBlock Text="2. Paste Sheet Annotations (to active sheet)"/>
+                  <TextBlock Text="Paste all copied annotations onto the currently open target sheet (or pick multiple target sheets)" Foreground="#8E8E93" FontSize="11.5" TextWrapping="Wrap" Margin="0,1,0,0"/>
+                </StackPanel>
+                <TextBlock Grid.Column="2" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Text="&#xE76C;" Foreground="#5A5A5E" FontSize="11" VerticalAlignment="Center"/>
+              </Grid>
+            </Button>
+            <Border Height="1" Background="#2C2C2E" Margin="54,0,0,0"/>
             <Button x:Name="btnMkSnap" Style="{StaticResource RowBtn}" ToolTip="Select markers on the plan. A deviation over 1° is considered intentional and is left alone">
               <Grid>
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -4444,6 +7506,20 @@ XAML = u"""
               </Border>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top" Margin="12,0,0,0">
+              <Button x:Name="btnAnnCopySheet" Style="{StaticResource Btn}" Margin="0,0,6,0"
+                      ToolTip="Step 1 (Copy): Remember all annotations from the currently open sheet">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Style="{StaticResource SegIcon}" Text="&#xE8C8;"/>
+                  <TextBlock Text="Copy Sheet"/>
+                </StackPanel>
+              </Button>
+              <Button x:Name="btnAnnPasteSheet" Style="{StaticResource BtnPrimary}" Margin="0,0,8,0"
+                      ToolTip="Step 2 (Paste): Paste all copied annotations onto the currently open sheet (or pick target sheets)">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Style="{StaticResource SegIcon}" Text="&#xE77F;"/>
+                  <TextBlock Text="Paste Sheet"/>
+                </StackPanel>
+              </Button>
               <Button x:Name="btnAnnBar" Style="{StaticResource IconBtn}" Content="&#xE8A7;" Margin="0,0,8,0"
                       ToolTip="Toolbar: a thin horizontal strip with favorites (the main window stays in place)"/>
               <TextBlock Text="Source:" Foreground="#A1A1A6" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -7715,7 +10791,7 @@ class PrintSetWindow(object):
                  "cmbSetup tbPrefix tbTemplate txtNamePreview chkDots chkSub chkXref gridXref "
                  "txtPrintOrd popPrint btnPrintMore btnRevs btnMakeSets btnReplace btnRemove btnSelRevit "
                  "btnPrint btnPrintOrd btnSort btnDup btnRename btnDelete txtStatus tabPrint "
-                 "tabTools pagePrint pageTools btnMkSnap btnMkMove btnViewMake tabTile pageTile "
+                 "tabTools pagePrint pageTools btnCopySheetAnn btnPasteSheetAnn btnMkSnap btnMkMove btnViewMake tabTile pageTile "
                  "tbTSub btnTCols btnTBulk btnTSelect btnTClear btnTUpdate gridT pnlTEmpty "
                  "tbTEmptyText cardBulk btnTBulkApply pnlBulkRows txtTStatus btnTApply sideSets tabNm "
                  "pageNm tbNmTitle tbNmSub btnNmApply btnNmAddKw pnlNmKw tbNmKwEmpty tbNmTemplate "
@@ -7726,7 +10802,7 @@ class PrintSetWindow(object):
                  "cardAnnSel tbAnnSelText btnAnnSelAdd btnAnnSaveGroupSel cardAnnCreateGroup tbAnnNewGroupName btnAnnDoSaveGroup btnAnnCancelSaveGroup tabStrip btnCompact btnSide sideTools sideAnn "
                  "cardAnnMultiSel tbAnnMSelText btnAnnMSelFav btnAnnMSelSet btnAnnMSelClear "
                  "cardAnnSaveGroup tbAnnSaveGroupHint tbAnnGroupName hAnnGroupName btnAnnSaveGroup "
-                 "btnAnnBar btnAnnSetNew cardAnnSet tbAnnSetTitle tbAnnSetName btnAnnSetDelete btnAnnSetSave pnlAnnEditSets "
+                 "btnAnnCopySheet btnAnnPasteSheet btnAnnBar btnAnnSetNew cardAnnSet tbAnnSetTitle tbAnnSetName btnAnnSetDelete btnAnnSetSave pnlAnnEditSets "
                  "tbToolsStatus tbBrowserParams hBrowserParams "
                  "swMode swPanel swIcon swPanelIc swPanelTx swIconIc swIconTx tabHome pageHome island islandBody islandPill tbPillTab pillHover tbDocChip tbHomeDoc tbHomeSets tbHomeSel tbHomeStatus "
                  "homePrint homeNm homeTile homeAnn homeAnnBar homeSnap homeMove homeView "
@@ -7768,7 +10844,10 @@ class PrintSetWindow(object):
 
         self.handler = Handler()
         self.handler.on_error = self.set_status
-        self.ev = ExternalEvent.Create(self.handler)
+        try:
+            self.ev = ExternalEvent.Create(self.handler)
+        except Exception:
+            self.ev = None
 
         bind_hint(self.tbSetSearch, self.hSetSearch)
         bind_hint(self.tbNew, self.hNew)
@@ -7862,6 +10941,14 @@ class PrintSetWindow(object):
         self.tbBrowserParams.Text = u", ".join(BROWSER_PARAMS)
         bind_hint(self.tbBrowserParams, self.hBrowserParams)
         self.tbBrowserParams.TextChanged += self.tools_browser_changed
+        if self.btnCopySheetAnn is not None:
+            self.btnCopySheetAnn.Click += lambda s, e: self.tools_go("copysheetann")
+        if self.btnPasteSheetAnn is not None:
+            self.btnPasteSheetAnn.Click += lambda s, e: self.tools_go("pastesheetann")
+        if self.btnAnnCopySheet is not None:
+            self.btnAnnCopySheet.Click += lambda s, e: self.tools_go("copysheetann")
+        if self.btnAnnPasteSheet is not None:
+            self.btnAnnPasteSheet.Click += lambda s, e: self.tools_go("pastesheetann")
         self.btnMkSnap.Click += lambda s, e: self.tools_go("snapmarkers")
         self.btnMkMove.Click += lambda s, e: self.tools_go("movemarker")
         self.btnViewMake.Click += lambda s, e: self.tools_go("viewmaker")
@@ -8702,6 +11789,12 @@ class PrintSetWindow(object):
                                           u"Add the type of the selected annotation to favorites", accent=True))
             p.Children.Add(self.home_chip(u"Annotations strip", u"\uE8A7", self.home_bar_open))
         if nb:
+            p.Children.Add(self.home_chip(u"Copy Sheet", u"\uE8C8",
+                                          lambda: self.tools_go("copysheetann"),
+                                          tip=u"Step 1 (Copy): Remember annotations from the active/selected sheet"))
+            p.Children.Add(self.home_chip(u"Paste Sheet", u"\uE77F",
+                                          lambda: self.tools_go("pastesheetann"), accent=True,
+                                          tip=u"Step 2 (Paste): Paste copied annotations onto the active/selected sheet(s)"))
             p.Children.Add(self.home_chip(u"Print Set from {} views".format(nb), u"\uE749",
                                           lambda: setattr(self.tabPrint, "IsChecked", True)))
 
@@ -9712,7 +12805,13 @@ TOOLKIT.set_status(u"Elements selected: {}".format(len(sel)))
             doc = uidoc.Document if uidoc else None
             if doc is None or doc.IsFamilyDocument:
                 fail(u"Open an RVT project.")
-            if action == "snapmarkers":
+            if action == "copysheetann":
+                status = copy_active_sheet_annotations()
+            elif action == "pastesheetann":
+                status = paste_sheet_annotations()
+            elif action == "wizardsheetann":
+                status = copy_sheet_annotations_wizard()
+            elif action == "snapmarkers":
                 status = snap_elevation_markers()
             elif action == "movemarker":
                 status = open_marker_nudge(uiapp)
@@ -19047,6 +22146,10 @@ class TkxMixin(object):
         self.pnlAuditBtns.Children.Add(self.home_chip(u"", u"\uE8C8", self.tkx_audit_copy, tip=u"Copy the audit report"))
         self.pnlAuditBtns.Children.Add(self.home_chip(u"", u"\uE8A5", self.tkx_report_model_start,
                                                       tip=u"Report to model: a sheet, legend or drafting view, plus Revit schedules. Changes the model; undone with one Undo"))
+        self.pnlToolkitChips.Children.Add(self.home_chip(u"1. Copy Sheet", u"\uE8C8", lambda: self.tools_go("copysheetann"),
+                                                         tip=u"Step 1 (Copy): Open the annotated sheet (e.g. 03.2 - M42) and click Copy Sheet"))
+        self.pnlToolkitChips.Children.Add(self.home_chip(u"2. Paste Sheet", u"\uE77F", lambda: self.tools_go("pastesheetann"), accent=True,
+                                                         tip=u"Step 2 (Paste): Open the clean sheet on another floor (e.g. 03.2 - M42 - 2) and click Paste Sheet"))
         self.pnlToolkitChips.Children.Add(self.home_chip(u"Palette  Ctrl+K", u"\uE721", self.tkx_palette_open))
         self.pnlToolkitChips.Children.Add(self.home_chip(u"Datum: Sign in", u"\uE77B", self.tkx_datum_open_login))
         self.pnlToolkitChips.Children.Add(self.home_chip(u"Datum 3D Assemblies", u"\uE81E", lambda: datum_open_url(u"/?view=3d")))
@@ -19166,6 +22269,10 @@ class TkxMixin(object):
             meta = TKX_FN_LABELS.get(getattr(func, "__name__", u""))
         if meta is None and key == "toolsact" and self.tools_job == "snapmarkers":
             meta = (u"Align Elevation markers", False)
+        if meta is None and key == "toolsact" and self.tools_job == "copysheetann":
+            meta = (u"Copy Sheet Annotations", False)
+        if meta is None and key == "toolsact" and self.tools_job in ("pastesheetann", "wizardsheetann"):
+            meta = (u"Paste Sheet Annotations", False)
         if meta is None:
             meta = TKX_KEY_LABELS.get(key)
         if meta is None:
@@ -20746,6 +23853,15 @@ class TkxMixin(object):
         add(u"Modules", u"tab", u"\uE943", u"scripts modules py", tab(self.tabMod))
         add(u"Align Elevation markers", u"tool", u"\uE7AD", u"snap elevation marker angle align",
             lambda: self.tools_go("snapmarkers"))
+        add(u"1. Copy Sheet Annotations (from active sheet)", u"tool", u"\uE8C8",
+            u"copy sheet annotations dimensions tags source template",
+            lambda: self.tools_go("copysheetann"))
+        add(u"2. Paste Sheet Annotations (to active sheet)", u"tool", u"\uE77F",
+            u"paste sheet annotations dimensions tags target floor unit fill",
+            lambda: self.tools_go("pastesheetann"))
+        add(u"Sheet \u2192 Sheet Annotations (Batch Dialog)\u2026", u"tool", u"\uE8A5",
+            u"batch copy paste sheet annotations wizard dialog multiple sheets",
+            lambda: self.tools_go("wizardsheetann"))
         add(u"Move marker (crop stays)", u"tool", u"\uE7C2", u"move marker elevation nudge",
             lambda: self.tools_go("movemarker"))
         add(u"View \u2192 Sheet", u"tool", u"\uE722", u"view sheet elevation section plan view sheet",
